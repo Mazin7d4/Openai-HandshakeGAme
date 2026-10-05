@@ -1,29 +1,35 @@
-import { Color4, Engine, FreeCamera, HemisphericLight, Scene, Vector3 } from '@babylonjs/core';
+import { GameApp } from './app/GameApp.ts';
+import { createTestRoom } from './dev/TestRoom.ts';
 import './style.css';
 
-const app = document.querySelector('#app');
-if (!app) {
+const root = document.querySelector('#app');
+if (!root || !(root instanceof HTMLElement)) {
   throw new Error('Missing #app');
 }
 
 const canvas = document.createElement('canvas');
 canvas.id = 'game-canvas';
-app.appendChild(canvas);
+canvas.tabIndex = 0;
+root.appendChild(canvas);
 
-const engine = new Engine(canvas, true, { antialias: true });
-const scene = new Scene(engine);
-scene.clearColor = new Color4(0.93, 0.91, 0.88, 1);
+const boot = document.createElement('p');
+boot.id = 'boot-status';
+boot.textContent = 'Loading physics…';
+root.appendChild(boot);
 
-const camera = new FreeCamera('camera', new Vector3(0, 2, -8), scene);
-camera.setTarget(Vector3.Zero());
-
-const light = new HemisphericLight('light', new Vector3(0.15, 1, 0.25), scene);
-light.intensity = 0.85;
-
-window.addEventListener('resize', () => {
-  engine.resize();
+const game = await GameApp.create({
+  canvas,
+  createLevel: createTestRoom,
+  devParent: root,
 });
 
-engine.runRenderLoop(() => {
-  scene.render();
-});
+boot.remove();
+canvas.focus();
+game.start();
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    game.dispose();
+    canvas.remove();
+  });
+}

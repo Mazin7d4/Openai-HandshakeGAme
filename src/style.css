@@ -20,3 +20,37 @@ body,
   touch-action: none;
   outline: none;
 }
+
+#boot-status,
+#dev-readout,
+#dev-controls {
+  position: absolute;
+  left: 16px;
+  z-index: 2;
+  margin: 0;
+  color: #1d2428;
+  font-family: 'Segoe UI', sans-serif;
+  pointer-events: none;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+#boot-status {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+#dev-readout {
+  bottom: 42px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+#dev-controls {
+  bottom: 16px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  opacity: 0.8;
+}
