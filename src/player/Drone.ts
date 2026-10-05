@@ -10,6 +10,7 @@ import {
   type Mesh,
   type Scene,
 } from '@babylonjs/core';
+import type { LoadedModel } from '../assets/AssetLoader.ts';
 import type { CameraSubject } from '../camera/CameraSubject.ts';
 import type { FlightAxes } from '../input/FlightAxes.ts';
 import type { PlanarBasis } from './FlightController.ts';
@@ -27,12 +28,37 @@ export interface DroneOptions {
   id?: string;
   spawn: Vector3;
   palette?: DronePalette;
+  /** Freshly loaded drone.glb instance. The visual takes ownership. */
+  model: LoadedModel;
 }
 
-export const DRONE_PALETTES: Record<'coral' | 'mint', DronePalette> = {
-  coral: { body: new Color3(0.97, 0.47, 0.3), glow: new Color3(1, 0.62, 0.25) },
-  mint: { body: new Color3(0.36, 0.82, 0.74), glow: new Color3(0.4, 1, 0.85) },
+/** PIX (P1) is blue/cyan, NEE (P2) is coral/pink. Same model, swapped accents. */
+export const DRONE_PALETTES: Record<'pix' | 'nee', DronePalette> = {
+  pix: {
+    accent: new Color3(0.06, 0.48, 1),
+    glow: new Color3(0.24, 0.86, 1),
+    eye: new Color3(0.7, 0.94, 1),
+  },
+  nee: {
+    accent: new Color3(1, 0.28, 0.46),
+    glow: new Color3(1, 0.38, 0.58),
+    eye: new Color3(1, 0.55, 0.45),
+  },
 };
+
+/** Velocity lost to a contact (m/s) before the mascot reacts with stunned eyes. */
+const IMPACT_THRESHOLD = 4;
+/** Keep the mascot face readable while still hinting at its travel direction. */
+const MAX_PRESENTATION_YAW_OFFSET = 0.38;
+const PRESENTATION_YAW_RESPONSE = 8;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function shortestAngle(from: number, to: number): number {
+  return Math.atan2(Math.sin(to - from), Math.cos(to - from));
+}
 
 /**
  * Local drone pawn. The physics body stays upright. Banking is visual only,
@@ -56,6 +82,7 @@ export class Drone implements CameraSubject {
   private readonly snapshot: PlayerSnapshot;
   private boost: BoostState = 'off';
   private inputBoost = false;
+  private visualYaw: number | null = null;
 
   constructor(scene: Scene, plugin: HavokPlugin, options: DroneOptions) {
     this.plugin = plugin;
@@ -85,7 +112,12 @@ export class Drone implements CameraSubject {
     body.setAngularVelocity(this.zero);
     plugin.setActivationControl(body, PhysicsActivationControl.ALWAYS_ACTIVE);
 
-    this.visual = new DroneVisual(scene, this.root, options.palette ?? DRONE_PALETTES.coral);
+    this.visual = new DroneVisual(
+      scene,
+      this.root,
+      options.palette ?? DRONE_PALETTES.pix,
+      options.model,
+    );
   }
 
   /** Steered velocity for this frame. Constraints may read and nudge it before commit(). */
@@ -101,14 +133,49 @@ export class Drone implements CameraSubject {
     return target.copyFrom(this.root.position);
   }
 
+  /** Where the cord visually attaches (socket on the back shell). Gameplay still uses the centre. */
+  getTetherAnchor(target: Vector3): Vector3 {
+    return this.visual.getSocketPosition(target);
+  }
+
   /** Integrate input into the steered velocity and bank pose. */
-  steer(dt: number, input: FlightAxes, basis: PlanarBasis): void {
+  steer(dt: number, input: FlightAxes, basis: PlanarBasis, faceGameplayCamera = true): void {
     const pose = this.flight.step(input, basis, dt);
     this.inputBoost = input.boost;
     const node = this.visual.root;
     node.rotation.x = pose.bankPitch;
-    node.rotation.y = pose.yaw;
     node.rotation.z = pose.bankRoll;
+
+    if (!faceGameplayCamera) {
+      // Preserve the original pose while the F2 inspection camera is active.
+      this.visualYaw = pose.yaw;
+      node.rotation.y = pose.yaw;
+      return;
+    }
+
+    // The gameplay controller owns velocity; this yaw is presentation only. The
+    // face points back toward the cinematic camera, with a small travel-direction
+    // bias so strafing still reads without casually showing the drone's back.
+    const cameraYaw = Math.atan2(-basis.forward.x, -basis.forward.z);
+    const velocity = this.flight.velocity;
+    const planarSpeed = Math.hypot(velocity.x, velocity.z);
+    const moveBlend = clamp(planarSpeed / FLIGHT_TUNING.cruiseSpeed, 0, 1);
+    const movementYaw =
+      planarSpeed > FLIGHT_TUNING.idleSpeed ? Math.atan2(velocity.x, velocity.z) : cameraYaw;
+    const movementOffset = clamp(
+      shortestAngle(cameraYaw, movementYaw),
+      -MAX_PRESENTATION_YAW_OFFSET,
+      MAX_PRESENTATION_YAW_OFFSET,
+    );
+    const targetYaw = cameraYaw + movementOffset * moveBlend;
+
+    if (this.visualYaw === null) {
+      this.visualYaw = targetYaw;
+    } else {
+      const weight = 1 - Math.exp(-PRESENTATION_YAW_RESPONSE * dt);
+      this.visualYaw += shortestAngle(this.visualYaw, targetYaw) * weight;
+    }
+    node.rotation.y = this.visualYaw;
   }
 
   /** Nudge the steered velocity (tether pull, knockback, pickups). */
@@ -130,6 +197,10 @@ export class Drone implements CameraSubject {
 
   postPhysics(dt: number): void {
     this.aggregate.body.getLinearVelocityToRef(this.resolvedVelocity);
+    const impact = Vector3.Distance(this.flight.velocity, this.resolvedVelocity);
+    if (impact > IMPACT_THRESHOLD) {
+      this.visual.impact(impact);
+    }
     this.flight.syncVelocity(this.resolvedVelocity);
     const speed = this.resolvedVelocity.length();
     if (speed <= FLIGHT_TUNING.idleSpeed) {

@@ -12,7 +12,8 @@ export class DevReadout {
     this.controls.id = 'dev-controls';
     this.controls.textContent =
       'P1  WASD move   Space rise   Ctrl/C fall   LShift boost      ' +
-      'P2  Arrows move   . rise   , fall   RShift boost';
+      'P2  Arrows move   . rise   , fall   RShift boost      ' +
+      'F2  inspect camera (drag orbit, wheel zoom)';
     parent.append(this.readout, this.controls);
   }
 

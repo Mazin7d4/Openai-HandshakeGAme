@@ -1,12 +1,19 @@
 import {
   Color3,
+  CreateCylinder,
   CreateTube,
-  StandardMaterial,
+  PBRMaterial,
+  Quaternion,
   Vector3,
   type Mesh,
   type Scene,
 } from '@babylonjs/core';
 import type { Drone } from '../player/Drone.ts';
+
+/** Cord appearance: a plain charcoal rubber/fabric elastic. No glow. */
+const CORD_COLOR = new Color3(0.09, 0.09, 0.1);
+const COLLAR_LENGTH = 0.14;
+const COLLAR_DIAMETER = 0.15;
 
 export interface TetherTuning {
   /** Rope hangs slack below this distance. */
@@ -27,9 +34,16 @@ export const TETHER_TUNING: TetherTuning = {
   maxLength: 10,
   stiffness: 22,
   damping: 5,
-  radius: 0.045,
-  segments: 16,
+  radius: 0.055,
+  segments: 20,
 };
+
+export interface TetherVisualOptions {
+  /** Collar colour at drone A's socket. */
+  collarA: Color3;
+  /** Collar colour at drone B's socket. */
+  collarB: Color3;
+}
 
 /**
  * Elastic link between two drones. Pulls them together once they drift past
@@ -44,14 +58,22 @@ export class Tether {
   private readonly path: Vector3[] = [];
   private readonly dir = new Vector3();
   private readonly delta = new Vector3();
-  private readonly material: StandardMaterial;
-  private readonly slackColor = new Color3(0.9, 0.9, 0.95);
-  private readonly tautColor = new Color3(1, 0.45, 0.35);
+  private readonly anchorA = new Vector3();
+  private readonly anchorB = new Vector3();
+  private readonly tangent = new Vector3();
+  private readonly material: PBRMaterial;
+  private readonly collars: Mesh[] = [];
   private strain = 0;
   private readonly a: Drone;
   private readonly b: Drone;
 
-  constructor(scene: Scene, a: Drone, b: Drone, tuning: TetherTuning = TETHER_TUNING) {
+  constructor(
+    scene: Scene,
+    a: Drone,
+    b: Drone,
+    tuning: TetherTuning = TETHER_TUNING,
+    visual?: TetherVisualOptions,
+  ) {
     this.a = a;
     this.b = b;
     this.tuning = tuning;
@@ -61,15 +83,33 @@ export class Tether {
     this.writePath();
     this.mesh = CreateTube(
       'tether',
-      { path: this.path, radius: tuning.radius, tessellation: 8, updatable: true, cap: 2 },
+      { path: this.path, radius: tuning.radius, tessellation: 10, updatable: true, cap: 0 },
       scene,
     );
-    this.material = new StandardMaterial('tether-mat', scene);
-    this.material.diffuseColor = this.slackColor.clone();
-    this.material.emissiveColor = new Color3(0.2, 0.2, 0.22);
-    this.material.specularColor = new Color3(0.2, 0.2, 0.2);
+    this.material = new PBRMaterial('tether-mat', scene);
+    this.material.albedoColor = CORD_COLOR.clone();
+    this.material.metallic = 0;
+    this.material.roughness = 0.82;
+    this.material.specularIntensity = 0.5;
     this.mesh.material = this.material;
     this.mesh.isPickable = false;
+
+    const collarColors = [visual?.collarA ?? CORD_COLOR, visual?.collarB ?? CORD_COLOR];
+    collarColors.forEach((color, index) => {
+      const collar = CreateCylinder(
+        `tether-collar-${index}`,
+        { height: COLLAR_LENGTH, diameter: COLLAR_DIAMETER, tessellation: 20 },
+        scene,
+      );
+      const material = new PBRMaterial(`tether-collar-${index}-mat`, scene);
+      material.albedoColor = color.clone();
+      material.metallic = 0;
+      material.roughness = 0.35;
+      collar.material = material;
+      collar.isPickable = false;
+      collar.rotationQuaternion = Quaternion.Identity();
+      this.collars.push(collar);
+    });
   }
 
   get currentStrain(): number {
@@ -122,29 +162,52 @@ export class Tether {
   /** Call after physics so the rope matches the resolved positions. */
   updateVisual(): void {
     this.writePath();
-    CreateTube('tether', { path: this.path, radius: this.tuning.radius, instance: this.mesh });
-    Color3.LerpToRef(this.slackColor, this.tautColor, this.strain, this.material.diffuseColor);
-    const glow = 0.2 + this.strain * 0.5;
-    this.material.emissiveColor.set(glow, glow * (1 - this.strain * 0.6), glow * (1 - this.strain * 0.7));
+    // An elastic cord thins as it stretches.
+    const radius = this.tuning.radius * (1 - this.strain * 0.35);
+    CreateTube('tether', { path: this.path, radius, instance: this.mesh });
+    this.placeCollar(0, this.anchorA, this.path[1]);
+    this.placeCollar(1, this.anchorB, this.path[this.path.length - 2]);
   }
 
   dispose(): void {
     this.mesh.dispose();
     this.material.dispose();
+    for (const collar of this.collars) {
+      collar.material?.dispose();
+      collar.dispose();
+    }
+  }
+
+  private placeCollar(index: number, anchor: Vector3, next: Vector3): void {
+    const collar = this.collars[index];
+    if (!collar) {
+      return;
+    }
+    this.tangent.copyFrom(next).subtractInPlace(anchor);
+    if (this.tangent.lengthSquared() < 1e-8) {
+      this.tangent.set(0, -1, 0);
+    } else {
+      this.tangent.normalize();
+    }
+    Quaternion.FromUnitVectorsToRef(Vector3.UpReadOnly, this.tangent, collar.rotationQuaternion!);
+    collar.position.copyFrom(anchor).addInPlace(this.tangent.scaleInPlace(COLLAR_LENGTH * 0.35));
   }
 
   private writePath(): void {
-    const pa = this.a.position;
-    const pb = this.b.position;
+    const pa = this.a.getTetherAnchor(this.anchorA);
+    const pb = this.b.getTetherAnchor(this.anchorB);
     const distance = Vector3.Distance(pa, pb);
     const slack = Math.max(0, this.tuning.restLength - distance);
-    const sag = slack * 0.32 + 0.08;
+    const sag = slack * 0.3 + 0.12 * (1 - this.strain);
     const count = this.path.length - 1;
     for (let i = 0; i <= count; i++) {
       const t = i / count;
       const point = this.path[i];
+      // Parabolic droop: the classic hanging-cable approximation.
+      const u = t * 2 - 1;
+      const droop = 1 - u * u;
       point.x = pa.x + (pb.x - pa.x) * t;
-      point.y = pa.y + (pb.y - pa.y) * t - Math.sin(t * Math.PI) * sag;
+      point.y = pa.y + (pb.y - pa.y) * t - droop * sag;
       point.z = pa.z + (pb.z - pa.z) * t;
     }
   }

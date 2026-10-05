@@ -8,6 +8,7 @@ import {
   Scene,
   Vector3,
 } from '@babylonjs/core';
+import { createStudioEnvironment } from './studioEnvironment.ts';
 
 export function createEngine(canvas: HTMLCanvasElement): Engine {
   return new Engine(canvas, true, {
@@ -35,6 +36,10 @@ export function createScene(engine: Engine): Scene {
 
   const glow = new GlowLayer('glow', scene, { blurKernelSize: 32 });
   glow.intensity = 0.55;
+
+  // Image-based lighting for the PBR drone model only (StandardMaterials ignore it).
+  scene.environmentTexture = createStudioEnvironment(scene);
+  scene.environmentIntensity = 0.9;
 
   return scene;
 }

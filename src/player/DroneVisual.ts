@@ -1,22 +1,30 @@
 import {
   Color3,
-  CreateBox,
-  CreateCylinder,
-  CreateSphere,
-  CreateTorus,
-  StandardMaterial,
+  PBRMaterial,
   TransformNode,
   Vector3,
-  type Mesh,
+  type AbstractMesh,
+  type Node,
   type Scene,
 } from '@babylonjs/core';
+import type { LoadedModel } from '../assets/AssetLoader.ts';
+import { DroneFace } from './DroneFace.ts';
 import { FLIGHT_TUNING } from './FlightTuning.ts';
 
+export const DRONE_MODEL_URL = `${import.meta.env.BASE_URL}assets/drone/drone.glb`;
+
+/** Uniform scale applied to the GLB so it sits inside the existing collider. */
+const MODEL_SCALE = 0.9;
+/** Lifts the model so the hover pods sit at the collider's underside. */
+const MODEL_LIFT = 0.14;
+
 export interface DronePalette {
-  /** Main shell colour. */
-  body: Color3;
-  /** Thruster rings, antenna tip. */
+  /** Side discs, socket collar, top strip. */
+  accent: Color3;
+  /** Hover pod rings, antenna tip. */
   glow: Color3;
+  /** LED eyes on the face screen. */
+  eye: Color3;
 }
 
 export interface DroneVisualState {
@@ -33,171 +41,287 @@ function blend(current: number, target: number, response: number, dt: number): n
   return current + (target - current) * (1 - Math.exp(-response * dt));
 }
 
-function shell(scene: Scene, name: string, color: Color3, gloss = 48): StandardMaterial {
-  const material = new StandardMaterial(`${name}-mat`, scene);
-  material.diffuseColor = color.clone();
-  material.specularColor = new Color3(0.35, 0.35, 0.35);
-  material.specularPower = gloss;
-  return material;
-}
-
-function emissive(scene: Scene, name: string, color: Color3): StandardMaterial {
-  const material = new StandardMaterial(`${name}-mat`, scene);
-  material.diffuseColor = Color3.Black();
-  material.specularColor = Color3.Black();
-  material.emissiveColor = color.clone();
-  material.disableLighting = true;
-  return material;
+function findNode(root: Node, name: string): TransformNode | null {
+  for (const node of root.getDescendants(false)) {
+    if (node.name === name && node instanceof TransformNode) {
+      return node;
+    }
+  }
+  return null;
 }
 
 /**
- * Procedural mascot drone built from primitives. Everything hangs off `root`,
- * so a real GLB can later replace this class without touching Drone or the controller.
- * Handles the idle hover bob, squash/stretch, eye blinks and thruster glow.
+ * Visual-only mascot built from drone.glb. Everything hangs off `root`, which
+ * Drone rotates for yaw and banking. Handles hover bob, acceleration lean, pod
+ * tilt, antenna wobble, subtle squash/stretch, thruster glow and the LED face.
+ *
+ * Node layout: root -> bob -> lean -> squash -> glTF root.
  */
 export class DroneVisual {
   readonly root: TransformNode;
 
   private readonly bob: TransformNode;
+  private readonly lean: TransformNode;
   private readonly squash: TransformNode;
-  private readonly eyes: Mesh[] = [];
-  private readonly rings: StandardMaterial[] = [];
-  private readonly antennaTip: StandardMaterial;
+  private readonly model: LoadedModel;
+  private readonly face: DroneFace;
+  private readonly antenna: TransformNode | null;
+  private readonly socket: TransformNode | null;
+  private readonly pods: { node: TransformNode; sx: number; sz: number }[] = [];
+  private readonly glowMaterials: PBRMaterial[] = [];
+  private readonly antennaGlow: PBRMaterial[] = [];
   private readonly glow: Color3;
+
   private time = Math.random() * 10;
-  private blinkTimer = 2 + Math.random() * 3;
-  private blinkPhase = 0;
   private stretch = 1;
+  private dash = 1;
   private thrust = 0;
+  private readonly prevVelocity = new Vector3();
+  private readonly accel = new Vector3();
+  private hasPrev = false;
+  private leanPitch = 0;
+  private leanRoll = 0;
+  private antennaX = 0;
+  private antennaZ = 0;
+  private antennaVX = 0;
+  private antennaVZ = 0;
+  private podPitch = 0;
+  private podRoll = 0;
+  private stunTimer = 0;
 
-  constructor(scene: Scene, parent: TransformNode, palette: DronePalette) {
+  constructor(scene: Scene, parent: TransformNode, palette: DronePalette, model: LoadedModel) {
     this.glow = palette.glow.clone();
-    this.root = new TransformNode(`${parent.name}-visual`, scene);
-    this.root.parent = parent;
-    this.bob = new TransformNode(`${parent.name}-bob`, scene);
-    this.bob.parent = this.root;
-    this.squash = new TransformNode(`${parent.name}-squash`, scene);
-    this.squash.parent = this.bob;
-
+    this.model = model;
     const n = parent.name;
-    const dark = new Color3(0.13, 0.14, 0.18);
-    const bodyMat = shell(scene, `${n}-body`, palette.body, 64);
-    const darkMat = shell(scene, `${n}-dark`, dark, 24);
-    const visorMat = shell(scene, `${n}-visor`, new Color3(0.06, 0.07, 0.1), 128);
-    const eyeMat = emissive(scene, `${n}-eye`, new Color3(0.72, 0.96, 1));
-    this.antennaTip = emissive(scene, `${n}-tip`, palette.glow);
 
-    const body = CreateSphere(`${n}-shell`, { diameter: 0.9, segments: 24 }, scene);
-    body.scaling.set(1, 0.8, 0.98);
-    body.material = bodyMat;
-    body.parent = this.squash;
+    this.root = new TransformNode(`${n}-visual`, scene);
+    this.root.parent = parent;
+    this.bob = new TransformNode(`${n}-bob`, scene);
+    this.bob.parent = this.root;
+    this.lean = new TransformNode(`${n}-lean`, scene);
+    this.lean.parent = this.bob;
+    this.squash = new TransformNode(`${n}-squash`, scene);
+    this.squash.parent = this.lean;
 
-    const belly = CreateSphere(`${n}-belly`, { diameter: 0.7, segments: 16 }, scene);
-    belly.scaling.set(1, 0.5, 0.9);
-    belly.position.y = -0.2;
-    belly.material = darkMat;
-    belly.parent = this.squash;
+    model.root.name = `${n}-model`;
+    model.root.parent = this.squash;
+    model.root.scaling.setAll(MODEL_SCALE);
+    model.root.position.y = MODEL_LIFT;
 
-    const visor = CreateSphere(`${n}-face`, { diameter: 0.72, segments: 20 }, scene);
-    visor.scaling.set(1, 0.6, 0.5);
-    visor.position.set(0, 0.03, 0.3);
-    visor.material = visorMat;
-    visor.parent = this.squash;
+    this.face = new DroneFace(scene, n, palette.eye);
+    this.applyMaterials(model.meshes, palette);
 
-    for (const side of [-1, 1]) {
-      const eye = CreateSphere(`${n}-eye-${side}`, { diameter: 0.15, segments: 12 }, scene);
-      eye.scaling.set(1, 1.35, 0.35);
-      eye.position.set(side * 0.14, 0.08, 0.6);
-      eye.material = eyeMat;
-      eye.parent = this.squash;
-      this.eyes.push(eye);
-    }
-
-    const antenna = CreateCylinder(`${n}-antenna`, { height: 0.3, diameter: 0.035, tessellation: 8 }, scene);
-    antenna.position.set(0, 0.48, -0.1);
-    antenna.rotation.x = -0.25;
-    antenna.material = darkMat;
-    antenna.parent = this.squash;
-
-    const tip = CreateSphere(`${n}-antenna-tip`, { diameter: 0.1, segments: 10 }, scene);
-    tip.position.set(0, 0.63, -0.14);
-    tip.material = this.antennaTip;
-    tip.parent = this.squash;
-
-    for (const sx of [-1, 1]) {
-      for (const sz of [-1, 1]) {
-        const arm = CreateBox(`${n}-arm`, { width: 0.34, height: 0.06, depth: 0.1 }, scene);
-        arm.position.set(sx * 0.42, -0.06, sz * 0.3);
-        arm.rotation.y = -sx * sz * 0.5;
-        arm.material = darkMat;
-        arm.parent = this.squash;
-
-        const pod = CreateCylinder(`${n}-pod`, { height: 0.12, diameter: 0.3, tessellation: 20 }, scene);
-        pod.position.set(sx * 0.58, -0.08, sz * 0.4);
-        pod.material = darkMat;
-        pod.parent = this.squash;
-
-        const ringMat = emissive(scene, `${n}-ring`, palette.glow);
-        const ring = CreateTorus(`${n}-ring`, { diameter: 0.24, thickness: 0.045, tessellation: 20 }, scene);
-        ring.position.set(sx * 0.58, -0.14, sz * 0.4);
-        ring.material = ringMat;
-        ring.parent = this.squash;
-        this.rings.push(ringMat);
+    this.antenna = findNode(model.root, 'Antenna');
+    this.socket = findNode(model.root, 'TetherSocket');
+    for (const [name, sx, sz] of [
+      ['HoverPod_FL', -1, 1],
+      ['HoverPod_FR', 1, 1],
+      ['HoverPod_BL', -1, -1],
+      ['HoverPod_BR', 1, -1],
+    ] as const) {
+      const node = findNode(model.root, name);
+      if (node) {
+        node.rotationQuaternion = null;
+        this.pods.push({ node, sx, sz });
       }
     }
+    if (this.antenna) {
+      this.antenna.rotationQuaternion = null;
+    }
 
-    for (const mesh of this.root.getChildMeshes()) {
+    for (const mesh of model.meshes) {
       mesh.isPickable = false;
     }
   }
 
+  /** World position of the tether socket on the back shell. */
+  getSocketPosition(target: Vector3): Vector3 {
+    if (!this.socket) {
+      return target.copyFrom(this.root.getAbsolutePosition());
+    }
+    this.socket.computeWorldMatrix(true);
+    return target.copyFrom(this.socket.getAbsolutePosition());
+  }
+
+  /** Hard contact: stunned eyes and a brief shake. Visual only. */
+  impact(strength: number): void {
+    const t = clamp(strength / 8, 0.4, 1);
+    this.stunTimer = Math.max(this.stunTimer, 0.35 + t * 0.55);
+    this.face.flash('stunned', 0.35 + t * 0.55);
+    this.antennaVX += (Math.random() - 0.5) * 24 * t;
+    this.antennaVZ += (Math.random() - 0.5) * 24 * t;
+  }
+
   update(state: DroneVisualState): void {
     const dt = state.dt;
+    if (dt <= 0) {
+      return;
+    }
     this.time += dt;
+    const v = state.velocity;
 
-    const speed = state.velocity.length();
-    const planar = Math.hypot(state.velocity.x, state.velocity.z);
+    // Local frame from the yaw the controller gave root (Babylon left-handed: forward = (sin, 0, cos)).
+    const yaw = this.root.rotation.y;
+    const fx = Math.sin(yaw);
+    const fz = Math.cos(yaw);
+    const localForward = v.x * fx + v.z * fz;
+    const localRight = v.x * fz - v.z * fx;
+
+    if (this.hasPrev) {
+      this.accel.set(
+        blend(this.accel.x, (v.x - this.prevVelocity.x) / dt, 6, dt),
+        blend(this.accel.y, (v.y - this.prevVelocity.y) / dt, 6, dt),
+        blend(this.accel.z, (v.z - this.prevVelocity.z) / dt, 6, dt),
+      );
+    }
+    this.prevVelocity.copyFrom(v);
+    this.hasPrev = true;
+    const accelForward = this.accel.x * fx + this.accel.z * fz;
+    const accelRight = this.accel.x * fz - this.accel.z * fx;
+
+    const speed = v.length();
     const moveBlend = clamp(speed / FLIGHT_TUNING.cruiseSpeed, 0, 1);
 
-    const bobAmount = 0.045 * (1 - moveBlend * 0.7);
-    this.bob.position.y = Math.sin(this.time * 2.3) * bobAmount;
-    this.bob.rotation.z = Math.sin(this.time * 1.7) * 0.02 * (1 - moveBlend);
+    // Hover bob: gentle while idle, nearly still at speed.
+    const bobAmount = 0.035 * (1 - moveBlend * 0.75);
+    this.bob.position.y = Math.sin(this.time * 2.1) * bobAmount;
+    this.bob.rotation.z = Math.sin(this.time * 1.6) * 0.015 * (1 - moveBlend);
+    this.bob.rotation.x = Math.sin(this.time * 1.3 + 1.2) * 0.01 * (1 - moveBlend);
 
-    const lift = clamp(state.velocity.y / FLIGHT_TUNING.verticalSpeed, -1, 1);
-    const targetStretch = 1 + lift * 0.14 + (state.boosting ? 0.05 : 0);
-    this.stretch = blend(this.stretch, targetStretch, 10, dt);
-    const dash = 1 + clamp(planar / (FLIGHT_TUNING.cruiseSpeed * FLIGHT_TUNING.boostMultiplier), 0, 1) * 0.08;
-    const side = 1 / Math.sqrt(this.stretch * dash);
-    this.squash.scaling.set(side, this.stretch, dash);
+    // Acceleration lean: nose dips on throttle, lifts on braking, shoulders into lateral pushes.
+    const maxAccel = FLIGHT_TUNING.acceleration;
+    const targetPitch = clamp(accelForward / maxAccel, -1, 1) * 0.11;
+    const targetRoll = clamp(-accelRight / maxAccel, -1, 1) * 0.09;
+    this.leanPitch = blend(this.leanPitch, targetPitch, 7, dt);
+    this.leanRoll = blend(this.leanRoll, targetRoll, 7, dt);
+    let shakeX = 0;
+    let shakeZ = 0;
+    if (this.stunTimer > 0) {
+      this.stunTimer -= dt;
+      const s = clamp(this.stunTimer, 0, 1) * 0.04;
+      shakeX = Math.sin(this.time * 46) * s;
+      shakeZ = Math.cos(this.time * 39) * s;
+    }
+    this.lean.rotation.x = this.leanPitch + shakeX;
+    this.lean.rotation.z = this.leanRoll + shakeZ;
 
-    const thrustTarget = 0.45 + moveBlend * 0.45 + (state.boosting ? 0.6 : 0);
+    // Subtle squash/stretch.
+    const lift = clamp(v.y / FLIGHT_TUNING.verticalSpeed, -1, 1);
+    const targetStretch = 1 + lift * 0.05 + (state.boosting ? 0.025 : 0);
+    this.stretch = blend(this.stretch, targetStretch, 9, dt);
+    const planar = Math.hypot(v.x, v.z);
+    const dashTarget =
+      1 + clamp(planar / (FLIGHT_TUNING.cruiseSpeed * FLIGHT_TUNING.boostMultiplier), 0, 1) * 0.04;
+    this.dash = blend(this.dash, dashTarget, 9, dt);
+    const side = 1 / Math.sqrt(this.stretch * this.dash);
+    this.squash.scaling.set(side, this.stretch, this.dash);
+
+    // Hover pods vector into the direction of travel with a little idle flutter.
+    const podTargetPitch = clamp(localForward / FLIGHT_TUNING.cruiseSpeed, -1.2, 1.2) * 0.3;
+    const podTargetRoll = clamp(-localRight / FLIGHT_TUNING.cruiseSpeed, -1.2, 1.2) * 0.3;
+    this.podPitch = blend(this.podPitch, podTargetPitch, 8, dt);
+    this.podRoll = blend(this.podRoll, podTargetRoll, 8, dt);
+    for (const pod of this.pods) {
+      const flutter = 0.02 * (1 - moveBlend * 0.5);
+      pod.node.rotation.x =
+        this.podPitch + Math.sin(this.time * 3.3 + pod.sx * 1.1 + pod.sz * 2.3) * flutter;
+      pod.node.rotation.z =
+        this.podRoll + Math.cos(this.time * 2.9 + pod.sx * 2.1 + pod.sz * 0.7) * flutter;
+    }
+
+    // Antenna: damped spring that lags behind acceleration, plus idle sway.
+    if (this.antenna) {
+      const stiffness = 60;
+      const dampingK = 7;
+      const driveX = -accelForward * 0.045;
+      const driveZ = accelRight * 0.045;
+      this.antennaVX += (-stiffness * this.antennaX - dampingK * this.antennaVX + driveX * stiffness) * dt;
+      this.antennaVZ += (-stiffness * this.antennaZ - dampingK * this.antennaVZ + driveZ * stiffness) * dt;
+      this.antennaX += this.antennaVX * dt;
+      this.antennaZ += this.antennaVZ * dt;
+      this.antennaX = clamp(this.antennaX, -0.6, 0.6);
+      this.antennaZ = clamp(this.antennaZ, -0.6, 0.6);
+      const sway = 0.03 * (1 - moveBlend * 0.6);
+      this.antenna.rotation.x = this.antennaX + Math.sin(this.time * 1.9) * sway;
+      this.antenna.rotation.z = this.antennaZ + Math.cos(this.time * 1.5 + 0.8) * sway;
+    }
+
+    // Thruster glow.
+    const thrustTarget = 0.6 + moveBlend * 0.5 + (state.boosting ? 0.8 : 0);
     this.thrust = blend(this.thrust, thrustTarget, 8, dt);
-    const flicker = 1 + Math.sin(this.time * 31) * 0.05;
+    const flicker = 1 + Math.sin(this.time * 31) * 0.04;
     const glow = this.thrust * flicker;
-    for (const ring of this.rings) {
-      ring.emissiveColor.set(this.glow.r * glow, this.glow.g * glow, this.glow.b * glow);
+    for (const material of this.glowMaterials) {
+      material.emissiveColor.set(this.glow.r * glow, this.glow.g * glow, this.glow.b * glow);
     }
-    const pulse = 0.65 + Math.sin(this.time * 3.1) * 0.35;
-    this.antennaTip.emissiveColor.set(this.glow.r * pulse, this.glow.g * pulse, this.glow.b * pulse);
+    const pulse = 0.7 + Math.sin(this.time * 3.1) * 0.3;
+    for (const material of this.antennaGlow) {
+      material.emissiveColor.set(this.glow.r * pulse, this.glow.g * pulse, this.glow.b * pulse);
+    }
 
-    this.blinkTimer -= dt;
-    if (this.blinkTimer <= 0) {
-      this.blinkPhase = 0.18;
-      this.blinkTimer = 2.4 + Math.random() * 3.2;
+    // Face.
+    if (state.boosting) {
+      this.face.setExpression('focused');
+    } else if (moveBlend > 0.45) {
+      this.face.setExpression('happy');
+    } else {
+      this.face.setExpression('neutral');
     }
-    let eyeOpen = 1;
-    if (this.blinkPhase > 0) {
-      this.blinkPhase -= dt;
-      const t = this.blinkPhase / 0.18;
-      eyeOpen = Math.max(0.08, Math.abs(t * 2 - 1));
-    }
-    const squint = state.boosting ? 0.7 : 1;
-    for (const eye of this.eyes) {
-      eye.scaling.y = 1.35 * eyeOpen * squint;
-    }
+    this.face.update(dt);
   }
 
   dispose(): void {
+    this.face.dispose();
+    this.model.dispose();
     this.root.dispose(false, true);
+  }
+
+  private applyMaterials(meshes: readonly AbstractMesh[], palette: DronePalette): void {
+    for (const mesh of meshes) {
+      const material = mesh.material;
+      if (!(material instanceof PBRMaterial)) {
+        continue;
+      }
+      const isAntenna = mesh.name.startsWith('Antenna');
+      switch (material.name) {
+        case 'Accent':
+          material.albedoColor = palette.accent.clone();
+          material.metallic = 0.08;
+          material.roughness = 0.25;
+          break;
+        case 'Glow': {
+          const glow = isAntenna ? material.clone(`${material.name}-antenna`) : material;
+          glow.albedoColor = palette.glow.clone();
+          glow.emissiveColor = palette.glow.clone();
+          glow.emissiveIntensity = isAntenna ? 1 : 1.75;
+          mesh.material = glow;
+          const list = isAntenna ? this.antennaGlow : this.glowMaterials;
+          if (!list.includes(glow)) {
+            list.push(glow);
+          }
+          break;
+        }
+        case 'Screen':
+          material.emissiveTexture = this.face.texture;
+          material.emissiveColor = Color3.White();
+          material.emissiveIntensity = 1.4;
+          material.clearCoat.isEnabled = true;
+          material.clearCoat.intensity = 0.7;
+          material.clearCoat.roughness = 0.12;
+          break;
+        case 'FaceRim':
+          material.albedoColor = Color3.Lerp(new Color3(0.62, 0.68, 0.74), palette.accent, 0.12);
+          material.metallic = 0.62;
+          material.roughness = 0.24;
+          break;
+        case 'DarkMetal':
+          material.albedoColor = new Color3(0.045, 0.05, 0.065);
+          material.metallic = 0.68;
+          material.roughness = 0.4;
+          break;
+        default:
+          break;
+      }
+    }
   }
 }
