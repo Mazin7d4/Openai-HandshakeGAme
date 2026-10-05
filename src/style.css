@@ -13,6 +13,141 @@ body,
   background: #edeae4;
 }
 
+body {
+  color: #17232c;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.menu-shell {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.95), transparent 42%),
+    linear-gradient(145deg, #d9e7ee, #eee8df);
+}
+
+.menu-panel {
+  width: min(420px, 100%);
+  padding: 34px;
+  border: 1px solid rgba(35, 57, 68, 0.16);
+  border-radius: 18px;
+  background: rgba(250, 249, 246, 0.9);
+  box-shadow: 0 22px 70px rgba(30, 43, 50, 0.16);
+  text-align: center;
+  backdrop-filter: blur(16px);
+}
+
+.menu-kicker,
+.room-label {
+  color: #61737d;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}
+
+.menu-panel h1 {
+  margin-top: 8px;
+  font-size: 30px;
+  font-weight: 650;
+}
+
+.menu-subtitle,
+.lobby-status {
+  margin-top: 10px;
+  color: #5e6b72;
+  line-height: 1.5;
+}
+
+.menu-actions,
+.join-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.menu-button {
+  min-height: 48px;
+  padding: 11px 18px;
+  border: 1px solid #a8bac3;
+  border-radius: 10px;
+  color: #1b303b;
+  background: #f8fbfc;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.menu-button:hover,
+.menu-button:focus-visible {
+  border-color: #397794;
+  background: #edf7fb;
+}
+
+.menu-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.room-code {
+  margin: 9px 0 18px;
+  color: #186786;
+  font-size: 42px;
+  font-weight: 750;
+  letter-spacing: 0.18em;
+}
+
+.room-label {
+  margin-top: 28px;
+}
+
+.room-code-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #a8bac3;
+  border-radius: 10px;
+  color: #17313d;
+  background: #fff;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.error {
+  color: #a33342 !important;
+}
+
+.network-hud {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 3;
+  padding: 8px 11px;
+  border: 1px solid rgba(17, 39, 50, 0.16);
+  border-radius: 8px;
+  color: #24343c;
+  background: rgba(248, 250, 248, 0.82);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  pointer-events: none;
+}
+
+.network-hud.partner-disconnected {
+  color: #922f3d;
+  border-color: rgba(146, 47, 61, 0.3);
+}
+
 #game-canvas {
   width: 100%;
   height: 100%;

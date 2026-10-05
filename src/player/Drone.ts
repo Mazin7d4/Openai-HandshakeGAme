@@ -13,6 +13,7 @@ import {
 import type { LoadedModel } from '../assets/AssetLoader.ts';
 import type { CameraSubject } from '../camera/CameraSubject.ts';
 import type { FlightAxes } from '../input/FlightAxes.ts';
+import type { DroneNetworkState } from '../network/NetworkTypes.ts';
 import type { PlanarBasis } from './FlightController.ts';
 import { FlightController } from './FlightController.ts';
 import { DroneVisual, type DronePalette } from './DroneVisual.ts';
@@ -78,6 +79,7 @@ export class Drone implements CameraSubject {
   private readonly flight = new FlightController();
   private readonly plugin: HavokPlugin;
   private readonly resolvedVelocity = new Vector3();
+  private readonly remoteVelocity = new Vector3();
   private readonly zero = new Vector3();
   private readonly snapshot: PlayerSnapshot;
   private boost: BoostState = 'off';
@@ -183,6 +185,22 @@ export class Drone implements CameraSubject {
     this.flight.velocity.addInPlace(delta);
   }
 
+  /**
+   * Apply an already-smoothed replicated pose. This is presentation/state sync;
+   * local movement continues to use steer() and the existing FlightController.
+   */
+  applyRemoteState(state: DroneNetworkState): void {
+    this.root.position.set(state.position.x, state.position.y, state.position.z);
+    this.remoteVelocity.set(state.velocity.x, state.velocity.y, state.velocity.z);
+    this.flight.syncVelocity(this.remoteVelocity);
+    this.inputBoost = state.boost === 'active';
+    this.boost = state.boost;
+    this.movement = state.movement;
+    const node = this.visual.root;
+    node.rotation.set(state.orientation.pitch, state.orientation.yaw, state.orientation.roll);
+    this.visualYaw = state.orientation.yaw;
+  }
+
   /** Push the steered velocity into Havok. */
   commit(): void {
     this.lockUpright();
@@ -225,6 +243,10 @@ export class Drone implements CameraSubject {
     this.snapshot.velocity.x = velocity.x;
     this.snapshot.velocity.y = velocity.y;
     this.snapshot.velocity.z = velocity.z;
+    const orientation = this.visual.root.rotation;
+    this.snapshot.orientation.pitch = orientation.x;
+    this.snapshot.orientation.yaw = orientation.y;
+    this.snapshot.orientation.roll = orientation.z;
     this.snapshot.movement = this.movement;
     this.snapshot.boost = this.boost;
     return this.snapshot;
