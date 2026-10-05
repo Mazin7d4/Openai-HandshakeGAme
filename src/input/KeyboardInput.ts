@@ -1,29 +1,46 @@
 import { clampAxis, zeroFlightAxes, type FlightAxes } from './FlightAxes.ts';
 import type { InputSource } from './InputSource.ts';
 
-const HANDLED_CODES = new Set([
-  'KeyW',
-  'KeyA',
-  'KeyS',
-  'KeyD',
-  'ArrowUp',
-  'ArrowDown',
-  'ArrowLeft',
-  'ArrowRight',
-  'Space',
-  'ControlLeft',
-  'ControlRight',
-  'ShiftLeft',
-  'ShiftRight',
-]);
+/** KeyboardEvent.code values for each flight action. */
+export interface KeyBindings {
+  forward: readonly string[];
+  back: readonly string[];
+  left: readonly string[];
+  right: readonly string[];
+  up: readonly string[];
+  down: readonly string[];
+  boost: readonly string[];
+}
+
+export const PLAYER_ONE_KEYS: KeyBindings = {
+  forward: ['KeyW'],
+  back: ['KeyS'],
+  left: ['KeyA'],
+  right: ['KeyD'],
+  up: ['Space'],
+  down: ['ControlLeft', 'KeyC'],
+  boost: ['ShiftLeft'],
+};
+
+export const PLAYER_TWO_KEYS: KeyBindings = {
+  forward: ['ArrowUp'],
+  back: ['ArrowDown'],
+  left: ['ArrowLeft'],
+  right: ['ArrowRight'],
+  up: ['Period', 'Numpad0'],
+  down: ['Comma', 'ControlRight', 'NumpadDecimal'],
+  boost: ['ShiftRight', 'Slash', 'NumpadEnter'],
+};
 
 export class KeyboardInput implements InputSource {
   readonly id = 'keyboard';
 
   private readonly pressed = new Set<string>();
   private readonly axes = zeroFlightAxes();
+  private readonly handled: Set<string>;
+  private readonly keys: KeyBindings;
   private readonly onKeyDown = (event: KeyboardEvent) => {
-    if (!HANDLED_CODES.has(event.code)) {
+    if (!this.handled.has(event.code)) {
       return;
     }
     event.preventDefault();
@@ -36,27 +53,28 @@ export class KeyboardInput implements InputSource {
     this.pressed.clear();
   };
 
-  constructor() {
+  constructor(keys: KeyBindings = PLAYER_ONE_KEYS) {
+    this.keys = keys;
+    this.handled = new Set([
+      ...keys.forward,
+      ...keys.back,
+      ...keys.left,
+      ...keys.right,
+      ...keys.up,
+      ...keys.down,
+      ...keys.boost,
+    ]);
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.onBlur);
   }
 
   sample(): FlightAxes {
-    const thrust =
-      (this.pressed.has('KeyW') || this.pressed.has('ArrowUp') ? 1 : 0) +
-      (this.pressed.has('KeyS') || this.pressed.has('ArrowDown') ? -1 : 0);
-    const strafe =
-      (this.pressed.has('KeyD') || this.pressed.has('ArrowRight') ? 1 : 0) +
-      (this.pressed.has('KeyA') || this.pressed.has('ArrowLeft') ? -1 : 0);
-    const lift =
-      (this.pressed.has('Space') ? 1 : 0) +
-      (this.pressed.has('ControlLeft') || this.pressed.has('ControlRight') ? -1 : 0);
-
-    this.axes.thrust = clampAxis(thrust);
-    this.axes.strafe = clampAxis(strafe);
-    this.axes.lift = clampAxis(lift);
-    this.axes.boost = this.pressed.has('ShiftLeft') || this.pressed.has('ShiftRight');
+    const k = this.keys;
+    this.axes.thrust = clampAxis(this.any(k.forward) - this.any(k.back));
+    this.axes.strafe = clampAxis(this.any(k.right) - this.any(k.left));
+    this.axes.lift = clampAxis(this.any(k.up) - this.any(k.down));
+    this.axes.boost = this.any(k.boost) === 1;
     return this.axes;
   }
 
@@ -65,5 +83,14 @@ export class KeyboardInput implements InputSource {
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
     this.pressed.clear();
+  }
+
+  private any(codes: readonly string[]): number {
+    for (const code of codes) {
+      if (this.pressed.has(code)) {
+        return 1;
+      }
+    }
+    return 0;
   }
 }

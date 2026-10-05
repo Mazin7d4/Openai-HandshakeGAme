@@ -46,6 +46,8 @@ body,
   bottom: 42px;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+  white-space: pre;
+  line-height: 1.5;
 }
 
 #dev-controls {

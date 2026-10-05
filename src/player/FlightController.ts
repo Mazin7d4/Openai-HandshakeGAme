@@ -46,7 +46,8 @@ function expBlend(current: number, target: number, response: number, dt: number)
  * Physics resolves collisions and writes the clipped velocity back through syncVelocity.
  */
 export class FlightController {
-  private readonly velocity = new Vector3();
+  /** Steered velocity. Constraints may add to it between step() and the physics commit. */
+  readonly velocity = new Vector3();
   private readonly desired = new Vector3();
   private bankPitch = 0;
   private bankRoll = 0;

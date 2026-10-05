@@ -11,17 +11,23 @@ export class DevReadout {
     this.controls = document.createElement('div');
     this.controls.id = 'dev-controls';
     this.controls.textContent =
-      'WASD move    Space rise    Ctrl fall    Shift boost    Arrows also move';
+      'P1  WASD move   Space rise   Ctrl/C fall   LShift boost      ' +
+      'P2  Arrows move   . rise   , fall   RShift boost';
     parent.append(this.readout, this.controls);
   }
 
-  update(snapshot: PlayerSnapshot): void {
-    const { position, velocity, movement, boost } = snapshot;
-    const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
-    this.readout.textContent =
-      `${snapshot.id}   ` +
-      `x ${position.x.toFixed(1)}   y ${position.y.toFixed(1)}   z ${position.z.toFixed(1)}   ` +
-      `speed ${speed.toFixed(1)}   ${movement}   boost ${boost}`;
+  update(snapshots: readonly PlayerSnapshot[], tetherStrain = 0): void {
+    const lines = snapshots.map((snapshot) => {
+      const { position, velocity, movement, boost } = snapshot;
+      const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
+      return (
+        `${snapshot.id}   ` +
+        `x ${position.x.toFixed(1)}   y ${position.y.toFixed(1)}   z ${position.z.toFixed(1)}   ` +
+        `speed ${speed.toFixed(1)}   ${movement}   boost ${boost}`
+      );
+    });
+    lines.push(`tether strain ${(tetherStrain * 100).toFixed(0)}%`);
+    this.readout.textContent = lines.join('\n');
   }
 
   dispose(): void {

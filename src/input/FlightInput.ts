@@ -1,5 +1,5 @@
 import { zeroFlightAxes, type FlightAxes } from './FlightAxes.ts';
-import { KeyboardInput } from './KeyboardInput.ts';
+import { KeyboardInput, PLAYER_ONE_KEYS, type KeyBindings } from './KeyboardInput.ts';
 import type { InputSource } from './InputSource.ts';
 import { VirtualControlInput } from './VirtualControlInput.ts';
 
@@ -9,8 +9,8 @@ export class FlightInput {
   private readonly axes = zeroFlightAxes();
   private virtual: VirtualControlInput | null = null;
 
-  constructor() {
-    this.sources.push(new KeyboardInput());
+  constructor(keys: KeyBindings = PLAYER_ONE_KEYS) {
+    this.sources.push(new KeyboardInput(keys));
   }
 
   /** Creates the mobile source once. Call this when the touch controls are built. */
