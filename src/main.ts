@@ -1,49 +1,29 @@
+import { Color4, Engine, FreeCamera, HemisphericLight, Scene, Vector3 } from '@babylonjs/core';
 import './style.css';
-import { GameScene } from './game/GameScene';
 
-// Get or create canvas
-let canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
-if (!canvas) {
-  canvas = document.createElement('canvas');
-  canvas.id = 'game-canvas';
-  canvas.style.width = '100%';
-  canvas.style.height = '100%';
-  canvas.style.display = 'block';
-  canvas.style.touchAction = 'none';
-
-  const app = document.getElementById('app');
-  if (app) {
-    app.innerHTML = '';
-    app.appendChild(canvas);
-    app.style.width = '100%';
-    app.style.height = '100vh';
-    app.style.margin = '0';
-    app.style.padding = '0';
-    app.style.overflow = 'hidden';
-  }
-  document.body.style.margin = '0';
-  document.body.style.overflow = 'hidden';
-  document.body.style.height = '100vh';
-  document.documentElement.style.height = '100vh';
+const app = document.querySelector('#app');
+if (!app) {
+  throw new Error('Missing #app');
 }
 
-// Initialize game
-const game = new GameScene(canvas);
+const canvas = document.createElement('canvas');
+canvas.id = 'game-canvas';
+app.appendChild(canvas);
 
-async function startGame(): Promise<void> {
-  try {
-    await game.initialize();
-    game.run();
-    console.log('Monsoon Run - First Playable Slice running');
-  } catch (error) {
-    console.error('Failed to start game:', error);
-  }
-}
+const engine = new Engine(canvas, true, { antialias: true });
+const scene = new Scene(engine);
+scene.clearColor = new Color4(0.93, 0.91, 0.88, 1);
 
-// Handle page lifecycle
-window.addEventListener('beforeunload', () => {
-  game.dispose();
+const camera = new FreeCamera('camera', new Vector3(0, 2, -8), scene);
+camera.setTarget(Vector3.Zero());
+
+const light = new HemisphericLight('light', new Vector3(0.15, 1, 0.25), scene);
+light.intensity = 0.85;
+
+window.addEventListener('resize', () => {
+  engine.resize();
 });
 
-// Start
-startGame();
+engine.runRenderLoop(() => {
+  scene.render();
+});

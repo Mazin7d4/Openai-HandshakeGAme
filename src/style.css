@@ -4,18 +4,13 @@
   box-sizing: border-box;
 }
 
-html, body {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background: #0a0c12;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-}
-
+html,
+body,
 #app {
   width: 100%;
   height: 100%;
-  position: relative;
+  overflow: hidden;
+  background: #edeae4;
 }
 
 #game-canvas {
@@ -24,86 +19,4 @@ html, body {
   display: block;
   touch-action: none;
   outline: none;
-}
-
-/* Missing asset message styling */
-#missing-asset-message {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: rgba(10, 12, 18, 0.95);
-  border: 2px solid #3a3f4a;
-  border-radius: 8px;
-  padding: 32px 48px;
-  color: #e8e6e3;
-  font-family: system-ui, sans-serif;
-  font-size: 18px;
-  line-height: 1.5;
-  text-align: center;
-  z-index: 1000;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.5);
-  max-width: 90vw;
-}
-
-#missing-asset-message code {
-  background: rgba(0,0,0,0.3);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: ui-monospace, Consolas, monospace;
-}
-
-/* Loading overlay */
-#loading-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: #0a0c12;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  z-index: 999;
-  color: #e8e6e3;
-  font-family: system-ui, sans-serif;
-}
-
-#loading-overlay .spinner {
-  width: 48px;
-  height: 48px;
-  border: 3px solid #3a3f4a;
-  border-top-color: #c084fc;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin-bottom: 24px;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-#loading-overlay .title {
-  font-size: 28px;
-  font-weight: 500;
-  color: #f3f4f6;
-  margin-bottom: 8px;
-  letter-spacing: -0.5px;
-}
-
-#loading-overlay .subtitle {
-  font-size: 14px;
-  color: #9ca3af;
-}
-
-/* Prevent context menu on canvas */
-canvas {
-  -webkit-user-select: none;
-  user-select: none;
-}
-
-/* Hide scrollbars */
-::-webkit-scrollbar {
-  display: none;
 }
