@@ -10,6 +10,11 @@ export interface KeyBindings {
   up: readonly string[];
   down: readonly string[];
   boost: readonly string[];
+  grabDrop: readonly string[];
+  throwObject: readonly string[];
+  interact: readonly string[];
+  pause: readonly string[];
+  switchDrone: readonly string[];
 }
 
 export const PLAYER_ONE_KEYS: KeyBindings = {
@@ -20,6 +25,11 @@ export const PLAYER_ONE_KEYS: KeyBindings = {
   up: ['Space'],
   down: ['ControlLeft', 'KeyC'],
   boost: ['ShiftLeft'],
+  grabDrop: ['KeyE'],
+  throwObject: ['KeyQ'],
+  interact: ['KeyF'],
+  pause: ['Escape'],
+  switchDrone: ['Tab'],
 };
 
 export const PLAYER_TWO_KEYS: KeyBindings = {
@@ -30,6 +40,11 @@ export const PLAYER_TWO_KEYS: KeyBindings = {
   up: ['Period', 'Numpad0'],
   down: ['Comma', 'ControlRight', 'NumpadDecimal'],
   boost: ['ShiftRight', 'Slash', 'NumpadEnter'],
+  grabDrop: ['KeyO', 'Numpad1'],
+  throwObject: ['KeyP', 'Numpad2'],
+  interact: ['KeyI', 'Numpad3'],
+  pause: ['Escape'],
+  switchDrone: ['Tab'],
 };
 
 export class KeyboardInput implements InputSource {

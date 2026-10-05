@@ -1,4 +1,5 @@
 import type { FlightAxes } from '../input/FlightAxes.ts';
+import type { InteractionActions } from '../input/InteractionActions.ts';
 import type { DroneNetworkState } from '../network/NetworkTypes.ts';
 
 export type DroneControlKind = 'human' | 'remote' | 'bot';
@@ -10,6 +11,7 @@ export type DroneControlKind = 'human' | 'remote' | 'bot';
  */
 export interface DroneControlFrame {
   readonly actions: FlightAxes;
+  readonly interactions: InteractionActions;
   readonly remoteState?: DroneNetworkState;
 }
 

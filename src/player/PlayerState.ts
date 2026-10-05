@@ -21,6 +21,8 @@ export interface PlayerSnapshot {
   orientation: OrientationState;
   movement: MovementState;
   boost: BoostState;
+  selfPowered: boolean;
+  tetherPull: number;
 }
 
 export function createPlayerSnapshot(id: string): PlayerSnapshot {
@@ -31,5 +33,7 @@ export function createPlayerSnapshot(id: string): PlayerSnapshot {
     orientation: { pitch: 0, yaw: 0, roll: 0 },
     movement: 'idle',
     boost: 'off',
+    selfPowered: false,
+    tetherPull: 0,
   };
 }

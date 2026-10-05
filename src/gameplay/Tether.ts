@@ -117,7 +117,7 @@ export class Tether {
   }
 
   /** Call after both drones have steered and before they commit. */
-  apply(dt: number): void {
+  apply(dt: number, canMove: (drone: Drone) => boolean = () => true): void {
     const t = this.tuning;
     const pa = this.a.position;
     const pb = this.b.position;
@@ -144,17 +144,24 @@ export class Tether {
     }
     const impulse = pull * dt;
     this.delta.copyFrom(this.dir).scaleInPlace(impulse);
-    this.a.applyVelocityDelta(this.delta);
+    const pullStrength = Math.min(1, pull / (t.stiffness * (t.maxLength - t.restLength)));
+    if (canMove(this.a)) this.a.applyTetherVelocityDelta(this.delta, pullStrength);
     this.delta.scaleInPlace(-1);
-    this.b.applyVelocityDelta(this.delta);
+    if (canMove(this.b)) this.b.applyTetherVelocityDelta(this.delta, pullStrength);
 
     if (distance >= t.maxLength) {
       const stillSeparating = Vector3.Dot(vb, this.dir) - Vector3.Dot(va, this.dir);
       if (stillSeparating > 0) {
         const half = stillSeparating * 0.5;
         this.delta.copyFrom(this.dir).scaleInPlace(half);
-        va.addInPlace(this.delta);
-        vb.subtractInPlace(this.delta);
+        if (canMove(this.a)) {
+          va.addInPlace(this.delta);
+          this.a.applyTetherVelocityDelta(Vector3.Zero(), 1);
+        }
+        if (canMove(this.b)) {
+          vb.subtractInPlace(this.delta);
+          this.b.applyTetherVelocityDelta(Vector3.Zero(), 1);
+        }
       }
     }
   }

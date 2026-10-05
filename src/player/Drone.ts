@@ -85,6 +85,10 @@ export class Drone implements CameraSubject {
   private boost: BoostState = 'off';
   private inputBoost = false;
   private visualYaw: number | null = null;
+  private focused = false;
+  private selfPowered = false;
+  private tetherPull = 0;
+  private yankCooldown = 0;
 
   constructor(scene: Scene, plugin: HavokPlugin, options: DroneOptions) {
     this.plugin = plugin;
@@ -140,8 +144,22 @@ export class Drone implements CameraSubject {
     return this.visual.getSocketPosition(target);
   }
 
+  /** Movement leads the aim; at rest the readable visual facing provides it. */
+  getThrowDirection(target: Vector3): Vector3 {
+    const velocity = this.flight.velocity;
+    const planarSpeed = Math.hypot(velocity.x, velocity.z);
+    if (planarSpeed > 1.5) {
+      return target.set(velocity.x / planarSpeed, 0, velocity.z / planarSpeed);
+    }
+    const yaw = this.visual.root.rotation.y;
+    return target.set(Math.sin(yaw), 0, Math.cos(yaw)).normalize();
+  }
+
   /** Integrate input into the steered velocity and bank pose. */
   steer(dt: number, input: FlightAxes, basis: PlanarBasis, faceGameplayCamera = true): void {
+    this.selfPowered =
+      input.thrust !== 0 || input.strafe !== 0 || input.lift !== 0 || input.boost;
+    this.tetherPull = 0;
     const pose = this.flight.step(input, basis, dt);
     this.inputBoost = input.boost;
     const node = this.visual.root;
@@ -185,6 +203,20 @@ export class Drone implements CameraSubject {
     this.flight.velocity.addInPlace(delta);
   }
 
+  applyTetherVelocityDelta(delta: Vector3, strength: number): void {
+    this.flight.velocity.addInPlace(delta);
+    this.tetherPull = Math.max(this.tetherPull, clamp(strength, 0, 1));
+    if (this.tetherPull > 0.72 && this.yankCooldown <= 0) {
+      this.visual.tetherYank(this.tetherPull);
+      this.yankCooldown = 0.75;
+    }
+  }
+
+  /** Gameplay interactions may request a focused face without affecting control. */
+  setFocused(focused: boolean): void {
+    this.focused = focused;
+  }
+
   /**
    * Apply an already-smoothed replicated pose. This is presentation/state sync;
    * local movement continues to use steer() and the existing FlightController.
@@ -196,6 +228,8 @@ export class Drone implements CameraSubject {
     this.inputBoost = state.boost === 'active';
     this.boost = state.boost;
     this.movement = state.movement;
+    this.selfPowered = state.selfPowered;
+    this.tetherPull = state.tetherPull;
     const node = this.visual.root;
     node.rotation.set(state.orientation.pitch, state.orientation.yaw, state.orientation.roll);
     this.visualYaw = state.orientation.yaw;
@@ -214,6 +248,7 @@ export class Drone implements CameraSubject {
   }
 
   postPhysics(dt: number): void {
+    this.yankCooldown = Math.max(0, this.yankCooldown - dt);
     this.aggregate.body.getLinearVelocityToRef(this.resolvedVelocity);
     const impact = Vector3.Distance(this.flight.velocity, this.resolvedVelocity);
     if (impact > IMPACT_THRESHOLD) {
@@ -229,7 +264,14 @@ export class Drone implements CameraSubject {
       this.movement = 'cruising';
     }
     this.boost = this.inputBoost ? 'active' : 'off';
-    this.visual.update({ velocity: this.resolvedVelocity, boosting: this.inputBoost, dt });
+    this.visual.update({
+      velocity: this.resolvedVelocity,
+      boosting: this.inputBoost,
+      focused: this.focused,
+      selfPowered: this.selfPowered,
+      tetherPull: this.tetherPull,
+      dt,
+    });
   }
 
   /** Reused object. Copy it before storing it across frames. */
@@ -249,6 +291,8 @@ export class Drone implements CameraSubject {
     this.snapshot.orientation.roll = orientation.z;
     this.snapshot.movement = this.movement;
     this.snapshot.boost = this.boost;
+    this.snapshot.selfPowered = this.selfPowered;
+    this.snapshot.tetherPull = this.tetherPull;
     return this.snapshot;
   }
 

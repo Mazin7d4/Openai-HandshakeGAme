@@ -31,6 +31,9 @@ export interface DroneVisualState {
   velocity: Vector3;
   boosting: boolean;
   dt: number;
+  focused?: boolean;
+  selfPowered?: boolean;
+  tetherPull?: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -152,6 +155,11 @@ export class DroneVisual {
     this.antennaVZ += (Math.random() - 0.5) * 24 * t;
   }
 
+  tetherYank(strength: number): void {
+    const duration = 0.25 + clamp(strength, 0, 1) * 0.35;
+    this.face.flash('shocked', duration);
+  }
+
   update(state: DroneVisualState): void {
     const dt = state.dt;
     if (dt <= 0) {
@@ -260,9 +268,13 @@ export class DroneVisual {
     }
 
     // Face.
-    if (state.boosting) {
+    if ((state.tetherPull ?? 0) > 0.18) {
+      this.face.setExpression('strained');
+    } else if (state.focused) {
       this.face.setExpression('focused');
-    } else if (moveBlend > 0.45) {
+    } else if (state.boosting && state.selfPowered) {
+      this.face.setExpression('focused');
+    } else if (state.selfPowered && moveBlend > 0.45) {
       this.face.setExpression('happy');
     } else {
       this.face.setExpression('neutral');

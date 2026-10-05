@@ -1,4 +1,5 @@
 import { zeroFlightAxes } from '../input/FlightAxes.ts';
+import { zeroInteractionActions } from '../input/InteractionActions.ts';
 import type { DroneNetworkState } from '../network/NetworkTypes.ts';
 import type { DroneControlFrame, DroneControlSource } from './DroneControlSource.ts';
 
@@ -30,6 +31,7 @@ export class RemoteControlSource implements DroneControlSource {
   readonly kind = 'remote' as const;
 
   private readonly actions = zeroFlightAxes();
+  private readonly interactions = zeroInteractionActions();
   private target: DroneNetworkState | null = null;
   private current: DroneNetworkState | null = null;
   private targetReceivedAt = performance.now();
@@ -44,7 +46,7 @@ export class RemoteControlSource implements DroneControlSource {
 
   sample(dt: number): DroneControlFrame {
     if (!this.target || !this.current) {
-      return { actions: this.actions };
+      return { actions: this.actions, interactions: this.interactions };
     }
 
     const target = this.target;
@@ -95,8 +97,10 @@ export class RemoteControlSource implements DroneControlSource {
     current.movement = target.movement;
     current.boost = target.boost;
     current.connected = target.connected;
+    current.selfPowered = target.selfPowered;
+    current.tetherPull = damp(current.tetherPull, target.tetherPull, VELOCITY_RESPONSE, dt);
 
-    return { actions: this.actions, remoteState: current };
+    return { actions: this.actions, interactions: this.interactions, remoteState: current };
   }
 
   dispose(): void {

@@ -51,7 +51,7 @@ function addBox(scene: Scene, spec: BoxSpec): Mesh {
  * Temporary collision course made of primitives.
  * Replace this with the real level. The spawn point is the only contract GameApp needs.
  */
-export function createTestRoom(scene: Scene): Vector3 {
+export function createLegacyTestRoom(scene: Scene): Vector3 {
   addBox(scene, {
     name: 'floor',
     x: 0,
@@ -274,6 +274,68 @@ export function createTestRoom(scene: Scene): Vector3 {
     depth: 2.8,
     color: HIGH,
   });
+
+  return new Vector3(0, 2.15, -15);
+}
+
+/** Compact tech-lab test layout for interaction, traversal and tether situations. */
+export function createTestRoom(scene: Scene): Vector3 {
+  const floor = new Color3(0.3, 0.36, 0.4);
+  const wall = new Color3(0.48, 0.55, 0.59);
+  const dark = new Color3(0.12, 0.18, 0.22);
+  const lab = new Color3(0.36, 0.5, 0.56);
+  const server = new Color3(0.16, 0.25, 0.3);
+  const accent = new Color3(0.24, 0.62, 0.7);
+  const warning = new Color3(0.76, 0.43, 0.22);
+
+  addBox(scene, { name: 'tech-floor', x: 0, y: -0.5, z: 0, width: 32, height: 1, depth: 44, color: floor });
+  for (const [name, x, z, width, depth] of [
+    ['tech-wall-west', -16, 0, 1, 44],
+    ['tech-wall-east', 16, 0, 1, 44],
+    ['tech-wall-south', 0, -22, 32, 1],
+    ['tech-wall-north', 0, 22, 32, 1],
+  ] as const) {
+    addBox(scene, { name, x, y: 4, z, width, height: 8, depth, color: wall });
+  }
+
+  // Spawn lab: desks, shelves and server racks frame a readable central route.
+  addBox(scene, { name: 'lab-desk-left', x: -7, y: 0.85, z: -13, width: 4.5, height: 1.7, depth: 1.3, color: lab });
+  addBox(scene, { name: 'lab-desk-right', x: 7, y: 0.85, z: -11, width: 4.5, height: 1.7, depth: 1.3, color: lab });
+  for (const [index, x] of [-11, 11].entries()) {
+    for (let row = 0; row < 3; row++) {
+      addBox(scene, {
+        name: `server-rack-${index}-${row}`,
+        x,
+        y: 1.25,
+        z: -9 + row * 3.2,
+        width: 1.7,
+        height: 2.5,
+        depth: 1.25,
+        color: server,
+      });
+    }
+  }
+  addBox(scene, { name: 'tether-obstacle-left', x: -6, y: 1.7, z: -5, width: 2, height: 3.4, depth: 2, color: accent });
+  addBox(scene, { name: 'tether-obstacle-right', x: 6, y: 1.25, z: -5, width: 2.2, height: 2.5, depth: 2.2, color: warning });
+
+  // Security divider and physical door opening.
+  addBox(scene, { name: 'security-wall-left', x: -9.5, y: 4, z: 2, width: 13, height: 8, depth: 0.8, color: dark });
+  addBox(scene, { name: 'security-wall-right', x: 9.5, y: 4, z: 2, width: 13, height: 8, depth: 0.8, color: dark });
+  addBox(scene, { name: 'security-lintel', x: 0, y: 6.5, z: 2, width: 6, height: 3, depth: 0.8, color: dark });
+
+  // A narrow post-door service passage creates useful tether corners.
+  addBox(scene, { name: 'passage-left', x: -3.4, y: 1.8, z: 7, width: 0.7, height: 3.6, depth: 9, color: wall });
+  addBox(scene, { name: 'passage-right', x: 3.4, y: 1.8, z: 7, width: 0.7, height: 3.6, depth: 9, color: wall });
+  addBox(scene, { name: 'passage-overhead', x: 0, y: 4.1, z: 7, width: 7.5, height: 0.45, depth: 9, color: dark });
+
+  // Vertical traversal steps and a small prototype vault at the back.
+  addBox(scene, { name: 'vertical-step-1', x: -9, y: 1.2, z: 7, width: 4, height: 0.45, depth: 3, color: accent });
+  addBox(scene, { name: 'vertical-step-2', x: -9, y: 3.2, z: 11, width: 4, height: 0.45, depth: 3, color: accent });
+  addBox(scene, { name: 'vertical-step-3', x: -9, y: 5.2, z: 15, width: 4, height: 0.45, depth: 3, color: accent });
+  addBox(scene, { name: 'vault-back', x: 0, y: 3, z: 18.5, width: 12, height: 6, depth: 0.8, color: dark });
+  addBox(scene, { name: 'vault-left', x: -6, y: 3, z: 16, width: 0.8, height: 6, depth: 5, color: dark });
+  addBox(scene, { name: 'vault-right', x: 6, y: 3, z: 16, width: 0.8, height: 6, depth: 5, color: dark });
+  addBox(scene, { name: 'vault-plinth', x: 0, y: 0.65, z: 16.2, width: 3, height: 1.3, depth: 2.2, color: warning });
 
   return new Vector3(0, 2.15, -15);
 }

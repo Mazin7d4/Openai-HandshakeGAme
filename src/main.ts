@@ -193,6 +193,12 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
       devParent: root,
       mode,
       multiplayer: session,
+      onLeaveGame: () => {
+        removeStatus?.();
+        game?.dispose();
+        game = null;
+        showMainMenu();
+      },
     });
     boot.remove();
     canvas.focus();

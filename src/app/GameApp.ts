@@ -8,7 +8,9 @@ import { RemoteControlSource } from '../control/RemoteControlSource.ts';
 import { DevOrbitCamera } from '../dev/DevOrbitCamera.ts';
 import { DevReadout } from '../dev/DevReadout.ts';
 import { TETHER_TUNING, Tether } from '../gameplay/Tether.ts';
-import { PLAYER_ONE_KEYS, PLAYER_TWO_KEYS } from '../input/KeyboardInput.ts';
+import { GameplayWorld } from '../gameplay/GameplayWorld.ts';
+import { zeroFlightAxes } from '../input/FlightAxes.ts';
+import { PLAYER_ONE_KEYS } from '../input/KeyboardInput.ts';
 import { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
 import { Drone, DRONE_PALETTES } from '../player/Drone.ts';
@@ -16,6 +18,7 @@ import { DRONE_MODEL_URL } from '../player/DroneVisual.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import { enableHavok } from '../physics/enableHavok.ts';
 import { createEngine, createScene } from '../scene/createScene.ts';
+import { GameHud } from '../ui/GameHud.ts';
 import type { GameMode } from './GameMode.ts';
 
 export interface GameAppOptions {
@@ -24,6 +27,7 @@ export interface GameAppOptions {
   devParent?: HTMLElement;
   mode?: GameMode;
   multiplayer?: MultiplayerSession;
+  onLeaveGame?: () => void;
 }
 
 interface LocalPlayer {
@@ -45,12 +49,17 @@ export class GameApp {
   readonly tether: Tether;
   readonly cameraRig: CinematicCamera;
   readonly mode: GameMode;
+  readonly gameplay: GameplayWorld;
 
   private readonly devReadout: DevReadout | null;
   private readonly devOrbit: DevOrbitCamera | null;
   private readonly multiplayer: MultiplayerSession | null;
   private readonly removeNetworkStatus: (() => void) | null;
   private readonly snapshots: PlayerSnapshot[] = [];
+  private readonly hud: GameHud | null;
+  private readonly idleAxes = zeroFlightAxes();
+  private paused = false;
+  private activeDevRole: DroneRole = 'pix';
   private readonly onResize = () => {
     this.engine.resize();
   };
@@ -78,6 +87,9 @@ export class GameApp {
     devOrbit: DevOrbitCamera | null,
     mode: GameMode,
     multiplayer: MultiplayerSession | null,
+    gameplay: GameplayWorld,
+    hudParent: HTMLElement | undefined,
+    onLeaveGame: (() => void) | undefined,
   ) {
     this.engine = engine;
     this.scene = scene;
@@ -90,6 +102,18 @@ export class GameApp {
     this.devOrbit = devOrbit;
     this.mode = mode;
     this.multiplayer = multiplayer;
+    this.gameplay = gameplay;
+    this.hud = hudParent
+      ? new GameHud(hudParent, {
+          onResume: () => this.setPaused(false),
+          onLeave: () => onLeaveGame?.(),
+          onGraphicsQuality: (quality) => {
+            this.engine.setHardwareScalingLevel(
+              quality === 'low' ? 1.5 : quality === 'medium' ? 1 : 0.75,
+            );
+          },
+        })
+      : null;
     this.removeNetworkStatus = multiplayer
       ? multiplayer.onStatus((status) => {
           for (const player of this.players) {
@@ -100,6 +124,7 @@ export class GameApp {
               }
             }
           }
+          this.gameplay.sync(status);
         })
       : null;
   }
@@ -134,7 +159,9 @@ export class GameApp {
           ? new HumanControlSource(PLAYER_ONE_KEYS)
           : new BotControlSource();
       }
-      return new HumanControlSource(role === 'pix' ? PLAYER_ONE_KEYS : PLAYER_TWO_KEYS);
+      return role === 'pix'
+        ? new HumanControlSource(PLAYER_ONE_KEYS)
+        : new BotControlSource();
     };
     const players: LocalPlayer[] = [
       {
@@ -163,6 +190,7 @@ export class GameApp {
       collarA: DRONE_PALETTES.pix.accent,
       collarB: DRONE_PALETTES.nee.accent,
     });
+    const gameplay = new GameplayWorld(scene, plugin, mode, multiplayer, options.devParent);
 
     const cameraRig = new CinematicCamera(scene);
     cameraRig.snap(drones);
@@ -181,6 +209,9 @@ export class GameApp {
       devOrbit,
       mode,
       multiplayer,
+      gameplay,
+      options.devParent,
+      options.onLeaveGame,
     );
   }
 
@@ -204,24 +235,43 @@ export class GameApp {
     void this.multiplayer?.dispose();
     this.devReadout?.dispose();
     this.devOrbit?.dispose();
+    this.gameplay.dispose();
+    this.hud?.dispose();
     this.scene.dispose();
     this.engine.dispose();
   }
 
   private frame(): void {
+    if (this.paused) return;
     const dt = Math.min(this.engine.getDeltaTime() / 1000, 0.05);
     const basis = this.cameraRig.getPlanarBasis();
     const faceGameplayCamera = this.devOrbit?.isActive !== true;
+    const droneByRole = new Map<DroneRole, Drone>();
+    for (const player of this.players) droneByRole.set(player.role, player.drone);
 
+    let switchDrone = false;
     for (const player of this.players) {
       const control = player.control.sample(dt);
       if (control.remoteState) {
         player.drone.applyRemoteState(control.remoteState);
       } else if (player.control.kind !== 'remote') {
-        player.drone.steer(dt, control.actions, basis, faceGameplayCamera);
+        const actions = this.gameplay.isRoleHacking(player.role)
+          ? this.idleAxes
+          : control.actions;
+        player.drone.steer(dt, actions, basis, faceGameplayCamera);
+      }
+      if (player.control.kind !== 'remote') {
+        this.gameplay.handle(player.role, player.drone, control.interactions);
+        if (control.interactions.pause) this.setPaused(true);
+        switchDrone ||= control.interactions.switchDrone;
       }
     }
-    this.tether.apply(dt);
+    if (switchDrone && this.mode === 'dev-local') this.switchDevDrone();
+    this.gameplay.update(dt, droneByRole);
+    this.tether.apply(dt, (drone) => {
+      const player = this.players.find((candidate) => candidate.drone === drone);
+      return player?.control.kind !== 'remote';
+    });
     for (const drone of this.drones) {
       drone.commit();
     }
@@ -241,10 +291,37 @@ export class GameApp {
       if (localSnapshot) {
         this.multiplayer.publish(localSnapshot);
       }
+      this.gameplay.publish();
     }
     this.tether.updateVisual();
     this.cameraRig.update(dt, this.drones);
     this.devOrbit?.update(this.drones);
-    this.devReadout?.update(this.snapshots, this.tether.currentStrain);
+    this.devReadout?.update(
+      this.snapshots,
+      this.tether.currentStrain,
+      this.gameplay.describe(),
+    );
+    const hudRole = this.mode === 'dev-local'
+      ? this.activeDevRole
+      : this.multiplayer?.currentStatus.localRole ?? 'pix';
+    const hudPlayer = this.players.find((player) => player.role === hudRole);
+    if (hudPlayer) {
+      this.hud?.update(this.gameplay.promptsFor(hudRole, hudPlayer.drone), this.mode, hudRole);
+    }
+  }
+
+  private setPaused(paused: boolean): void {
+    this.paused = paused;
+    this.hud?.setPaused(paused);
+  }
+
+  private switchDevDrone(): void {
+    this.activeDevRole = this.activeDevRole === 'pix' ? 'nee' : 'pix';
+    for (const player of this.players) {
+      player.control.dispose();
+      player.control = player.role === this.activeDevRole
+        ? new HumanControlSource(PLAYER_ONE_KEYS)
+        : new BotControlSource();
+    }
   }
 }

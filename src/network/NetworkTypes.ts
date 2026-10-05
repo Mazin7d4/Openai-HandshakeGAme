@@ -16,6 +16,29 @@ export interface DroneNetworkState {
   orientation: OrientationState;
   boost: BoostState;
   movement: MovementState;
+  selfPowered: boolean;
+  tetherPull: number;
+}
+
+export type GrabbableMode = 'free' | 'held';
+
+export interface GrabbableNetworkState {
+  id: string;
+  position: Vec3State;
+  velocity: Vec3State;
+  orientation: OrientationState;
+  heldBy: DroneRole | null;
+  authority: DroneRole;
+  mode: GrabbableMode;
+  revision: number;
+}
+
+export interface HackNetworkState {
+  stationAOwner: DroneRole | null;
+  stationBOwner: DroneRole | null;
+  stationAComplete: boolean;
+  stationBComplete: boolean;
+  doorOpen: boolean;
 }
 
 export interface RoomStatus {
@@ -23,4 +46,6 @@ export interface RoomStatus {
   started: boolean;
   localRole: DroneRole | null;
   players: ReadonlyMap<DroneRole, DroneNetworkState>;
+  objects: ReadonlyMap<string, GrabbableNetworkState>;
+  hack: HackNetworkState;
 }

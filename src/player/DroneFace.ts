@@ -1,6 +1,6 @@
 import { DynamicTexture, Texture, type Color3, type Scene } from '@babylonjs/core';
 
-export type Expression = 'neutral' | 'happy' | 'focused' | 'stunned';
+export type Expression = 'neutral' | 'happy' | 'focused' | 'strained' | 'shocked' | 'stunned';
 
 const WIDTH = 256;
 const HEIGHT = 160;
@@ -122,6 +122,12 @@ export class DroneFace {
         case 'stunned':
           this.drawStunned(ctx);
           break;
+        case 'strained':
+          this.drawStrained(ctx, side);
+          break;
+        case 'shocked':
+          this.drawShocked(ctx);
+          break;
         default:
           this.drawNeutral(ctx);
       }
@@ -163,6 +169,23 @@ export class DroneFace {
     ctx.lineWidth = 9;
     ctx.beginPath();
     ctx.arc(0, 0, 20, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  private drawStrained(ctx: CanvasRenderingContext2D, side: number): void {
+    ctx.rotate(side * -0.3);
+    ctx.lineWidth = 12;
+    ctx.beginPath();
+    ctx.moveTo(-14, 8);
+    ctx.lineTo(0, -8);
+    ctx.lineTo(14, 8);
+    ctx.stroke();
+  }
+
+  private drawShocked(ctx: CanvasRenderingContext2D): void {
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 17, 27, 0, 0, Math.PI * 2);
     ctx.stroke();
   }
 }
