@@ -13,7 +13,11 @@ export class PacketRoutingView {
   private readonly status: HTMLParagraphElement;
   private readonly model: PacketRoutingMinigame;
   private readonly complete: () => void;
+  private readonly cancelButton: HTMLButtonElement;
+  private readonly cancel: () => void;
   private completed = false;
+  private disposed = false;
+  private completionTimer: number | null = null;
 
   constructor(
     parent: HTMLElement,
@@ -23,6 +27,7 @@ export class PacketRoutingView {
   ) {
     this.model = new PacketRoutingMinigame();
     this.complete = complete;
+    this.cancel = cancel;
     this.overlay = document.createElement('div');
     this.overlay.className = 'hack-overlay';
     this.overlay.dataset.testid = 'packet-routing';
@@ -49,22 +54,30 @@ export class PacketRoutingView {
     board.append(source, this.grid, target);
     this.status = document.createElement('p');
     this.status.className = 'hack-status';
-    const cancelButton = document.createElement('button');
-    cancelButton.className = 'hack-cancel';
-    cancelButton.type = 'button';
-    cancelButton.textContent = 'CANCEL';
-    cancelButton.addEventListener('click', cancel);
-    panel.append(kicker, title, help, board, this.status, cancelButton);
+    this.cancelButton = document.createElement('button');
+    this.cancelButton.className = 'hack-cancel';
+    this.cancelButton.type = 'button';
+    this.cancelButton.textContent = 'CANCEL';
+    this.cancelButton.addEventListener('click', this.cancel);
+    panel.append(kicker, title, help, board, this.status, this.cancelButton);
     this.overlay.append(panel);
     parent.append(this.overlay);
     this.render(this.model.snapshot());
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.completionTimer !== null) {
+      window.clearTimeout(this.completionTimer);
+      this.completionTimer = null;
+    }
+    this.cancelButton.removeEventListener('click', this.cancel);
     this.overlay.remove();
   }
 
   private render(snapshot: HackMinigameSnapshot): void {
+    if (this.disposed) return;
     this.grid.style.setProperty('--grid-width', String(snapshot.width));
     this.grid.replaceChildren();
     snapshot.masks.forEach((mask, index) => {
@@ -85,7 +98,10 @@ export class PacketRoutingView {
       : 'ROUTE INCOMPLETE';
     if (snapshot.completed && !this.completed) {
       this.completed = true;
-      window.setTimeout(this.complete, 650);
+      this.completionTimer = window.setTimeout(() => {
+        this.completionTimer = null;
+        if (!this.disposed) this.complete();
+      }, 650);
     }
   }
 }

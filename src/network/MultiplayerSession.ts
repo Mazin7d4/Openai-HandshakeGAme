@@ -1,4 +1,5 @@
 import { Client, type Room } from '@colyseus/sdk';
+import { reportStabilityIssue } from '../dev/StabilityDiagnostics.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import type {
   DroneNetworkState,
@@ -123,6 +124,8 @@ export class MultiplayerSession {
   private status: RoomStatus;
   private lastSendAt = 0;
   private readonly lastObjectSendAt = new Map<string, number>();
+  private networkState = 'connected';
+  private disposed = false;
 
   private constructor(room: Room<unknown, SchemaRoomState>) {
     this.room = room;
@@ -139,12 +142,25 @@ export class MultiplayerSession {
     };
 
     room.onStateChange((state) => {
-      this.readState(state);
+      try {
+        this.readState(state);
+      } catch (error) {
+        reportStabilityIssue('network', 'Failed to apply a Colyseus state update.', error);
+      }
     });
     room.onReconnect(() => {
+      this.networkState = 'connected';
       this.readState(room.state);
     });
+    room.onDrop(() => {
+      this.networkState = 'reconnecting';
+    });
+    room.onError((code, message) => {
+      this.networkState = 'error';
+      reportStabilityIssue('network', `Colyseus error ${code}: ${message ?? 'unknown error'}`);
+    });
     room.onLeave(() => {
+      this.networkState = 'disconnected';
       this.status = { ...this.status, started: false };
       this.emit();
     });
@@ -165,6 +181,10 @@ export class MultiplayerSession {
 
   get currentStatus(): RoomStatus {
     return this.status;
+  }
+
+  get connectionState(): string {
+    return this.networkState;
   }
 
   onStatus(listener: StatusListener): () => void {
@@ -247,6 +267,9 @@ export class MultiplayerSession {
   }
 
   async dispose(): Promise<void> {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.networkState = 'disposed';
     this.listeners.clear();
     this.room.removeAllListeners();
     await this.room.leave(true);

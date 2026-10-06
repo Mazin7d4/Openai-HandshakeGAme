@@ -1,6 +1,8 @@
 import { chromium } from 'playwright';
 
 const APP_URL = process.argv[2] ?? process.env.APP_URL ?? 'http://127.0.0.1:5173/';
+const DEBUG_URL = new URL(APP_URL);
+DEBUG_URL.searchParams.set('debug', '1');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -82,11 +84,12 @@ async function solvePacketRouting(page) {
     for (let rotation = 0; rotation < 4; rotation++) {
       if (!(await overlay.isVisible().catch(() => false))) return;
       const node = overlay.locator(`.packet-node[data-index="${index}"]`);
-      const solution = Number(await node.getAttribute('data-solution-mask'));
-      if (!solution) break;
-      const current = Number(await node.getAttribute('data-mask'));
-      if (current === solution) break;
-      await node.click();
+      const solutionValue = await node.getAttribute('data-solution-mask').catch(() => null);
+      if (solutionValue === null) return;
+      const solution = Number(solutionValue);
+      const currentValue = await node.getAttribute('data-mask').catch(() => null);
+      if (currentValue === null || !solution || Number(currentValue) === solution) break;
+      await node.click().catch(() => undefined);
     }
   }
   await overlay.waitFor({ state: 'detached', timeout: 10_000 });
@@ -107,11 +110,11 @@ for (const [name, page] of [['host', host], ['guest', guest]]) {
 }
 
 try {
-  await host.goto(APP_URL);
+  await host.goto(DEBUG_URL.href);
   await host.getByTestId('multiplayer').click();
   await host.getByTestId('create-room').click();
   const code = (await host.getByTestId('room-code').innerText()).trim();
-  await guest.goto(APP_URL);
+  await guest.goto(DEBUG_URL.href);
   await guest.getByTestId('multiplayer').click();
   await guest.getByTestId('join-room').click();
   await guest.getByTestId('room-code-input').fill(code);
@@ -143,7 +146,10 @@ try {
   await host.waitForTimeout(1_100);
   const thrownHost = await objectState(host, 'cargo-core');
   const thrownGuest = await objectState(guest, 'cargo-core');
-  assert(Math.hypot(thrownHost.x - thrownGuest.x, thrownHost.z - thrownGuest.z) < 2, 'Thrown object diverged between clients.');
+  assert(
+    Math.hypot(thrownHost.x - thrownGuest.x, thrownHost.z - thrownGuest.z) < 2,
+    `Thrown object diverged between clients: host=${JSON.stringify(thrownHost)} guest=${JSON.stringify(thrownGuest)}`,
+  );
 
   await chaseAndGrab(guest, 'player-2', 'cargo-core');
   await Promise.all([waitForText(host, 'cargo-core:nee'), waitForText(guest, 'cargo-core:nee')]);

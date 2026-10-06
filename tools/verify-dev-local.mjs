@@ -24,6 +24,11 @@ async function objectPosition(page, id) {
   return { x: Number(match[1]), y: Number(match[2]), z: Number(match[3]) };
 }
 
+async function objectHolder(page, id) {
+  const text = await readout(page);
+  return text.match(new RegExp(`${id}:(pix|nee|free)@`))?.[1] ?? null;
+}
+
 function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
@@ -44,6 +49,32 @@ async function moveToward(page, playerId, target, timeout = 18_000, tolerance = 
     await page.waitForTimeout(35);
   }
   throw new Error(`${playerId} did not reach ${JSON.stringify(target)}.`);
+}
+
+async function chaseAndGrab(page, playerId, objectId, timeout = 25_000) {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    const target = await objectPosition(page, objectId);
+    const player = await playerPosition(page, playerId);
+    if (distance(player, target) < 2.7) {
+      await page.keyboard.press('e');
+      await page.waitForTimeout(350);
+      if (await objectHolder(page, objectId) === 'pix') return;
+    }
+    const dx = target.x - player.x;
+    const dz = target.z - player.z;
+    const keys = [];
+    if (Math.abs(dx) > 0.6) keys.push(dx > 0 ? 'd' : 'a');
+    if (Math.abs(dz) > 0.6) keys.push(dz > 0 ? 'w' : 's');
+    for (const key of keys) await page.keyboard.down(key);
+    await page.waitForTimeout(110);
+    for (const key of keys) await page.keyboard.up(key);
+    await page.waitForTimeout(40);
+  }
+  throw new Error(
+    `PIX could not re-grab ${objectId}; player=${JSON.stringify(await playerPosition(page, playerId))} ` +
+    `object=${JSON.stringify(await objectPosition(page, objectId))} holder=${await objectHolder(page, objectId)}.`,
+  );
 }
 
 async function solvePacketRouting(page) {
@@ -128,6 +159,15 @@ try {
     await page.keyboard.press('e');
     await page.waitForTimeout(350);
     assert((await readout(page)).includes(`${id}:pix@`), `PIX did not grab ${id}.`);
+    await page.keyboard.down('d');
+    await page.waitForTimeout(250);
+    await page.keyboard.up('d');
+    await page.waitForTimeout(150);
+    await page.keyboard.press('e');
+    await page.waitForTimeout(350);
+    assert(await objectHolder(page, id) === 'free', `PIX did not drop ${id}.`);
+    await chaseAndGrab(page, 'player-1', id);
+    assert(await objectHolder(page, id) === 'pix', `PIX did not re-grab ${id}.`);
     await page.keyboard.press('q');
     await page.waitForTimeout(450);
     assert(!(await readout(page)).includes(`${id}:pix@`), `PIX did not throw ${id}.`);
@@ -141,6 +181,7 @@ try {
     devLocalPacketRoutingPair: true,
     devLocalDoorOpened: true,
     genericObjectTypesGrabbedAndThrown: ['sphere', 'box', 'cylinder'],
+    everyObjectDroppedAndRegrabbedBeforeThrow: true,
   }, null, 2));
 } finally {
   await browser.close();

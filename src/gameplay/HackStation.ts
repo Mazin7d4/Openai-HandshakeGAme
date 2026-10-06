@@ -35,6 +35,7 @@ export class HackStation implements Interactable {
 
   private readonly indicator: Mesh;
   private readonly material: StandardMaterial;
+  private readonly aggregate;
   private time = 0;
 
   constructor(scene: Scene, spec: HackStationSpec) {
@@ -47,7 +48,7 @@ export class HackStation implements Interactable {
     this.mesh = CreateBox(spec.id, { width: 1.15, height: 2.5, depth: 0.75 }, scene);
     this.mesh.position.copyFrom(spec.position);
     applySolidColor(this.mesh, new Color3(0.08, 0.12, 0.16), scene);
-    addStaticBody(this.mesh, scene);
+    this.aggregate = addStaticBody(this.mesh, scene);
     this.indicator = CreateBox(`${spec.id}-indicator`, { width: 0.72, height: 1.15, depth: 0.08 }, scene);
     this.indicator.position.copyFrom(spec.position);
     this.indicator.position.z -= 0.42;
@@ -73,6 +74,7 @@ export class HackStation implements Interactable {
   }
 
   dispose(): void {
+    this.aggregate.dispose();
     this.material.dispose();
     this.indicator.dispose();
     this.mesh.dispose();

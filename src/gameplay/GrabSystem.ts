@@ -7,6 +7,7 @@ import { Grabbable } from './Grabbable.ts';
 const HOLD_OFFSET = new Vector3(0, -1.15, 0.35);
 const THROW_SPEED = 10;
 const THROW_LIFT = 1.8;
+const DRONE_CLEARANCE = 0.82;
 
 /** Owns proximity selection, carry springs, stealing, release and throw semantics. */
 export class GrabSystem {
@@ -15,6 +16,7 @@ export class GrabSystem {
   private readonly holdTarget = new Vector3();
   private readonly throwVelocity = new Vector3();
   private readonly aimDirection = new Vector3();
+  private readonly releasePosition = new Vector3();
   private localRole: DroneRole | null;
 
   constructor(
@@ -71,7 +73,8 @@ export class GrabSystem {
     drone.getThrowDirection(this.aimDirection);
     this.throwVelocity.addInPlace(this.aimDirection.scale(THROW_SPEED));
     this.throwVelocity.y += THROW_LIFT;
-    this.release(role, held, this.throwVelocity, true);
+    this.placeForRelease(held, drone, this.aimDirection, true);
+    this.release(role, held, this.releasePosition, this.throwVelocity, true);
     return true;
   }
 
@@ -105,6 +108,10 @@ export class GrabSystem {
       .join('  ');
   }
 
+  heldObjectId(role: DroneRole): string | null {
+    return this.objects.find((object) => object.heldBy === role)?.id ?? null;
+  }
+
   promptsFor(role: DroneRole, drone: Drone): string[] {
     const held = this.objects.find((object) => object.heldBy === role);
     if (held) return [`[E] Drop ${held.label}`, `[Q] Throw ${held.label}`];
@@ -127,21 +134,44 @@ export class GrabSystem {
   private drop(role: DroneRole, drone: Drone): void {
     this.throwVelocity.copyFrom(drone.velocity);
     const held = this.objects.find((object) => object.heldBy === role);
-    if (held) this.release(role, held, this.throwVelocity, false);
+    if (!held) return;
+    drone.getThrowDirection(this.aimDirection);
+    this.placeForRelease(held, drone, this.aimDirection, false);
+    this.release(role, held, this.releasePosition, this.throwVelocity, false);
   }
 
-  private release(role: DroneRole, object: Grabbable, velocity: Vector3, thrown: boolean): void {
+  private release(
+    role: DroneRole,
+    object: Grabbable,
+    position: Vector3,
+    velocity: Vector3,
+    thrown: boolean,
+  ): void {
     if (this.session) {
       if (role === this.localRole) {
         this.session.releaseObject(
           object.id,
-          { x: object.position.x, y: object.position.y, z: object.position.z },
+          { x: position.x, y: position.y, z: position.z },
           { x: velocity.x, y: velocity.y, z: velocity.z },
           thrown,
         );
       }
     } else {
-      object.release(velocity);
+      object.release(position, velocity);
     }
+  }
+
+  private placeForRelease(
+    object: Grabbable,
+    drone: Drone,
+    direction: Vector3,
+    thrown: boolean,
+  ): void {
+    const distance = DRONE_CLEARANCE + object.collisionRadius + (thrown ? 0.35 : 0.08);
+    this.releasePosition.copyFrom(drone.position).addInPlace(direction.scale(distance));
+    this.releasePosition.y = Math.max(
+      object.collisionRadius + 0.06,
+      drone.position.y - (thrown ? 0.12 : 0.62),
+    );
   }
 }

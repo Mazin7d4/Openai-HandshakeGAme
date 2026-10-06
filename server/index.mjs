@@ -4,6 +4,9 @@ import { schema, t } from '@colyseus/schema';
 const PORT = Number.parseInt(process.env.PORT ?? '2567', 10);
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const RECONNECT_SECONDS = 15;
+const MAX_WORLD_COORDINATE = 200;
+const MAX_PLAYER_SPEED = 28;
+const MAX_OBJECT_SPEED = 32;
 const TERMINAL_RANGE = 5;
 const TERMINALS = {
   'terminal-a': { x: -2.5, y: 1.25, z: -8.5 },
@@ -100,10 +103,18 @@ function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
-function copyVec3(target, source) {
-  target.x = finite(source?.x, target.x);
-  target.y = finite(source?.y, target.y);
-  target.z = finite(source?.z, target.z);
+function bounded(value, fallback, maximum, label) {
+  if (!Number.isFinite(value)) {
+    console.warn(`[state-safety] Rejected non-finite ${label}.`);
+    return fallback;
+  }
+  return Math.max(-maximum, Math.min(maximum, value));
+}
+
+function copyVec3(target, source, maximum, label) {
+  target.x = bounded(source?.x, target.x, maximum, `${label}.x`);
+  target.y = bounded(source?.y, target.y, maximum, `${label}.y`);
+  target.z = bounded(source?.z, target.z, maximum, `${label}.z`);
 }
 
 function createGrabbable(id, x, y, z, grabRadius) {
@@ -180,12 +191,8 @@ class HandshakeRoom extends Room {
     const position = message.position ?? {};
     const velocity = message.velocity ?? {};
     const orientation = message.orientation ?? {};
-    player.position.x = finite(position.x, player.position.x);
-    player.position.y = finite(position.y, player.position.y);
-    player.position.z = finite(position.z, player.position.z);
-    player.velocity.x = finite(velocity.x);
-    player.velocity.y = finite(velocity.y);
-    player.velocity.z = finite(velocity.z);
+    copyVec3(player.position, position, MAX_WORLD_COORDINATE, 'player.position');
+    copyVec3(player.velocity, velocity, MAX_PLAYER_SPEED, 'player.velocity');
     player.orientation.pitch = finite(orientation.pitch);
     player.orientation.yaw = finite(orientation.yaw);
     player.orientation.roll = finite(orientation.roll);
@@ -222,8 +229,8 @@ class HandshakeRoom extends Room {
     if (!role || !object || object.heldBy !== role) {
       return;
     }
-    copyVec3(object.position, message.position);
-    copyVec3(object.velocity, message.velocity);
+    copyVec3(object.position, message.position, MAX_WORLD_COORDINATE, 'object.position');
+    copyVec3(object.velocity, message.velocity, MAX_OBJECT_SPEED, 'object.velocity');
     object.heldBy = '';
     object.authority = role;
     object.mode = 'free';
@@ -236,8 +243,8 @@ class HandshakeRoom extends Room {
     if (!role || !object || object.authority !== role) {
       return;
     }
-    copyVec3(object.position, message.position);
-    copyVec3(object.velocity, message.velocity);
+    copyVec3(object.position, message.position, MAX_WORLD_COORDINATE, 'object.position');
+    copyVec3(object.velocity, message.velocity, MAX_OBJECT_SPEED, 'object.velocity');
     const orientation = message.orientation ?? {};
     object.orientation.pitch = finite(orientation.pitch, object.orientation.pitch);
     object.orientation.yaw = finite(orientation.yaw, object.orientation.yaw);

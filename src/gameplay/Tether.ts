@@ -9,11 +9,13 @@ import {
   type Scene,
 } from '@babylonjs/core';
 import type { Drone } from '../player/Drone.ts';
+import { reportStabilityIssue } from '../dev/StabilityDiagnostics.ts';
 
 /** Cord appearance: a plain charcoal rubber/fabric elastic. No glow. */
 const CORD_COLOR = new Color3(0.09, 0.09, 0.1);
 const COLLAR_LENGTH = 0.14;
 const COLLAR_DIAMETER = 0.15;
+const MAX_VELOCITY_DELTA_PER_FRAME = 4;
 
 export interface TetherTuning {
   /** Rope hangs slack below this distance. */
@@ -61,6 +63,7 @@ export class Tether {
   private readonly anchorA = new Vector3();
   private readonly anchorB = new Vector3();
   private readonly tangent = new Vector3();
+  private readonly zero = new Vector3();
   private readonly material: PBRMaterial;
   private readonly collars: Mesh[] = [];
   private strain = 0;
@@ -121,9 +124,14 @@ export class Tether {
     const t = this.tuning;
     const pa = this.a.position;
     const pb = this.b.position;
+    if (!isFiniteVector(pa) || !isFiniteVector(pb)) {
+      reportStabilityIssue('tether', 'A drone supplied a non-finite tether anchor position.');
+      this.strain = 0;
+      return;
+    }
     this.dir.copyFrom(pb).subtractInPlace(pa);
     const distance = this.dir.length();
-    if (distance < 1e-4) {
+    if (!Number.isFinite(distance) || distance < 1e-4) {
       this.strain = 0;
       return;
     }
@@ -137,12 +145,16 @@ export class Tether {
 
     const va = this.a.velocity;
     const vb = this.b.velocity;
+    if (!isFiniteVector(va) || !isFiniteVector(vb)) {
+      reportStabilityIssue('tether', 'A drone supplied a non-finite tether velocity.');
+      return;
+    }
     const separating = Vector3.Dot(vb, this.dir) - Vector3.Dot(va, this.dir);
     let pull = t.stiffness * stretch;
     if (separating > 0) {
       pull += t.damping * separating;
     }
-    const impulse = pull * dt;
+    const impulse = Math.min(MAX_VELOCITY_DELTA_PER_FRAME, Math.max(0, pull * dt));
     this.delta.copyFrom(this.dir).scaleInPlace(impulse);
     const pullStrength = Math.min(1, pull / (t.stiffness * (t.maxLength - t.restLength)));
     if (canMove(this.a)) this.a.applyTetherVelocityDelta(this.delta, pullStrength);
@@ -152,15 +164,15 @@ export class Tether {
     if (distance >= t.maxLength) {
       const stillSeparating = Vector3.Dot(vb, this.dir) - Vector3.Dot(va, this.dir);
       if (stillSeparating > 0) {
-        const half = stillSeparating * 0.5;
+        const half = Math.min(MAX_VELOCITY_DELTA_PER_FRAME, stillSeparating * 0.5);
         this.delta.copyFrom(this.dir).scaleInPlace(half);
         if (canMove(this.a)) {
           va.addInPlace(this.delta);
-          this.a.applyTetherVelocityDelta(Vector3.Zero(), 1);
+          this.a.applyTetherVelocityDelta(this.zero, 1);
         }
         if (canMove(this.b)) {
           vb.subtractInPlace(this.delta);
-          this.b.applyTetherVelocityDelta(Vector3.Zero(), 1);
+          this.b.applyTetherVelocityDelta(this.zero, 1);
         }
       }
     }
@@ -218,4 +230,8 @@ export class Tether {
       point.z = pa.z + (pb.z - pa.z) * t;
     }
   }
+}
+
+function isFiniteVector(value: Vector3): boolean {
+  return Number.isFinite(value.x) && Number.isFinite(value.y) && Number.isFinite(value.z);
 }

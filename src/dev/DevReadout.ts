@@ -1,5 +1,14 @@
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import type { GameMode } from '../app/GameMode.ts';
+import type { DroneRole } from '../network/NetworkTypes.ts';
+
+interface DevRuntimeStatus {
+  fps: number;
+  activeRole: DroneRole;
+  heldObject: string | null;
+  network: string;
+  diagnostics: string;
+}
 
 /** Temporary flight readout for the dev room. Not a game HUD. */
 export class DevReadout {
@@ -21,7 +30,12 @@ export class DevReadout {
     parent.append(this.readout, this.controls);
   }
 
-  update(snapshots: readonly PlayerSnapshot[], tetherStrain = 0, gameplay = ''): void {
+  update(
+    snapshots: readonly PlayerSnapshot[],
+    tetherStrain = 0,
+    gameplay = '',
+    runtime?: DevRuntimeStatus,
+  ): void {
     const lines = snapshots.map((snapshot) => {
       const { position, velocity, movement, boost } = snapshot;
       const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
@@ -32,6 +46,12 @@ export class DevReadout {
         `${snapshot.selfPowered ? 'self-powered' : 'passive'}   tether-pull ${snapshot.tetherPull.toFixed(2)}`
       );
     });
+    if (runtime) {
+      lines.unshift(
+        `DEV ${runtime.fps.toFixed(0)} FPS   active ${runtime.activeRole.toUpperCase()}   ` +
+        `held ${runtime.heldObject ?? '-'}   network ${runtime.network}   ${runtime.diagnostics}`,
+      );
+    }
     lines.push(`tether strain ${(tetherStrain * 100).toFixed(0)}%`);
     if (gameplay) lines.push(gameplay);
     this.readout.textContent = lines.join('\n');

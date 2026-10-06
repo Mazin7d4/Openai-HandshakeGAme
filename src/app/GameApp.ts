@@ -7,6 +7,7 @@ import { HumanControlSource } from '../control/HumanControlSource.ts';
 import { RemoteControlSource } from '../control/RemoteControlSource.ts';
 import { DevOrbitCamera } from '../dev/DevOrbitCamera.ts';
 import { DevReadout } from '../dev/DevReadout.ts';
+import { reportStabilityIssue, StabilityDiagnostics } from '../dev/StabilityDiagnostics.ts';
 import { TETHER_TUNING, Tether } from '../gameplay/Tether.ts';
 import { GameplayWorld } from '../gameplay/GameplayWorld.ts';
 import { zeroFlightAxes } from '../input/FlightAxes.ts';
@@ -24,6 +25,7 @@ import type { GameMode } from './GameMode.ts';
 export interface GameAppOptions {
   canvas: HTMLCanvasElement;
   createLevel: (scene: Scene) => Vector3;
+  uiParent?: HTMLElement;
   devParent?: HTMLElement;
   mode?: GameMode;
   multiplayer?: MultiplayerSession;
@@ -57,6 +59,7 @@ export class GameApp {
   private readonly removeNetworkStatus: (() => void) | null;
   private readonly snapshots: PlayerSnapshot[] = [];
   private readonly hud: GameHud | null;
+  private readonly diagnostics = new StabilityDiagnostics();
   private readonly idleAxes = zeroFlightAxes();
   private paused = false;
   private activeDevRole: DroneRole = 'pix';
@@ -190,7 +193,8 @@ export class GameApp {
       collarA: DRONE_PALETTES.pix.accent,
       collarB: DRONE_PALETTES.nee.accent,
     });
-    const gameplay = new GameplayWorld(scene, plugin, mode, multiplayer, options.devParent);
+    const uiParent = options.uiParent ?? options.devParent;
+    const gameplay = new GameplayWorld(scene, plugin, mode, multiplayer, uiParent);
 
     const cameraRig = new CinematicCamera(scene);
     cameraRig.snap(drones);
@@ -210,7 +214,7 @@ export class GameApp {
       mode,
       multiplayer,
       gameplay,
-      options.devParent,
+      uiParent,
       options.onLeaveGame,
     );
   }
@@ -237,11 +241,21 @@ export class GameApp {
     this.devOrbit?.dispose();
     this.gameplay.dispose();
     this.hud?.dispose();
+    this.diagnostics.dispose();
     this.scene.dispose();
     this.engine.dispose();
   }
 
   private frame(): void {
+    try {
+      this.tick();
+    } catch (error) {
+      reportStabilityIssue('game-loop', 'Frame execution failed; pausing the simulation.', error);
+      this.setPaused(true);
+    }
+  }
+
+  private tick(): void {
     if (this.paused) return;
     const dt = Math.min(this.engine.getDeltaTime() / 1000, 0.05);
     const basis = this.cameraRig.getPlanarBasis();
@@ -300,6 +314,19 @@ export class GameApp {
       this.snapshots,
       this.tether.currentStrain,
       this.gameplay.describe(),
+      {
+        fps: this.engine.getFps(),
+        activeRole: this.mode === 'dev-local'
+          ? this.activeDevRole
+          : this.multiplayer?.currentStatus.localRole ?? 'pix',
+        heldObject: this.gameplay.heldObjectId(
+          this.mode === 'dev-local'
+            ? this.activeDevRole
+            : this.multiplayer?.currentStatus.localRole ?? 'pix',
+        ),
+        network: this.multiplayer?.connectionState ?? 'local',
+        diagnostics: this.diagnostics.summary,
+      },
     );
     const hudRole = this.mode === 'dev-local'
       ? this.activeDevRole

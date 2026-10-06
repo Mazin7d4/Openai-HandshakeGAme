@@ -14,6 +14,8 @@ import type { LoadedModel } from '../assets/AssetLoader.ts';
 import type { CameraSubject } from '../camera/CameraSubject.ts';
 import type { FlightAxes } from '../input/FlightAxes.ts';
 import type { DroneNetworkState } from '../network/NetworkTypes.ts';
+import { COLLISION_GROUP } from '../physics/CollisionGroups.ts';
+import { reportStabilityIssue } from '../dev/StabilityDiagnostics.ts';
 import type { PlanarBasis } from './FlightController.ts';
 import { FlightController } from './FlightController.ts';
 import { DroneVisual, type DronePalette } from './DroneVisual.ts';
@@ -52,6 +54,7 @@ const IMPACT_THRESHOLD = 4;
 /** Keep the mascot face readable while still hinting at its travel direction. */
 const MAX_PRESENTATION_YAW_OFFSET = 0.38;
 const PRESENTATION_YAW_RESPONSE = 8;
+const MAX_SAFE_SPEED = 28;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -81,6 +84,7 @@ export class Drone implements CameraSubject {
   private readonly resolvedVelocity = new Vector3();
   private readonly remoteVelocity = new Vector3();
   private readonly zero = new Vector3();
+  private readonly lastSafePosition = new Vector3();
   private readonly snapshot: PlayerSnapshot;
   private boost: BoostState = 'off';
   private inputBoost = false;
@@ -97,6 +101,7 @@ export class Drone implements CameraSubject {
 
     this.root = CreateBox(`${this.id}-collider`, { width: 1.3, height: 0.72, depth: 1.15 }, scene);
     this.root.position.copyFrom(options.spawn);
+    this.lastSafePosition.copyFrom(options.spawn);
     this.root.isVisible = false;
     this.root.isPickable = false;
 
@@ -106,6 +111,10 @@ export class Drone implements CameraSubject {
       { mass: 1.2, friction: 0.08, restitution: 0 },
       scene,
     );
+    this.aggregate.shape.filterMembershipMask = this.id === 'player-1'
+      ? COLLISION_GROUP.pix
+      : COLLISION_GROUP.nee;
+    this.aggregate.shape.filterCollideMask = COLLISION_GROUP.all;
     const body = this.aggregate.body;
     body.setGravityFactor(0);
     body.setLinearDamping(0);
@@ -222,6 +231,14 @@ export class Drone implements CameraSubject {
    * local movement continues to use steer() and the existing FlightController.
    */
   applyRemoteState(state: DroneNetworkState): void {
+    if (!finiteValues(
+      state.position.x, state.position.y, state.position.z,
+      state.velocity.x, state.velocity.y, state.velocity.z,
+      state.orientation.pitch, state.orientation.yaw, state.orientation.roll,
+    )) {
+      reportStabilityIssue('network-physics', `${this.id} received a non-finite remote transform.`);
+      return;
+    }
     this.root.position.set(state.position.x, state.position.y, state.position.z);
     this.remoteVelocity.set(state.velocity.x, state.velocity.y, state.velocity.z);
     this.flight.syncVelocity(this.remoteVelocity);
@@ -237,6 +254,11 @@ export class Drone implements CameraSubject {
 
   /** Push the steered velocity into Havok. */
   commit(): void {
+    if (!isFiniteVector(this.flight.velocity)) {
+      reportStabilityIssue('physics', `${this.id} produced a non-finite commanded velocity; stopping it.`);
+      this.flight.velocity.setAll(0);
+    }
+    clampMagnitude(this.flight.velocity, MAX_SAFE_SPEED);
     this.lockUpright();
     this.aggregate.body.setLinearVelocity(this.flight.velocity);
   }
@@ -250,6 +272,20 @@ export class Drone implements CameraSubject {
   postPhysics(dt: number): void {
     this.yankCooldown = Math.max(0, this.yankCooldown - dt);
     this.aggregate.body.getLinearVelocityToRef(this.resolvedVelocity);
+    if (!isFiniteVector(this.root.position) || !isFiniteVector(this.resolvedVelocity)) {
+      reportStabilityIssue('physics', `${this.id} produced a non-finite Havok transform; restoring its last safe pose.`);
+      this.root.position.copyFrom(this.lastSafePosition);
+      this.resolvedVelocity.setAll(0);
+      this.flight.velocity.setAll(0);
+      this.aggregate.body.setLinearVelocity(this.zero);
+      this.lockUpright();
+    } else {
+      this.lastSafePosition.copyFrom(this.root.position);
+      if (this.resolvedVelocity.lengthSquared() > MAX_SAFE_SPEED * MAX_SAFE_SPEED) {
+        clampMagnitude(this.resolvedVelocity, MAX_SAFE_SPEED);
+        this.aggregate.body.setLinearVelocity(this.resolvedVelocity);
+      }
+    }
     const impact = Vector3.Distance(this.flight.velocity, this.resolvedVelocity);
     if (impact > IMPACT_THRESHOLD) {
       this.visual.impact(impact);
@@ -313,4 +349,17 @@ export class Drone implements CameraSubject {
     body.setPrestepType(PhysicsPrestepType.DISABLED);
     body.setAngularVelocity(this.zero);
   }
+}
+
+function isFiniteVector(value: Vector3): boolean {
+  return finiteValues(value.x, value.y, value.z);
+}
+
+function finiteValues(...values: number[]): boolean {
+  return values.every(Number.isFinite);
+}
+
+function clampMagnitude(value: Vector3, maximum: number): void {
+  const lengthSquared = value.lengthSquared();
+  if (lengthSquared > maximum * maximum) value.scaleInPlace(maximum / Math.sqrt(lengthSquared));
 }

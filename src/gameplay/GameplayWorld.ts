@@ -96,6 +96,10 @@ export class GameplayWorld {
     return this.hack.isRoleHacking(role);
   }
 
+  heldObjectId(role: DroneRole): string | null {
+    return this.grab.heldObjectId(role);
+  }
+
   describe(): string {
     return `${this.grab.describe()}\n${this.hack.describe()}`;
   }

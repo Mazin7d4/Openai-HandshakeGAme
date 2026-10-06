@@ -190,7 +190,10 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
     game = await GameApp.create({
       canvas,
       createLevel: createTestRoom,
-      devParent: root,
+      uiParent: root,
+      devParent: mode === 'dev-local' || new URLSearchParams(window.location.search).has('debug')
+        ? root
+        : undefined,
       mode,
       multiplayer: session,
       onLeaveGame: () => {
