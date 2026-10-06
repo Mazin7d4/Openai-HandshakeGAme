@@ -115,6 +115,9 @@ export class GameApp {
               quality === 'low' ? 1.5 : quality === 'medium' ? 1 : 0.75,
             );
           },
+          onInteract: () => this.triggerHudAction('interact'),
+          onGrabDrop: () => this.triggerHudAction('grabDrop'),
+          onThrow: () => this.triggerHudAction('throwObject'),
         })
       : null;
     this.removeNetworkStatus = multiplayer
@@ -194,7 +197,7 @@ export class GameApp {
       collarB: DRONE_PALETTES.nee.accent,
     });
     const uiParent = options.uiParent ?? options.devParent;
-    const gameplay = new GameplayWorld(scene, plugin, mode, multiplayer, uiParent);
+    const gameplay = new GameplayWorld(scene, plugin, mode, multiplayer, uiParent, options.onLeaveGame);
 
     const cameraRig = new CinematicCamera(scene);
     cameraRig.snap(drones);
@@ -281,7 +284,7 @@ export class GameApp {
       }
     }
     if (switchDrone && this.mode === 'dev-local') this.switchDevDrone();
-    this.gameplay.update(dt, droneByRole);
+    this.gameplay.update(dt, droneByRole, this.tether.currentStrain);
     this.tether.apply(dt, (drone) => {
       const player = this.players.find((candidate) => candidate.drone === drone);
       return player?.control.kind !== 'remote';
@@ -350,5 +353,20 @@ export class GameApp {
         ? new HumanControlSource(PLAYER_ONE_KEYS)
         : new BotControlSource();
     }
+  }
+
+  private triggerHudAction(action: 'interact' | 'grabDrop' | 'throwObject'): void {
+    const role = this.mode === 'dev-local'
+      ? this.activeDevRole
+      : this.multiplayer?.currentStatus.localRole ?? 'pix';
+    const player = this.players.find((candidate) => candidate.role === role);
+    if (!player) return;
+    this.gameplay.handle(role, player.drone, {
+      grabDrop: action === 'grabDrop',
+      throwObject: action === 'throwObject',
+      interact: action === 'interact',
+      pause: false,
+      switchDrone: false,
+    });
   }
 }

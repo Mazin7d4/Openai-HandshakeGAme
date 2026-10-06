@@ -18,15 +18,26 @@ export class GrabSystem {
   private readonly aimDirection = new Vector3();
   private readonly releasePosition = new Vector3();
   private localRole: DroneRole | null;
+  private readonly onGrab?: (objectId: string, role: DroneRole) => void;
+  private readonly onThrow?: (objectId: string, role: DroneRole) => void;
+  private readonly canGrab?: (objectId: string, role: DroneRole) => boolean;
 
   constructor(
     objects: readonly Grabbable[],
     session: MultiplayerSession | null,
     localRole: DroneRole | null,
+    callbacks?: {
+      onGrab?: (objectId: string, role: DroneRole) => void;
+      onThrow?: (objectId: string, role: DroneRole) => void;
+      canGrab?: (objectId: string, role: DroneRole) => boolean;
+    },
   ) {
     this.objects = objects;
     this.session = session;
     this.localRole = localRole;
+    this.onGrab = callbacks?.onGrab;
+    this.onThrow = callbacks?.onThrow;
+    this.canGrab = callbacks?.canGrab;
   }
 
   sync(status: RoomStatus): void {
@@ -58,10 +69,12 @@ export class GrabSystem {
       }
     }
     if (!nearest) return false;
+    if (this.canGrab && !this.canGrab(nearest.id, role)) return false;
     if (this.session) {
       if (role === this.localRole) this.session.requestGrab(nearest.id);
     } else {
       nearest.grab(role);
+      this.onGrab?.(nearest.id, role);
     }
     return true;
   }
@@ -75,6 +88,7 @@ export class GrabSystem {
     this.throwVelocity.y += THROW_LIFT;
     this.placeForRelease(held, drone, this.aimDirection, true);
     this.release(role, held, this.releasePosition, this.throwVelocity, true);
+    this.onThrow?.(held.id, role);
     return true;
   }
 
@@ -112,12 +126,26 @@ export class GrabSystem {
     return this.objects.find((object) => object.heldBy === role)?.id ?? null;
   }
 
+  objectPosition(id: string): Vector3 | null {
+    return this.objects.find((object) => object.id === id)?.position ?? null;
+  }
+
+  objectHeldBy(id: string): DroneRole | null {
+    return this.objects.find((object) => object.id === id)?.heldBy ?? null;
+  }
+
+  nearbyFastObject(point: Vector3, radius: number, minimumSpeed = 5): boolean {
+    return this.objects.some((object) =>
+      object.heldBy === null && object.distanceTo(point) <= radius && object.speed >= minimumSpeed);
+  }
+
   promptsFor(role: DroneRole, drone: Drone): string[] {
     const held = this.objects.find((object) => object.heldBy === role);
     if (held) return [`[E] Drop ${held.label}`, `[Q] Throw ${held.label}`];
     let nearest: Grabbable | null = null;
     let nearestDistance = Number.POSITIVE_INFINITY;
     for (const object of this.objects) {
+      if (this.canGrab && !this.canGrab(object.id, role)) continue;
       const distance = object.distanceTo(drone.position);
       if (distance <= object.grabRadius && distance < nearestDistance) {
         nearest = object;

@@ -6,6 +6,7 @@ import type {
   DroneRole,
   GrabbableNetworkState,
   HackNetworkState,
+  MissionNetworkState,
   RoomStatus,
 } from './NetworkTypes.ts';
 
@@ -31,6 +32,7 @@ interface SchemaRoomState {
   players: Map<string, SchemaPlayer>;
   objects: Map<string, SchemaObject>;
   hack: SchemaHack;
+  mission: SchemaMission;
 }
 
 interface SchemaObject {
@@ -47,17 +49,38 @@ interface SchemaObject {
 interface SchemaHack {
   stationAOwner: string;
   stationBOwner: string;
+  stationCOwner: string;
   stationAComplete: boolean;
   stationBComplete: boolean;
+  stationCComplete: boolean;
   doorOpen: boolean;
+}
+
+interface SchemaMission {
+  stage: MissionNetworkState['stage'];
+  alarm: boolean;
+  securityActive: boolean;
+  prototypeHeldBy: string;
+  extracted: boolean;
+  elapsedSeconds: number;
+  timesSpotted: number;
+  objectsThrown: number;
+  tetherSaves: number;
 }
 
 const EMPTY_HACK: HackNetworkState = {
   stationAOwner: null,
   stationBOwner: null,
+  stationCOwner: null,
   stationAComplete: false,
   stationBComplete: false,
+  stationCComplete: false,
   doorOpen: false,
+};
+
+const EMPTY_MISSION: MissionNetworkState = {
+  stage: 'infiltrate', alarm: false, securityActive: false, prototypeHeldBy: null,
+  extracted: false, elapsedSeconds: 0, timesSpotted: 0, objectsThrown: 0, tetherSaves: 0,
 };
 
 function serverEndpoint(): string {
@@ -139,6 +162,7 @@ export class MultiplayerSession {
       players: this.players,
       objects: this.objects,
       hack: EMPTY_HACK,
+      mission: EMPTY_MISSION,
     };
 
     room.onStateChange((state) => {
@@ -254,16 +278,28 @@ export class MultiplayerSession {
     });
   }
 
-  startHack(stationId: 'terminal-a' | 'terminal-b'): void {
+  startHack(stationId: 'terminal-a' | 'terminal-b' | 'terminal-c'): void {
     this.room.send('hack-start', { stationId });
   }
 
-  completeHack(stationId: 'terminal-a' | 'terminal-b'): void {
+  completeHack(stationId: 'terminal-a' | 'terminal-b' | 'terminal-c'): void {
     this.room.send('hack-complete', { stationId });
   }
 
-  cancelHack(stationId: 'terminal-a' | 'terminal-b'): void {
+  cancelHack(stationId: 'terminal-a' | 'terminal-b' | 'terminal-c'): void {
     this.room.send('hack-cancel', { stationId });
+  }
+
+  reportSpotted(): void {
+    this.room.send('mission-spotted');
+  }
+
+  reportTetherSave(): void {
+    this.room.send('mission-tether-save');
+  }
+
+  retryMission(): void {
+    this.room.send('mission-retry');
   }
 
   async dispose(): Promise<void> {
@@ -297,11 +333,26 @@ export class MultiplayerSession {
       ? {
           stationAOwner: roleOrNull(state.hack.stationAOwner),
           stationBOwner: roleOrNull(state.hack.stationBOwner),
+          stationCOwner: roleOrNull(state.hack.stationCOwner),
           stationAComplete: state.hack.stationAComplete,
           stationBComplete: state.hack.stationBComplete,
+          stationCComplete: state.hack.stationCComplete,
           doorOpen: state.hack.doorOpen,
         }
       : EMPTY_HACK;
+    const mission: MissionNetworkState = state.mission
+      ? {
+          stage: state.mission.stage,
+          alarm: state.mission.alarm,
+          securityActive: state.mission.securityActive,
+          prototypeHeldBy: roleOrNull(state.mission.prototypeHeldBy),
+          extracted: state.mission.extracted,
+          elapsedSeconds: state.mission.elapsedSeconds,
+          timesSpotted: state.mission.timesSpotted,
+          objectsThrown: state.mission.objectsThrown,
+          tetherSaves: state.mission.tetherSaves,
+        }
+      : EMPTY_MISSION;
     this.status = {
       roomCode: this.roomCode,
       started: state.started,
@@ -309,6 +360,7 @@ export class MultiplayerSession {
       players: this.players,
       objects: this.objects,
       hack,
+      mission,
     };
     this.emit();
   }

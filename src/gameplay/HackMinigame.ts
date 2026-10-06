@@ -14,3 +14,8 @@ export interface HackMinigame {
   rotate(index: number): HackMinigameSnapshot;
   snapshot(): HackMinigameSnapshot;
 }
+
+/** Common lifetime contract for every DOM hacking task. */
+export interface HackMinigameView {
+  dispose(): void;
+}

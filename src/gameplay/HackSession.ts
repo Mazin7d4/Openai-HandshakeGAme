@@ -1,15 +1,19 @@
 import { Color3, Vector3, type HavokPlugin, type Scene } from '@babylonjs/core';
+import type { GameAudio } from '../audio/GameAudio.ts';
 import type { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole, HackNetworkState, RoomStatus } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
 import { Door } from './Door.ts';
+import type { HackMinigameView } from './HackMinigame.ts';
 import { HackStation, type HackStationId } from './HackStation.ts';
+import { MemoryTraceView } from './MemoryTraceView.ts';
 import { PacketRoutingView } from './PacketRoutingView.ts';
+import { SignalMatchView } from './SignalMatchView.ts';
 
 interface ActiveHack {
   station: HackStation;
   role: DroneRole;
-  view: PacketRoutingView;
+  view: HackMinigameView;
 }
 
 /** Owns station proximity, minigame lifetime, completion state and the shared door target. */
@@ -19,12 +23,16 @@ export class HackSession {
 
   private readonly multiplayer: MultiplayerSession | null;
   private readonly uiParent: HTMLElement | null;
+  private readonly audio?: GameAudio;
   private localRole: DroneRole | null;
-  private stationAOwner: DroneRole | null = null;
-  private stationBOwner: DroneRole | null = null;
-  private stationAComplete = false;
-  private stationBComplete = false;
+  private readonly owners: Record<HackStationId, DroneRole | null> = {
+    'terminal-a': null, 'terminal-b': null, 'terminal-c': null,
+  };
+  private readonly completed: Record<HackStationId, boolean> = {
+    'terminal-a': false, 'terminal-b': false, 'terminal-c': false,
+  };
   private doorOpen = false;
+  private alarmed = false;
   private active: ActiveHack | null = null;
 
   constructor(
@@ -32,15 +40,17 @@ export class HackSession {
     plugin: HavokPlugin,
     multiplayer: MultiplayerSession | null,
     uiParent?: HTMLElement,
+    audio?: GameAudio,
   ) {
     this.multiplayer = multiplayer;
     this.uiParent = uiParent ?? null;
+    this.audio = audio;
     this.localRole = multiplayer?.currentStatus.localRole ?? null;
     this.stations = [
       new HackStation(scene, {
         id: 'terminal-a',
-        label: 'PIX ROUTER',
-        position: new Vector3(-2.5, 1.25, -8.5),
+        label: 'PIX PACKET CONSOLE',
+        position: new Vector3(-5.2, 1.25, -5.8),
         interactionRadius: 3.2,
         minigameType: 'packet-routing',
         allowedRole: 'pix',
@@ -48,12 +58,21 @@ export class HackSession {
       }),
       new HackStation(scene, {
         id: 'terminal-b',
-        label: 'NEE ROUTER',
-        position: new Vector3(2.5, 1.25, -8.5),
+        label: 'NEE SIGNAL CONSOLE',
+        position: new Vector3(5.2, 1.25, -5.8),
         interactionRadius: 3.2,
-        minigameType: 'packet-routing',
+        minigameType: 'signal-match',
         allowedRole: 'nee',
         accent: new Color3(1, 0.25, 0.48),
+      }),
+      new HackStation(scene, {
+        id: 'terminal-c',
+        label: 'MEMORY AUTHORIZER',
+        position: new Vector3(3.2, 1.25, -0.8),
+        interactionRadius: 3.1,
+        minigameType: 'memory-trace',
+        allowedRole: 'either',
+        accent: new Color3(0.42, 0.9, 0.62),
       }),
     ];
     this.door = new Door(scene, plugin);
@@ -78,7 +97,8 @@ export class HackSession {
 
   tryStartNearest(role: DroneRole, position: Vector3): boolean {
     const station = this.stations
-      .filter((candidate) => candidate.allowedRole === role)
+      .filter((candidate) => candidate.allowedRole === 'either' || candidate.allowedRole === role)
+      .filter((candidate) => !this.completeFor(candidate.id))
       .sort((a, b) => a.distanceTo(position) - b.distanceTo(position))[0];
     if (!station || !station.canInteract(role, position, this.completeFor(station.id))) return false;
     if (this.multiplayer) {
@@ -101,6 +121,10 @@ export class HackSession {
     return this.active?.role === role;
   }
 
+  setAlarmed(alarmed: boolean): void {
+    this.alarmed = alarmed;
+  }
+
   update(dt: number, drones: ReadonlyMap<DroneRole, Drone>): void {
     if (this.active) {
       const drone = drones.get(this.active.role);
@@ -111,7 +135,7 @@ export class HackSession {
     for (const station of this.stations) {
       station.update(dt, this.ownerFor(station.id), this.completeFor(station.id));
     }
-    this.door.setOpen(this.doorOpen);
+    this.door.setOpen(this.doorOpen && !this.alarmed);
     this.door.update(dt);
     for (const [role, drone] of drones) {
       drone.setFocused(this.ownerForRole(role) !== null);
@@ -119,7 +143,18 @@ export class HackSession {
   }
 
   describe(): string {
-    return `hack A:${this.stationAComplete ? 'complete' : this.stationAOwner ?? '-'} B:${this.stationBComplete ? 'complete' : this.stationBOwner ?? '-'} door:${this.doorOpen ? 'open' : 'locked'}`;
+    return `hack A:${this.completed['terminal-a'] ? 'complete' : this.owners['terminal-a'] ?? '-'} ` +
+      `B:${this.completed['terminal-b'] ? 'complete' : this.owners['terminal-b'] ?? '-'} ` +
+      `C:${this.completed['terminal-c'] ? 'complete' : this.owners['terminal-c'] ?? '-'} ` +
+      `door:${this.doorOpen ? 'open' : 'locked'}`;
+  }
+
+  completionCount(): number {
+    return Object.values(this.completed).filter(Boolean).length;
+  }
+
+  allComplete(): boolean {
+    return this.completionCount() === this.stations.length;
   }
 
   dispose(): void {
@@ -129,21 +164,24 @@ export class HackSession {
   }
 
   private applyState(state: HackNetworkState): void {
-    this.stationAOwner = state.stationAOwner;
-    this.stationBOwner = state.stationBOwner;
-    this.stationAComplete = state.stationAComplete;
-    this.stationBComplete = state.stationBComplete;
+    this.owners['terminal-a'] = state.stationAOwner;
+    this.owners['terminal-b'] = state.stationBOwner;
+    this.owners['terminal-c'] = state.stationCOwner;
+    this.completed['terminal-a'] = state.stationAComplete;
+    this.completed['terminal-b'] = state.stationBComplete;
+    this.completed['terminal-c'] = state.stationCComplete;
     this.doorOpen = state.doorOpen;
   }
 
   private openPuzzle(station: HackStation, role: DroneRole): void {
     if (!this.uiParent || this.active) return;
-    const view = new PacketRoutingView(
-      this.uiParent,
-      station.label,
-      () => this.completeCurrent(),
-      () => this.cancelCurrent(),
-    );
+    const done = () => this.completeCurrent();
+    const cancel = () => this.cancelCurrent();
+    const view = station.minigameType === 'packet-routing'
+      ? new PacketRoutingView(this.uiParent, station.label, done, cancel, this.audio)
+      : station.minigameType === 'signal-match'
+        ? new SignalMatchView(this.uiParent, station.label, done, cancel, this.audio)
+        : new MemoryTraceView(this.uiParent, station.label, done, cancel, this.audio);
     this.active = { station, role, view };
   }
 
@@ -155,7 +193,7 @@ export class HackSession {
     } else {
       this.setComplete(active.station.id, true);
       this.setOwner(active.station.id, null);
-      this.doorOpen = this.stationAComplete && this.stationBComplete;
+      this.doorOpen = this.allComplete();
     }
     this.closeView();
   }
@@ -174,21 +212,19 @@ export class HackSession {
   }
 
   private ownerFor(id: HackStationId): DroneRole | null {
-    return id === 'terminal-a' ? this.stationAOwner : this.stationBOwner;
+    return this.owners[id];
   }
 
   private completeFor(id: HackStationId): boolean {
-    return id === 'terminal-a' ? this.stationAComplete : this.stationBComplete;
+    return this.completed[id];
   }
 
   private setOwner(id: HackStationId, role: DroneRole | null): void {
-    if (id === 'terminal-a') this.stationAOwner = role;
-    else this.stationBOwner = role;
+    this.owners[id] = role;
   }
 
   private setComplete(id: HackStationId, complete: boolean): void {
-    if (id === 'terminal-a') this.stationAComplete = complete;
-    else this.stationBComplete = complete;
+    this.completed[id] = complete;
   }
 
   private ownerForRole(role: DroneRole): HackStation | null {

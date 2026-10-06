@@ -9,9 +9,11 @@ const MAX_PLAYER_SPEED = 28;
 const MAX_OBJECT_SPEED = 32;
 const TERMINAL_RANGE = 5;
 const TERMINALS = {
-  'terminal-a': { x: -2.5, y: 1.25, z: -8.5 },
-  'terminal-b': { x: 2.5, y: 1.25, z: -8.5 },
+  'terminal-a': { x: -5.2, y: 1.25, z: -5.8 },
+  'terminal-b': { x: 5.2, y: 1.25, z: -5.8 },
+  'terminal-c': { x: 3.2, y: 1.25, z: -0.8 },
 };
+const EXTRACTION = { x: -13, y: 2, z: -20 };
 
 const Vec3 = schema(
   {
@@ -66,11 +68,28 @@ const Hack = schema(
   {
     stationAOwner: t.string().default(''),
     stationBOwner: t.string().default(''),
+    stationCOwner: t.string().default(''),
     stationAComplete: t.boolean().default(false),
     stationBComplete: t.boolean().default(false),
+    stationCComplete: t.boolean().default(false),
     doorOpen: t.boolean().default(false),
   },
   'Hack',
+);
+
+const Mission = schema(
+  {
+    stage: t.string().default('infiltrate'),
+    alarm: t.boolean().default(false),
+    securityActive: t.boolean().default(false),
+    prototypeHeldBy: t.string().default(''),
+    extracted: t.boolean().default(false),
+    elapsedSeconds: t.float32().default(0),
+    timesSpotted: t.float32().default(0),
+    objectsThrown: t.float32().default(0),
+    tetherSaves: t.float32().default(0),
+  },
+  'Mission',
 );
 
 const HandshakeState = schema(
@@ -79,6 +98,7 @@ const HandshakeState = schema(
     players: t.map(Player),
     objects: t.map(Grabbable),
     hack: Hack,
+    mission: Mission,
   },
   'HandshakeState',
 );
@@ -129,14 +149,16 @@ function createGrabbable(id, x, y, z, grabRadius) {
 
 class HandshakeRoom extends Room {
   state = new HandshakeState();
+  missionStartedAt = Date.now();
 
   onCreate() {
     this.maxClients = 2;
     this.roomId = roomCode();
     this.setMetadata({ code: this.roomId });
-    this.state.objects.set('cargo-core', createGrabbable('cargo-core', -1.6, 0.65, -11.7, 3.3));
-    this.state.objects.set('crate-blue', createGrabbable('crate-blue', 1.1, 0.65, -10.7, 3.1));
-    this.state.objects.set('crate-pink', createGrabbable('crate-pink', 3.2, 0.65, -12, 3));
+    this.state.objects.set('cargo-core', createGrabbable('cargo-core', -5.5, 0.65, -10.5, 3.3));
+    this.state.objects.set('crate-blue', createGrabbable('crate-blue', 4.2, 0.65, 7.2, 3.1));
+    this.state.objects.set('crate-pink', createGrabbable('crate-pink', -4.5, 0.65, 10.5, 3));
+    this.state.objects.set('prototype', createGrabbable('prototype', 0, 1.65, 16.2, 3.2));
     this.onMessage('snapshot', (client, message) => {
       this.applySnapshot(client.sessionId, message);
     });
@@ -146,7 +168,13 @@ class HandshakeRoom extends Room {
     this.onMessage('hack-start', (client, message) => this.startHack(client.sessionId, message));
     this.onMessage('hack-complete', (client, message) => this.completeHack(client.sessionId, message));
     this.onMessage('hack-cancel', (client, message) => this.cancelHack(client.sessionId, message));
-    this.setSimulationInterval(() => this.updateHack());
+    this.onMessage('mission-spotted', (client) => this.reportSpotted(client.sessionId));
+    this.onMessage('mission-tether-save', (client) => this.reportTetherSave(client.sessionId));
+    this.onMessage('mission-retry', () => this.resetMission());
+    this.setSimulationInterval(() => {
+      this.updateHack();
+      this.updateMission();
+    });
   }
 
   onJoin(client) {
@@ -158,7 +186,7 @@ class HandshakeRoom extends Room {
     player.connected = true;
     player.position.x = role === 'pix' ? -1.6 : 1.6;
     player.position.y = 2.15;
-    player.position.z = -15;
+    player.position.z = -23;
     this.state.players.set(client.sessionId, player);
     this.state.started = this.state.players.size === 2;
   }
@@ -212,6 +240,7 @@ class HandshakeRoom extends Room {
     if (!player || !object || distance(player.position, object.position) > object.grabRadius) {
       return;
     }
+    if (object.id === 'prototype' && !this.state.hack.doorOpen) return;
     for (const other of this.state.objects.values()) {
       if (other.id !== object.id && other.heldBy === player.role) {
         return;
@@ -221,6 +250,7 @@ class HandshakeRoom extends Room {
     object.authority = player.role;
     object.mode = 'held';
     object.revision += 1;
+    if (object.id === 'prototype') this.triggerAlarm(player.role);
   }
 
   releaseObject(sessionId, message) {
@@ -235,6 +265,7 @@ class HandshakeRoom extends Room {
     object.authority = role;
     object.mode = 'free';
     object.revision += 1;
+    if (message?.thrown === true) this.state.mission.objectsThrown += 1;
   }
 
   applyObjectSnapshot(sessionId, message) {
@@ -256,6 +287,8 @@ class HandshakeRoom extends Room {
       ? { owner: 'stationAOwner', complete: 'stationAComplete', role: 'pix' }
       : stationId === 'terminal-b'
         ? { owner: 'stationBOwner', complete: 'stationBComplete', role: 'nee' }
+        : stationId === 'terminal-c'
+          ? { owner: 'stationCOwner', complete: 'stationCComplete', role: 'either' }
         : null;
   }
 
@@ -267,7 +300,7 @@ class HandshakeRoom extends Room {
     if (
       !player ||
       !fields ||
-      player.role !== fields.role ||
+      (fields.role !== 'either' && player.role !== fields.role) ||
       !position ||
       distance(player.position, position) > TERMINAL_RANGE ||
       this.state.hack[fields.complete]
@@ -292,7 +325,8 @@ class HandshakeRoom extends Room {
     this.state.hack[fields.complete] = true;
     this.state.hack[fields.owner] = '';
     this.state.hack.doorOpen =
-      this.state.hack.stationAComplete && this.state.hack.stationBComplete;
+      this.state.hack.stationAComplete && this.state.hack.stationBComplete &&
+      this.state.hack.stationCComplete;
   }
 
   cancelHack(sessionId, message) {
@@ -304,7 +338,9 @@ class HandshakeRoom extends Room {
   }
 
   updateHack() {
-    for (const [field, stationId] of [['stationAOwner', 'terminal-a'], ['stationBOwner', 'terminal-b']]) {
+    for (const [field, stationId] of [
+      ['stationAOwner', 'terminal-a'], ['stationBOwner', 'terminal-b'], ['stationCOwner', 'terminal-c'],
+    ]) {
       const role = this.state.hack[field];
       if (!role) continue;
       const player = Array.from(this.state.players.values()).find((candidate) => candidate.role === role);
@@ -314,9 +350,88 @@ class HandshakeRoom extends Room {
     }
   }
 
+  triggerAlarm(role) {
+    if (this.state.mission.alarm || !this.state.hack.doorOpen) return;
+    this.state.mission.stage = 'escape';
+    this.state.mission.alarm = true;
+    this.state.mission.securityActive = true;
+    this.state.mission.prototypeHeldBy = role;
+  }
+
+  updateMission() {
+    const mission = this.state.mission;
+    mission.elapsedSeconds = (Date.now() - this.missionStartedAt) / 1000;
+    const players = Array.from(this.state.players.values());
+    if (mission.stage === 'infiltrate' && players.some((player) => player.position.z > -18)) {
+      mission.stage = 'hack-security';
+    }
+    if (mission.stage === 'hack-security' && this.state.hack.doorOpen) {
+      mission.stage = 'steal-prototype';
+    }
+    const prototype = this.state.objects.get('prototype');
+    mission.prototypeHeldBy = prototype?.heldBy ?? '';
+    if (mission.alarm && prototype?.heldBy) {
+      const carrier = players.find((player) => player.role === prototype.heldBy);
+      const bothNear = players.length === 2 && players.every(
+        (player) => distance(player.position, EXTRACTION) <= 5.5,
+      );
+      if (carrier && distance(carrier.position, EXTRACTION) <= 4.5 && bothNear) {
+        mission.extracted = true;
+        mission.stage = 'complete';
+        mission.securityActive = false;
+      }
+    }
+  }
+
+  reportSpotted(sessionId) {
+    if (this.state.players.has(sessionId) && this.state.mission.stage !== 'complete') {
+      this.state.mission.timesSpotted += 1;
+    }
+  }
+
+  reportTetherSave(sessionId) {
+    if (this.state.players.has(sessionId) && this.state.mission.securityActive) {
+      this.state.mission.tetherSaves += 1;
+    }
+  }
+
+  resetMission() {
+    this.state.hack.stationAOwner = '';
+    this.state.hack.stationBOwner = '';
+    this.state.hack.stationCOwner = '';
+    this.state.hack.stationAComplete = false;
+    this.state.hack.stationBComplete = false;
+    this.state.hack.stationCComplete = false;
+    this.state.hack.doorOpen = false;
+    const prototype = this.state.objects.get('prototype');
+    if (prototype) {
+      prototype.heldBy = '';
+      prototype.mode = 'free';
+      prototype.position.x = 0;
+      prototype.position.y = 1.65;
+      prototype.position.z = 16.2;
+      prototype.velocity.x = 0;
+      prototype.velocity.y = 0;
+      prototype.velocity.z = 0;
+      prototype.revision += 1;
+    }
+    const mission = this.state.mission;
+    mission.stage = 'infiltrate';
+    mission.alarm = false;
+    mission.securityActive = false;
+    mission.prototypeHeldBy = '';
+    mission.extracted = false;
+    mission.elapsedSeconds = 0;
+    mission.timesSpotted = 0;
+    mission.objectsThrown = 0;
+    mission.tetherSaves = 0;
+    this.missionStartedAt = Date.now();
+  }
+
   releaseRole(role) {
     if (this.state.hack.stationAOwner === role) this.state.hack.stationAOwner = '';
     if (this.state.hack.stationBOwner === role) this.state.hack.stationBOwner = '';
+    if (this.state.hack.stationCOwner === role) this.state.hack.stationCOwner = '';
     const fallback = role === 'pix' ? 'nee' : 'pix';
     const fallbackConnected = Array.from(this.state.players.values()).some(
       (player) => player.role === fallback && player.connected,

@@ -11,15 +11,16 @@ import { addStaticBody } from '../physics/staticBody.ts';
 import { applySolidColor } from '../scene/solidMaterial.ts';
 import type { Interactable } from './Interactable.ts';
 
-export type HackStationId = 'terminal-a' | 'terminal-b';
+export type HackStationId = 'terminal-a' | 'terminal-b' | 'terminal-c';
+export type HackMinigameType = 'packet-routing' | 'signal-match' | 'memory-trace';
 
 export interface HackStationSpec {
   id: HackStationId;
   label: string;
   position: Vector3;
   interactionRadius: number;
-  minigameType: 'packet-routing';
-  allowedRole: DroneRole;
+  minigameType: HackMinigameType;
+  allowedRole: DroneRole | 'either';
   accent: Color3;
 }
 
@@ -29,8 +30,8 @@ export class HackStation implements Interactable {
   readonly label: string;
   readonly position: Vector3;
   readonly interactionRadius: number;
-  readonly minigameType: 'packet-routing';
-  readonly allowedRole: DroneRole;
+  readonly minigameType: HackMinigameType;
+  readonly allowedRole: DroneRole | 'either';
   readonly mesh: Mesh;
 
   private readonly indicator: Mesh;
@@ -63,7 +64,8 @@ export class HackStation implements Interactable {
   }
 
   canInteract(role: DroneRole, point: Vector3, complete: boolean): boolean {
-    return !complete && role === this.allowedRole && this.distanceTo(point) <= this.interactionRadius;
+    return !complete && (this.allowedRole === 'either' || role === this.allowedRole) &&
+      this.distanceTo(point) <= this.interactionRadius;
   }
 
   update(dt: number, owner: DroneRole | null, complete: boolean): void {

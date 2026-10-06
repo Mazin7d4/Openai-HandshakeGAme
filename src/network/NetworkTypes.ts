@@ -36,9 +36,25 @@ export interface GrabbableNetworkState {
 export interface HackNetworkState {
   stationAOwner: DroneRole | null;
   stationBOwner: DroneRole | null;
+  stationCOwner: DroneRole | null;
   stationAComplete: boolean;
   stationBComplete: boolean;
+  stationCComplete: boolean;
   doorOpen: boolean;
+}
+
+export type MissionStage = 'infiltrate' | 'hack-security' | 'steal-prototype' | 'escape' | 'complete';
+
+export interface MissionNetworkState {
+  stage: MissionStage;
+  alarm: boolean;
+  securityActive: boolean;
+  prototypeHeldBy: DroneRole | null;
+  extracted: boolean;
+  elapsedSeconds: number;
+  timesSpotted: number;
+  objectsThrown: number;
+  tetherSaves: number;
 }
 
 export interface RoomStatus {
@@ -48,4 +64,5 @@ export interface RoomStatus {
   players: ReadonlyMap<DroneRole, DroneNetworkState>;
   objects: ReadonlyMap<string, GrabbableNetworkState>;
   hack: HackNetworkState;
+  mission: MissionNetworkState;
 }

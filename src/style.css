@@ -219,15 +219,20 @@ input {
 .interaction-prompt.visible {
   opacity: 1;
   transform: translate(-50%, 0);
+  pointer-events: auto;
 }
 
-.interaction-prompt span {
+.interaction-prompt button {
   padding: 5px 9px;
+  border: 0;
   border-radius: 6px;
+  color: inherit;
   background: rgba(111, 209, 245, 0.1);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
+  cursor: pointer;
+  touch-action: manipulation;
 }
 
 .active-drone-hud {
@@ -417,4 +422,68 @@ input {
 
 @keyframes access-pulse {
   to { text-shadow: 0 0 16px rgba(114, 240, 203, 0.85); }
+}
+
+.signal-scope {
+  width: 100%;
+  margin: 22px 0 12px;
+  border: 1px solid rgba(103, 202, 236, 0.24);
+  border-radius: 12px;
+  background: repeating-linear-gradient(0deg, rgba(88, 158, 179, 0.07) 0 1px, transparent 1px 25px), #06141b;
+}
+
+.signal-wave { fill: none; stroke-width: 3; }
+.signal-wave.target { stroke: rgba(113, 235, 199, 0.48); }
+.signal-wave.player { stroke: #72dbff; filter: drop-shadow(0 0 5px #42bfe8); }
+
+.signal-controls { display: grid; gap: 12px; margin: 15px 0; }
+.signal-controls label { display: grid; grid-template-columns: 100px 1fr; align-items: center; color: #a9c7d2; font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+.signal-controls input { width: 100%; accent-color: #65dfc1; touch-action: none; }
+.match-meter, .detection-meter { height: 7px; overflow: hidden; border-radius: 99px; background: rgba(119, 171, 188, .16); }
+.match-meter { margin: 18px 0 12px; }
+.match-meter > div, .detection-meter > div { width: 0; height: 100%; background: linear-gradient(90deg, #ff775e, #ffd16a, #64e5c2); transition: width 100ms linear; }
+
+.memory-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 26px auto 20px; max-width: 460px; }
+.memory-node { min-height: 92px; border: 1px solid rgba(117, 211, 248, .28); border-radius: 14px; color: #6d8993; background: rgba(20, 48, 58, .72); font-size: 22px; font-weight: 800; cursor: pointer; touch-action: manipulation; transition: 100ms ease; }
+.memory-node.active { color: #071b22; background: #70eccb; border-color: #b5ffec; box-shadow: 0 0 30px rgba(112, 236, 203, .55); transform: scale(.96); }
+.hack-overlay.failure .hack-status { color: #ff8f82; }
+
+.mission-objective {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  z-index: 5;
+  width: min(360px, calc(100% - 300px));
+  padding: 11px 18px 12px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(103, 202, 236, .22);
+  border-radius: 10px;
+  color: #e9faff;
+  background: rgba(6, 19, 25, .83);
+  text-align: center;
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+}
+.mission-objective > span { color: #69d7f8; font-size: 9px; font-weight: 800; letter-spacing: .18em; }
+.mission-objective h2 { margin: 3px 0 1px; font-size: 17px; letter-spacing: .08em; }
+.mission-objective p { margin-bottom: 7px; color: #9cb9c3; font-size: 11px; }
+.mission-objective.alarm { border-color: rgba(255, 88, 70, .55); animation: alarm-border 520ms ease-in-out infinite alternate; }
+.mission-objective.alarm > span { color: #ff7668; }
+.detection-meter > div { background: linear-gradient(90deg, #ffd36b, #ff574a); }
+
+.mission-complete-overlay { position: absolute; inset: 0; z-index: 30; display: none; place-items: center; padding: 24px; background: rgba(3, 12, 16, .82); backdrop-filter: blur(12px); }
+.mission-complete-overlay.visible { display: grid; }
+.mission-complete-panel { width: min(500px, 100%); padding: 36px; border: 1px solid rgba(101, 230, 197, .42); border-radius: 18px; color: #e9fffa; background: linear-gradient(150deg, #102c31, #07171d); text-align: center; box-shadow: 0 25px 90px #0009; }
+.mission-complete-panel h1 { margin: 8px 0 24px; letter-spacing: .08em; }
+.mission-stats { display: grid; grid-template-columns: 1fr auto; gap: 10px 22px; padding: 18px; border-radius: 10px; background: #06151b; text-align: left; }
+.mission-stats dt { color: #8aabb5; font-size: 11px; font-weight: 800; letter-spacing: .07em; }
+.mission-stats dd { color: #71e8c8; font-weight: 800; font-variant-numeric: tabular-nums; }
+.mission-complete-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; }
+
+@keyframes alarm-border { to { box-shadow: 0 0 25px rgba(255, 55, 40, .36); } }
+
+@media (max-width: 760px) {
+  .mission-objective { top: 54px; width: calc(100% - 24px); }
+  .hack-board-shell { grid-template-columns: 1fr; }
+  .memory-node { min-height: 70px; }
 }

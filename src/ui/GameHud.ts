@@ -5,6 +5,9 @@ export interface GameHudOptions {
   onResume: () => void;
   onLeave: () => void;
   onGraphicsQuality: (quality: 'low' | 'medium' | 'high') => void;
+  onInteract: () => void;
+  onGrabDrop: () => void;
+  onThrow: () => void;
 }
 
 /** Lightweight contextual HUD and pause/settings/controls navigation. */
@@ -15,6 +18,8 @@ export class GameHud {
   private readonly panel: HTMLElement;
   private readonly options: GameHudOptions;
   private paused = false;
+  private promptKey = '';
+  private activeDroneText = '';
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (event.code === 'Escape' && this.paused) {
@@ -43,15 +48,27 @@ export class GameHud {
   }
 
   update(prompts: readonly string[], mode: GameMode, activeRole: DroneRole): void {
-    this.prompt.replaceChildren(...prompts.map((text) => {
-      const item = document.createElement('span');
-      item.textContent = text;
-      return item;
-    }));
+    const promptKey = prompts.join('\u0000');
+    if (promptKey !== this.promptKey) {
+      this.promptKey = promptKey;
+      this.prompt.replaceChildren(...prompts.map((text) => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.textContent = text;
+        item.addEventListener('click', text.startsWith('[F]')
+          ? this.options.onInteract
+          : text.startsWith('[Q]') ? this.options.onThrow : this.options.onGrabDrop);
+        return item;
+      }));
+    }
     this.prompt.classList.toggle('visible', prompts.length > 0 && !this.paused);
-    this.activeDrone.textContent = mode === 'dev-local'
+    const activeDroneText = mode === 'dev-local'
       ? `ACTIVE: ${activeRole.toUpperCase()}  ·  [TAB] SWITCH`
       : activeRole.toUpperCase();
+    if (activeDroneText !== this.activeDroneText) {
+      this.activeDroneText = activeDroneText;
+      this.activeDrone.textContent = activeDroneText;
+    }
   }
 
   setPaused(paused: boolean): void {

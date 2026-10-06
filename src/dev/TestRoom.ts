@@ -280,62 +280,68 @@ export function createLegacyTestRoom(scene: Scene): Vector3 {
 
 /** Compact tech-lab test layout for interaction, traversal and tether situations. */
 export function createTestRoom(scene: Scene): Vector3 {
-  const floor = new Color3(0.3, 0.36, 0.4);
-  const wall = new Color3(0.48, 0.55, 0.59);
-  const dark = new Color3(0.12, 0.18, 0.22);
-  const lab = new Color3(0.36, 0.5, 0.56);
-  const server = new Color3(0.16, 0.25, 0.3);
-  const accent = new Color3(0.24, 0.62, 0.7);
-  const warning = new Color3(0.76, 0.43, 0.22);
+  const floor = new Color3(0.24, 0.3, 0.33);
+  const wall = new Color3(0.5, 0.57, 0.59);
+  const dark = new Color3(0.1, 0.16, 0.19);
+  const lab = new Color3(0.34, 0.48, 0.52);
+  const server = new Color3(0.13, 0.22, 0.26);
+  const cyan = new Color3(0.19, 0.62, 0.68);
+  const coral = new Color3(0.78, 0.35, 0.28);
+  const glass = new Color3(0.42, 0.68, 0.72);
 
-  addBox(scene, { name: 'tech-floor', x: 0, y: -0.5, z: 0, width: 32, height: 1, depth: 44, color: floor });
-  for (const [name, x, z, width, depth] of [
-    ['tech-wall-west', -16, 0, 1, 44],
-    ['tech-wall-east', 16, 0, 1, 44],
-    ['tech-wall-south', 0, -22, 32, 1],
-    ['tech-wall-north', 0, 22, 32, 1],
-  ] as const) {
-    addBox(scene, { name, x, y: 4, z, width, height: 8, depth, color: wall });
+  // Exterior apron and full interior footprint.
+  addBox(scene, { name: 'lab-floor', x: 0, y: -0.5, z: 0, width: 38, height: 1, depth: 54, color: floor });
+  addBox(scene, { name: 'extraction-pad', x: -13, y: 0.04, z: -20, width: 7, height: 0.12, depth: 7, color: cyan });
+
+  // Perimeter is deliberately segmented: reception opening south, emergency route west.
+  addBox(scene, { name: 'south-wall-left', x: -11.5, y: 4, z: -17.5, width: 15, height: 8, depth: 0.8, color: wall });
+  addBox(scene, { name: 'south-wall-right', x: 11.5, y: 4, z: -17.5, width: 15, height: 8, depth: 0.8, color: wall });
+  addBox(scene, { name: 'south-entry-lintel', x: 0, y: 6.7, z: -17.5, width: 8, height: 2.6, depth: 0.8, color: dark });
+  addBox(scene, { name: 'east-wall', x: 18.5, y: 4, z: 4.5, width: 1, height: 8, depth: 45, color: wall });
+  addBox(scene, { name: 'north-wall', x: 0, y: 4, z: 26.5, width: 38, height: 8, depth: 1, color: wall });
+  addBox(scene, { name: 'west-wall-north', x: -18.5, y: 4, z: 10, width: 1, height: 8, depth: 33, color: wall });
+  addBox(scene, { name: 'west-wall-south', x: -18.5, y: 4, z: -15, width: 1, height: 8, depth: 5, color: wall });
+
+  // Reception and office: low furniture leaves two small routes and throwable clutter.
+  addBox(scene, { name: 'reception-desk', x: -7, y: 0.8, z: -13.2, width: 6, height: 1.6, depth: 1.2, color: lab });
+  addBox(scene, { name: 'office-desk-left', x: -7, y: 0.75, z: -9.5, width: 4, height: 1.5, depth: 1.4, color: lab });
+  addBox(scene, { name: 'office-desk-right', x: 7, y: 0.75, z: -10.2, width: 4, height: 1.5, depth: 1.4, color: lab });
+  addBox(scene, { name: 'office-glass-left', x: -10.5, y: 2.3, z: -7.4, width: 6, height: 4.6, depth: 0.18, color: glass });
+  addBox(scene, { name: 'office-glass-right', x: 10.5, y: 2.3, z: -7.4, width: 6, height: 4.6, depth: 0.18, color: glass });
+
+  // Server/security room: paired terminals sit apart so players have independent UI and space.
+  for (const [index, x] of [-15, -12, 12, 15].entries()) {
+    addBox(scene, { name: `server-rack-${index}`, x, y: 1.6, z: -3.5, width: 1.8, height: 3.2, depth: 4, color: server });
   }
+  addBox(scene, { name: 'server-shelf-left', x: -10, y: 2.2, z: -1.5, width: 0.7, height: 4.4, depth: 5.5, color: dark });
+  addBox(scene, { name: 'server-shelf-right', x: 10, y: 2.2, z: -1.5, width: 0.7, height: 4.4, depth: 5.5, color: dark });
+  addBox(scene, { name: 'security-wall-left', x: -11.2, y: 4, z: 2, width: 14.5, height: 8, depth: 0.8, color: dark });
+  addBox(scene, { name: 'security-wall-right', x: 11.2, y: 4, z: 2, width: 14.5, height: 8, depth: 0.8, color: dark });
+  addBox(scene, { name: 'security-lintel', x: 0, y: 6.5, z: 2, width: 8, height: 3, depth: 0.8, color: dark });
 
-  // Spawn lab: desks, shelves and server racks frame a readable central route.
-  addBox(scene, { name: 'lab-desk-left', x: -7, y: 0.85, z: -13, width: 4.5, height: 1.7, depth: 1.3, color: lab });
-  addBox(scene, { name: 'lab-desk-right', x: 7, y: 0.85, z: -11, width: 4.5, height: 1.7, depth: 1.3, color: lab });
-  for (const [index, x] of [-11, 11].entries()) {
-    for (let row = 0; row < 3; row++) {
-      addBox(scene, {
-        name: `server-rack-${index}-${row}`,
-        x,
-        y: 1.25,
-        z: -9 + row * 3.2,
-        width: 1.7,
-        height: 2.5,
-        depth: 1.25,
-        color: server,
-      });
-    }
-  }
-  addBox(scene, { name: 'tether-obstacle-left', x: -6, y: 1.7, z: -5, width: 2, height: 3.4, depth: 2, color: accent });
-  addBox(scene, { name: 'tether-obstacle-right', x: 6, y: 1.25, z: -5, width: 2.2, height: 2.5, depth: 2.2, color: warning });
+  // Robotics lab: offset gantries, shelf gaps and a narrow tether passage.
+  addBox(scene, { name: 'robotics-bench-left', x: -7, y: 1, z: 7.2, width: 6, height: 2, depth: 2, color: lab });
+  addBox(scene, { name: 'robotics-bench-right', x: 7, y: 1, z: 8.8, width: 6, height: 2, depth: 2, color: lab });
+  addBox(scene, { name: 'narrow-left', x: -2.2, y: 2, z: 9, width: 0.6, height: 4, depth: 7, color: wall });
+  addBox(scene, { name: 'narrow-right', x: 2.2, y: 2, z: 9, width: 0.6, height: 4, depth: 7, color: wall });
+  addBox(scene, { name: 'robotics-gantry', x: 0, y: 5.2, z: 8, width: 13, height: 0.5, depth: 2, color: cyan });
+  addBox(scene, { name: 'vertical-platform-low', x: 10, y: 1.6, z: 12, width: 4, height: 0.4, depth: 3, color: coral });
+  addBox(scene, { name: 'vertical-platform-high', x: 10, y: 4.3, z: 16, width: 4, height: 0.4, depth: 3, color: cyan });
 
-  // Security divider and physical door opening.
-  addBox(scene, { name: 'security-wall-left', x: -9.5, y: 4, z: 2, width: 13, height: 8, depth: 0.8, color: dark });
-  addBox(scene, { name: 'security-wall-right', x: 9.5, y: 4, z: 2, width: 13, height: 8, depth: 0.8, color: dark });
-  addBox(scene, { name: 'security-lintel', x: 0, y: 6.5, z: 2, width: 6, height: 3, depth: 0.8, color: dark });
+  // Vault plus raised observation shelf.
+  addBox(scene, { name: 'vault-back', x: 0, y: 3, z: 20, width: 13, height: 6, depth: 0.8, color: dark });
+  addBox(scene, { name: 'vault-left', x: -6.5, y: 3, z: 17, width: 0.8, height: 6, depth: 6, color: dark });
+  addBox(scene, { name: 'vault-right', x: 6.5, y: 3, z: 17, width: 0.8, height: 6, depth: 6, color: dark });
+  addBox(scene, { name: 'vault-plinth', x: 0, y: 0.65, z: 16.2, width: 3, height: 1.3, depth: 2.2, color: coral });
+  addBox(scene, { name: 'vault-shelf', x: 0, y: 4.4, z: 19, width: 9, height: 0.35, depth: 1.6, color: cyan });
 
-  // A narrow post-door service passage creates useful tether corners.
-  addBox(scene, { name: 'passage-left', x: -3.4, y: 1.8, z: 7, width: 0.7, height: 3.6, depth: 9, color: wall });
-  addBox(scene, { name: 'passage-right', x: 3.4, y: 1.8, z: 7, width: 0.7, height: 3.6, depth: 9, color: wall });
-  addBox(scene, { name: 'passage-overhead', x: 0, y: 4.1, z: 7, width: 7.5, height: 0.45, depth: 9, color: dark });
+  // Alarm escape is a west service corridor, not the central entry path.
+  addBox(scene, { name: 'escape-divider-south', x: -12, y: 3, z: -0.25, width: 0.7, height: 6, depth: 18.5, color: dark });
+  addBox(scene, { name: 'escape-divider-north', x: -12, y: 3, z: 17.25, width: 0.7, height: 6, depth: 0.5, color: dark });
+  addBox(scene, { name: 'escape-ceiling', x: -15.2, y: 4.3, z: 4, width: 6, height: 0.4, depth: 27, color: wall });
+  addBox(scene, { name: 'escape-turn', x: -15, y: 2.5, z: -9.5, width: 7, height: 5, depth: 0.7, color: dark });
+  // A vent-height alternate opening above the turn rewards vertical flight.
+  addBox(scene, { name: 'escape-turn-lintel', x: -15, y: 6.2, z: -9.5, width: 7, height: 2.4, depth: 0.7, color: wall });
 
-  // Vertical traversal steps and a small prototype vault at the back.
-  addBox(scene, { name: 'vertical-step-1', x: -9, y: 1.2, z: 7, width: 4, height: 0.45, depth: 3, color: accent });
-  addBox(scene, { name: 'vertical-step-2', x: -9, y: 3.2, z: 11, width: 4, height: 0.45, depth: 3, color: accent });
-  addBox(scene, { name: 'vertical-step-3', x: -9, y: 5.2, z: 15, width: 4, height: 0.45, depth: 3, color: accent });
-  addBox(scene, { name: 'vault-back', x: 0, y: 3, z: 18.5, width: 12, height: 6, depth: 0.8, color: dark });
-  addBox(scene, { name: 'vault-left', x: -6, y: 3, z: 16, width: 0.8, height: 6, depth: 5, color: dark });
-  addBox(scene, { name: 'vault-right', x: 6, y: 3, z: 16, width: 0.8, height: 6, depth: 5, color: dark });
-  addBox(scene, { name: 'vault-plinth', x: 0, y: 0.65, z: 16.2, width: 3, height: 1.3, depth: 2.2, color: warning });
-
-  return new Vector3(0, 2.15, -15);
+  return new Vector3(0, 2.15, -23);
 }

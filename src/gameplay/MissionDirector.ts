@@ -1,0 +1,272 @@
+import { Color3, PointLight, Vector3, type Scene } from '@babylonjs/core';
+import type { GameAudio } from '../audio/GameAudio.ts';
+import type { GameMode } from '../app/GameMode.ts';
+import type { MultiplayerSession } from '../network/MultiplayerSession.ts';
+import type { DroneRole, MissionNetworkState, RoomStatus } from '../network/NetworkTypes.ts';
+import type { Drone } from '../player/Drone.ts';
+import type { GrabSystem } from './GrabSystem.ts';
+import type { HackSession } from './HackSession.ts';
+import { SecuritySystem } from './SecuritySystem.ts';
+
+const EXTRACTION = new Vector3(-13, 2, -20);
+
+const FRESH_STATE: MissionNetworkState = {
+  stage: 'infiltrate', alarm: false, securityActive: false, prototypeHeldBy: null,
+  extracted: false, elapsedSeconds: 0, timesSpotted: 0, objectsThrown: 0, tetherSaves: 0,
+};
+
+/** Drives the complete Prototype Theft loop without owning flight, tether or grab mechanics. */
+export class MissionDirector {
+  private state: MissionNetworkState = { ...FRESH_STATE };
+  private readonly multiplayer: MultiplayerSession | null;
+  private readonly security: SecuritySystem;
+  private readonly audio: GameAudio;
+  private readonly alarmLight: PointLight;
+  private readonly objective: HTMLElement | null;
+  private readonly objectiveTitle: HTMLHeadingElement | null;
+  private readonly objectiveDetail: HTMLParagraphElement | null;
+  private readonly detectionFill: HTMLDivElement | null;
+  private readonly completeOverlay: HTMLDivElement | null;
+  private readonly stats: HTMLDListElement | null;
+  private localElapsed = 0;
+  private lastStage = this.state.stage;
+  private spotCooldown = 0;
+  private tetherSaveCooldown = 0;
+  private completedPresented = false;
+  private cameraDisabledFor = 0;
+  private hacksWereComplete = false;
+
+  constructor(
+    scene: Scene,
+    mode: GameMode,
+    multiplayer: MultiplayerSession | null,
+    grab: GrabSystem,
+    audio: GameAudio,
+    uiParent?: HTMLElement,
+    onLeave?: () => void,
+  ) {
+    this.multiplayer = multiplayer;
+    this.audio = audio;
+    this.alarmLight = new PointLight('alarm-light', new Vector3(0, 5.5, 8), scene);
+    this.alarmLight.diffuse = new Color3(1, 0.05, 0.03);
+    this.alarmLight.intensity = 0;
+    this.security = new SecuritySystem(scene, {
+      onSpotted: (role) => this.spotted(role),
+      hasFastObjectNear: (point, radius) => grab.nearbyFastObject(point, radius),
+    }, audio);
+
+    if (uiParent) {
+      const objective = document.createElement('aside');
+      this.objective = objective;
+      objective.className = 'mission-objective';
+      objective.dataset.testid = 'mission-objective';
+      const kicker = document.createElement('span');
+      kicker.textContent = 'PROTOTYPE THEFT';
+      this.objectiveTitle = document.createElement('h2');
+      this.objectiveDetail = document.createElement('p');
+      const detection = document.createElement('div');
+      detection.className = 'detection-meter';
+      this.detectionFill = document.createElement('div');
+      detection.append(this.detectionFill);
+      objective.append(kicker, this.objectiveTitle, this.objectiveDetail, detection);
+
+      const completeOverlay = document.createElement('div');
+      this.completeOverlay = completeOverlay;
+      completeOverlay.className = 'mission-complete-overlay';
+      completeOverlay.dataset.testid = 'mission-complete';
+      const panel = document.createElement('section');
+      panel.className = 'mission-complete-panel';
+      panel.innerHTML = '<p class="menu-kicker">PROTOTYPE SECURED</p><h1>MISSION COMPLETE</h1>';
+      this.stats = document.createElement('dl');
+      this.stats.className = 'mission-stats';
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'menu-button';
+      retry.textContent = 'RETRY';
+      retry.dataset.testid = 'retry-mission';
+      retry.addEventListener('click', () => {
+        if (mode === 'multiplayer') multiplayer?.retryMission();
+        else this.resetLocal();
+      });
+      const menu = document.createElement('button');
+      menu.type = 'button';
+      menu.className = 'menu-button';
+      menu.textContent = 'RETURN TO MENU';
+      menu.addEventListener('click', () => onLeave?.());
+      const actions = document.createElement('div');
+      actions.className = 'mission-complete-actions';
+      actions.append(retry, menu);
+      panel.append(this.stats, actions);
+      completeOverlay.append(panel);
+      uiParent.append(objective, completeOverlay);
+    } else {
+      this.objective = null;
+      this.objectiveTitle = null;
+      this.objectiveDetail = null;
+      this.detectionFill = null;
+      this.completeOverlay = null;
+      this.stats = null;
+    }
+    this.renderObjective(0);
+  }
+
+  sync(status: RoomStatus): void {
+    const previousAlarm = this.state.alarm;
+    this.state = { ...status.mission };
+    if (!previousAlarm && this.state.alarm) this.beginAlarm();
+    this.presentStageChange();
+  }
+
+  notifyGrab(objectId: string, role: DroneRole): void {
+    if (this.multiplayer || objectId !== 'prototype' || !this.state.stage.startsWith('steal')) return;
+    this.state = { ...this.state, stage: 'escape', alarm: true, securityActive: true, prototypeHeldBy: role };
+    this.beginAlarm();
+  }
+
+  notifyThrow(): void {
+    if (!this.multiplayer) this.state = { ...this.state, objectsThrown: this.state.objectsThrown + 1 };
+    this.audio.throwObject();
+  }
+
+  update(
+    dt: number,
+    drones: ReadonlyMap<DroneRole, Drone>,
+    hack: HackSession,
+    grab: GrabSystem,
+    tetherStrain: number,
+  ): void {
+    this.localElapsed += dt;
+    this.spotCooldown = Math.max(0, this.spotCooldown - dt);
+    this.tetherSaveCooldown = Math.max(0, this.tetherSaveCooldown - dt);
+    this.cameraDisabledFor = Math.max(0, this.cameraDisabledFor - dt);
+    if (hack.allComplete() && !this.hacksWereComplete) this.cameraDisabledFor = 18;
+    this.hacksWereComplete = hack.allComplete();
+    if (!this.multiplayer) {
+      this.state = { ...this.state, elapsedSeconds: this.localElapsed };
+      if (this.state.stage === 'infiltrate' && [...drones.values()].some((drone) => drone.position.z > -18)) {
+        this.state = { ...this.state, stage: 'hack-security' };
+      }
+      if (this.state.stage === 'hack-security' && hack.allComplete()) {
+        this.state = { ...this.state, stage: 'steal-prototype' };
+      }
+      const holder = grab.objectHeldBy('prototype');
+      if (holder && !this.state.alarm && hack.allComplete()) this.notifyGrab('prototype', holder);
+      this.state = { ...this.state, prototypeHeldBy: holder };
+      if (this.state.stage === 'escape' && holder) {
+        const bothInside = [...drones.values()].every((drone) => Vector3.Distance(drone.position, EXTRACTION) <= 5.5);
+        const carrierInside = Vector3.Distance(drones.get(holder)?.position ?? Vector3.Zero(), EXTRACTION) <= 4.5;
+        if (bothInside && carrierInside) this.completeMission();
+      }
+    }
+    if (this.state.securityActive && tetherStrain > 0.78 && this.tetherSaveCooldown <= 0) {
+      this.tetherSaveCooldown = 5;
+      if (this.multiplayer) this.multiplayer.reportTetherSave();
+      else this.state = { ...this.state, tetherSaves: this.state.tetherSaves + 1 };
+    }
+    hack.setAlarmed(this.state.alarm);
+    this.security.update(dt, drones, this.state.securityActive, this.cameraDisabledFor > 0, tetherStrain);
+    this.alarmLight.intensity = this.state.alarm ? 1.6 + Math.sin(this.localElapsed * 9) * 1.2 : 0;
+    this.renderObjective(hack.completionCount());
+    this.presentStageChange();
+  }
+
+  describe(): string {
+    return `mission:${this.state.stage} alarm:${this.state.alarm ? 'on' : 'off'} ` +
+      `security:${this.state.securityActive ? 'active' : 'standby'} prototype:${this.state.prototypeHeldBy ?? 'free'} ` +
+      `spotted:${this.state.timesSpotted} thrown:${this.state.objectsThrown}`;
+  }
+
+  dispose(): void {
+    this.audio.stopAlarm();
+    this.security.dispose();
+    this.alarmLight.dispose();
+    this.objective?.remove();
+    this.completeOverlay?.remove();
+  }
+
+  private spotted(role: DroneRole): void {
+    if (this.spotCooldown > 0 || this.state.stage === 'complete') return;
+    this.spotCooldown = 2.8;
+    if (this.multiplayer) {
+      if (this.multiplayer.currentStatus.localRole === role) this.multiplayer.reportSpotted();
+    } else {
+      this.state = { ...this.state, timesSpotted: this.state.timesSpotted + 1 };
+    }
+    this.audio.warning();
+  }
+
+  private completeMission(): void {
+    if (this.state.stage === 'complete') return;
+    this.state = { ...this.state, stage: 'complete', extracted: true, securityActive: false };
+    this.audio.stopAlarm();
+  }
+
+  private beginAlarm(): void {
+    this.audio.pickup();
+    this.audio.startAlarm();
+  }
+
+  private presentStageChange(): void {
+    if (this.lastStage === this.state.stage) return;
+    this.lastStage = this.state.stage;
+    if (this.state.stage === 'complete' && !this.completedPresented) {
+      this.completedPresented = true;
+      this.audio.stopAlarm();
+      this.audio.missionComplete();
+      this.renderStats();
+      this.completeOverlay?.classList.add('visible');
+    } else if (this.state.stage !== 'complete') {
+      this.completedPresented = false;
+      this.completeOverlay?.classList.remove('visible');
+    }
+  }
+
+  private renderObjective(hackCount: number): void {
+    if (!this.objectiveTitle || !this.objectiveDetail || !this.detectionFill) return;
+    const [title, detail] = this.state.stage === 'infiltrate'
+      ? ['INFILTRATE THE LAB', 'Find the reception opening']
+      : this.state.stage === 'hack-security'
+        ? ['HACK SECURITY', `${hackCount} / 3 TERMINALS`]
+        : this.state.stage === 'steal-prototype'
+          ? ['STEAL THE PROTOTYPE', 'The vault is open']
+          : this.state.stage === 'escape'
+            ? ['ESCAPE!', 'Carry the prototype to the exterior extraction zone']
+            : ['PROTOTYPE SECURED', 'Extraction complete'];
+    this.objectiveTitle.textContent = title;
+    this.objectiveDetail.textContent = detail;
+    this.detectionFill.style.width = `${Math.round(this.security.detection * 100)}%`;
+    this.objective?.classList.toggle('alarm', this.state.alarm);
+  }
+
+  private renderStats(): void {
+    if (!this.stats) return;
+    this.stats.replaceChildren();
+    const values: [string, string][] = [
+      ['COMPLETION TIME', formatTime(this.state.elapsedSeconds)],
+      ['TIMES SPOTTED', String(Math.round(this.state.timesSpotted))],
+      ['OBJECTS THROWN', String(Math.round(this.state.objectsThrown))],
+      ['TETHER SAVES', String(Math.round(this.state.tetherSaves))],
+    ];
+    for (const [label, value] of values) {
+      const dt = document.createElement('dt');
+      dt.textContent = label;
+      const dd = document.createElement('dd');
+      dd.textContent = value;
+      this.stats.append(dt, dd);
+    }
+  }
+
+  private resetLocal(): void {
+    this.state = { ...FRESH_STATE };
+    this.localElapsed = 0;
+    this.completedPresented = false;
+    this.lastStage = 'infiltrate';
+    this.audio.stopAlarm();
+    this.completeOverlay?.classList.remove('visible');
+  }
+}
+
+function formatTime(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}

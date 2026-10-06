@@ -112,6 +112,10 @@ export class Grabbable implements Interactable {
     return this.authority;
   }
 
+  get speed(): number {
+    return this.velocity.length();
+  }
+
   distanceTo(point: Vector3): number {
     return Vector3.Distance(this.mesh.position, point);
   }

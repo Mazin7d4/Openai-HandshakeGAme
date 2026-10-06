@@ -1,5 +1,6 @@
 import type { HackMinigameSnapshot } from './HackMinigame.ts';
 import { PacketRoutingMinigame } from './PacketRoutingMinigame.ts';
+import type { GameAudio } from '../audio/GameAudio.ts';
 
 const GLYPHS: Record<number, string> = {
   1: '╵', 2: '╴', 3: '└', 4: '╷', 5: '│', 6: '┌', 7: '├',
@@ -18,13 +19,16 @@ export class PacketRoutingView {
   private completed = false;
   private disposed = false;
   private completionTimer: number | null = null;
+  private readonly audio?: GameAudio;
 
   constructor(
     parent: HTMLElement,
     stationLabel: string,
     complete: () => void,
     cancel: () => void,
+    audio?: GameAudio,
   ) {
+    this.audio = audio;
     this.model = new PacketRoutingMinigame();
     this.complete = complete;
     this.cancel = cancel;
@@ -89,7 +93,10 @@ export class PacketRoutingView {
       button.dataset.solutionMask = String(snapshot.solutionMasks[index] ?? 0);
       button.textContent = GLYPHS[mask] ?? '·';
       button.classList.toggle('connected', snapshot.connected.has(index));
-      button.addEventListener('click', () => this.render(this.model.rotate(index)));
+      button.addEventListener('click', () => {
+        this.audio?.click(snapshot.connected.size / snapshot.masks.length);
+        this.render(this.model.rotate(index));
+      });
       this.grid.append(button);
     });
     this.overlay.classList.toggle('success', snapshot.completed);
@@ -98,6 +105,7 @@ export class PacketRoutingView {
       : 'ROUTE INCOMPLETE';
     if (snapshot.completed && !this.completed) {
       this.completed = true;
+      this.audio?.success();
       this.completionTimer = window.setTimeout(() => {
         this.completionTimer = null;
         if (!this.disposed) this.complete();
