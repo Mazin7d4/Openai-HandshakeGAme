@@ -11,7 +11,7 @@ const shots = [
   ['office', [12, 10, -42], [-1, 3.5, -31]],
   ['server', [10, 9, -26], [-2, 4, -12]],
   ['lab-vault', [0, 9, 5], [0, 4.5, 19]],
-  ['escape', [-8, 8, 4], [-15.5, 2, -20]],
+  ['escape', [-15.5, 9, 10], [-15.5, 2, -22]],
   ['gameplay-camera', null, null],
 ];
 const browser = await chromium.launch({ headless: true, args: ['--use-gl=angle', `--use-angle=${process.env.ANGLE ?? 'swiftshader'}`, '--enable-webgl', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'] });

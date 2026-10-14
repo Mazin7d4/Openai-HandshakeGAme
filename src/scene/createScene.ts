@@ -1,6 +1,7 @@
 import {
   Color3,
   Color4,
+  ColorCurves,
   DirectionalLight,
   Engine,
   GlowLayer,
@@ -58,6 +59,14 @@ export function createScene(engine: Engine): Scene {
   scene.imageProcessingConfiguration.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
   scene.imageProcessingConfiguration.exposure = 1.12;
   scene.imageProcessingConfiguration.contrast = 1.12;
+
+  // Cheap filmic framing for the miniature look: soft warm vignette, gentle saturation lift.
+  const ip = scene.imageProcessingConfiguration;
+  ip.vignetteEnabled = true; ip.vignetteWeight = 1.6; ip.vignetteStretch = 0.4;
+  ip.vignetteColor = new Color4(0.12, 0.08, 0.05, 0);
+  ip.colorCurvesEnabled = true;
+  const curves = new ColorCurves(); curves.globalSaturation = 18; curves.highlightsHue = 40; curves.highlightsDensity = 8;
+  ip.colorCurves = curves;
 
   return scene;
 }

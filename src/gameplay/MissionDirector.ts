@@ -173,6 +173,9 @@ export class MissionDirector {
       alarm: this.state.alarm,
       complete: this.state.extracted,
       officeOpen: hack.isComplete('terminal-a') && hack.isComplete('terminal-b'),
+      stage: this.state.stage,
+      hacked: { 'terminal-a': hack.isComplete('terminal-a'), 'terminal-b': hack.isComplete('terminal-b'), 'terminal-c': hack.isComplete('terminal-c') },
+      prototypeHeld: this.state.prototypeHeldBy !== null,
     });
     const centerZ = [...drones.values()].reduce((sum, drone) => sum + drone.position.z, 0) / Math.max(1, drones.size);
     this.routeHint = centerZ < -40

@@ -1,5 +1,5 @@
 import {
-  Color3, CreateBox, CreatePlane, CreateTorus, DynamicTexture, ImportMeshAsync,
+  Color3, CreateBox, CreatePlane, CreatePolyhedron, CreateTorus, DynamicTexture, ImportMeshAsync,
   PBRMaterial, StandardMaterial, Vector3, type HavokPlugin, type Material, type Mesh, type Scene,
 } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
@@ -9,7 +9,11 @@ import { createLabPalette } from './LabPalette.ts';
 import { dressMissionAreas, mergeDecorative } from './AreaDressing.ts';
 import layout from './heist-layout.json';
 
-export interface HeistPresentation { alarm: boolean; complete: boolean; officeOpen: boolean }
+export interface HeistPresentation {
+  alarm: boolean; complete: boolean; officeOpen: boolean;
+  /** Optional presentation-only hints for objective beacons. */
+  stage?: string; hacked?: Record<string, boolean>; prototypeHeld?: boolean;
+}
 const levels = new WeakMap<Scene, { update(dt: number, state: HeistPresentation): void }>();
 export function updateHeistPresentation(scene: Scene, dt: number, state: HeistPresentation): void {
   levels.get(scene)?.update(dt, state);
@@ -146,6 +150,26 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   officeDoor.mesh.material = p.sage; officeDoor.mesh.metadata = { cameraOccluder: true };
   const escapeDoor = new Door(scene, plugin, { name: 'pressure-relief-shutter', x: -12, y: 3, z: 13, width: 0.5, height: 6, depth: 8, travel: 7 });
   escapeDoor.mesh.material = p.coral; escapeDoor.mesh.metadata = { cameraOccluder: true };
+  // Objective beacons: a slowly spinning diamond and a breathing floor ring above the next goal(s).
+  // Purely presentational and driven from replicated mission state, so they are identical for both players.
+  const beaconMat = new StandardMaterial('objective-beacon', scene);
+  beaconMat.emissiveColor = Color3.FromHexString('#FFD27A'); beaconMat.diffuseColor = Color3.Black();
+  beaconMat.specularColor = Color3.Black(); beaconMat.alpha = 0.85; beaconMat.disableLighting = true;
+  const makeBeacon = (name: string, x: number, y: number, z: number) => {
+    const gem = CreatePolyhedron(`${name}-beacon`, { type: 1, size: 0.32 }, scene);
+    gem.scaling.y = 1.6; gem.position.set(x, y + 1.6, z); gem.material = beaconMat; gem.isPickable = false;
+    const ring = CreateTorus(`${name}-beacon-ring`, { diameter: 2.2, thickness: 0.07, tessellation: 40 }, scene);
+    ring.position.set(x, y - 0.45, z); ring.material = beaconMat; ring.isPickable = false;
+    return { gem, ring, baseY: y + 1.6 };
+  };
+  const t = layout.terminals;
+  const beacons = {
+    'terminal-a': makeBeacon('terminal-a', t['terminal-a'].x, t['terminal-a'].y, t['terminal-a'].z),
+    'terminal-b': makeBeacon('terminal-b', t['terminal-b'].x, t['terminal-b'].y, t['terminal-b'].z),
+    'terminal-c': makeBeacon('terminal-c', t['terminal-c'].x, t['terminal-c'].y, t['terminal-c'].z),
+    vault: makeBeacon('vault', layout.objects.prototype.x, layout.objects.prototype.y + 0.8, layout.objects.prototype.z),
+    pickup: makeBeacon('pickup', layout.extraction.x, 1.2, layout.extraction.z),
+  };
   let elapsed = 0;
   levels.set(scene, { update(dt, state) {
     elapsed += dt;
@@ -155,6 +179,25 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     strips.forEach((mesh, i) => { mesh.visibility = state.alarm ? 0.65 + 0.35 * Math.sin(elapsed * 5 + i * 0.8) : 0.18; });
     exitSign.scaling.setAll(state.alarm ? 1.04 : 1);
     halo.material = state.alarm ? p.coral : p.light;
+    if (state.stage) {
+      const h = state.hacked ?? {};
+      const show: Record<keyof typeof beacons, boolean> = {
+        'terminal-a': (state.stage === 'infiltrate' || state.stage === 'hack-security') && !h['terminal-a'],
+        'terminal-b': (state.stage === 'infiltrate' || state.stage === 'hack-security') && !h['terminal-b'],
+        'terminal-c': state.stage === 'hack-security' && !!h['terminal-a'] && !!h['terminal-b'] && !h['terminal-c'],
+        vault: state.stage === 'steal-prototype' && !state.prototypeHeld,
+        pickup: state.stage === 'escape',
+      };
+      const pulse = 0.5 + 0.5 * Math.sin(elapsed * 3);
+      beaconMat.emissiveColor.set(state.alarm ? 0.55 + 0.3 * pulse : 1, state.alarm ? 0.95 : 0.78 + 0.1 * pulse, state.alarm ? 0.6 : 0.42);
+      for (const [key, b] of Object.entries(beacons)) {
+        const on = show[key as keyof typeof beacons];
+        b.gem.setEnabled(on); b.ring.setEnabled(on);
+        if (!on) continue;
+        b.gem.rotation.y = elapsed * 1.6; b.gem.position.y = b.baseY + Math.sin(elapsed * 2.2) * 0.18;
+        b.ring.scaling.setAll(0.85 + 0.3 * pulse);
+      }
+    } else for (const b of Object.values(beacons)) { b.gem.setEnabled(false); b.ring.setEnabled(false); }
   } });
   scene.onDisposeObservable.addOnce(() => levels.delete(scene));
 
