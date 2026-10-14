@@ -39,6 +39,8 @@ export interface GrabbableSpec {
   size?: number;
   shape?: 'box' | 'sphere' | 'cylinder';
   grabRadius?: number;
+  /** Sits locked in a display cradle (can't be bumped off) until the first grab. */
+  cradled?: boolean;
 }
 
 /** A small dynamic body that can switch between local physics and a replicated pose. */
@@ -67,6 +69,8 @@ export class Grabbable implements Interactable {
   private revision = -1;
   private authority: DroneRole = 'pix';
   private holder: DroneRole | null = null;
+  private cradled = false;
+  private readonly cradlePosition = new Vector3();
 
   constructor(scene: Scene, plugin: HavokPlugin, spec: GrabbableSpec) {
     this.id = spec.id;
@@ -100,6 +104,8 @@ export class Grabbable implements Interactable {
     this.aggregate.shape.filterCollideMask = COLLISION_GROUP.all;
     plugin.setActivationControl(this.aggregate.body, PhysicsActivationControl.ALWAYS_ACTIVE);
     this.lastSafePosition.copyFrom(this.mesh.position);
+    this.cradled = spec.cradled ?? false;
+    this.cradlePosition.copyFrom(spec.position);
   }
 
   get position(): Vector3 {
@@ -123,6 +129,7 @@ export class Grabbable implements Interactable {
   }
 
   grab(role: DroneRole): void {
+    this.cradled = false;
     this.holder = role;
     this.authority = role;
     this.locallyAuthoritative = true;
@@ -155,6 +162,7 @@ export class Grabbable implements Interactable {
     );
     this.targetReady = true;
     this.locallyAuthoritative = shouldBeLocal;
+    if (state.heldBy) this.cradled = false;
 
     if (this.holder) {
       this.setMotionMode('held');
@@ -277,6 +285,15 @@ export class Grabbable implements Interactable {
   }
 
   private updateDynamic(dt: number): void {
+    if (this.cradled) {
+      // Drones bumping the display used to knock the prototype onto the floor before anyone grabbed it.
+      this.mesh.position.copyFrom(this.cradlePosition);
+      this.mesh.rotationQuaternion = Quaternion.Identity();
+      this.teleportBody();
+      this.aggregate.body.setLinearVelocity(this.zero);
+      this.aggregate.body.setAngularVelocity(this.zero);
+      return;
+    }
     this.aggregate.body.getLinearVelocityToRef(this.velocity);
     if (!isFiniteVector(this.mesh.position) || !isFiniteVector(this.velocity)) {
       reportStabilityIssue('physics', `${this.id} produced a non-finite dynamic transform; restoring its last safe pose.`);

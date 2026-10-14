@@ -1,8 +1,9 @@
 import {
-  Color3, CreateBox, CreateCylinder, CreateSphere, CreateTorus, DynamicTexture, Mesh, PBRMaterial,
-  StandardMaterial, type Material, type Scene,
+  Color3, CreateBox, CreateCylinder, CreateTorus, Mesh, PBRMaterial, type Material, type Scene,
 } from '@babylonjs/core';
 import type { createLabPalette } from './LabPalette.ts';
+import type { PropPlacement } from './PropKit.ts';
+import { addStaticBody } from '../physics/staticBody.ts';
 
 type Palette = ReturnType<typeof createLabPalette>;
 
@@ -12,16 +13,18 @@ type Palette = ReturnType<typeof createLabPalette>;
  * costs roughly one draw call per material. Nothing here owns physics, mission or network state, and
  * all props sit outside the authored flight routes (under-desk crawl, vent, office door, rack aisles).
  */
-export function dressMissionAreas(scene: Scene, p: Palette): Mesh[] {
+export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: PropPlacement): unknown }): Mesh[] {
+  // Big props get one simple invisible static box so drones no longer fly visually through them.
+  const collide = (x: number, y: number, z: number, w: number, h: number, d: number) => {
+    const c = CreateBox('prop-collider', { width: w, height: h, depth: d }, scene);
+    c.position.set(x, y, z); c.isVisible = false; c.isPickable = false; addStaticBody(c, scene);
+  };
   const make = (name: string, hex: string, roughness: number, metallic = 0, emissive?: string) => {
     const m = new PBRMaterial(`dress-${name}`, scene);
     m.albedoColor = Color3.FromHexString(hex); m.roughness = roughness; m.metallic = metallic;
     if (emissive) m.emissiveColor = Color3.FromHexString(emissive);
     return m;
   };
-  const leaf = make('leaf', '#4F8A4B', 0.55);
-  const leafLight = make('leaf-light', '#7DB35B', 0.6);
-  const terracotta = make('terracotta', '#C9734E', 0.75);
   const mustard = make('mustard-felt', '#D9A441', 0.92);
   const teal = make('teal-fabric', '#2F7F86', 0.9);
   const pink = make('pink-polymer', '#E58FA8', 0.38);
@@ -46,29 +49,6 @@ export function dressMissionAreas(scene: Scene, p: Palette): Mesh[] {
     const mesh = CreateCylinder('dress', { height: h, diameterTop: top, diameterBottom: bottom, tessellation: tess }, scene);
     mesh.position.set(x, y, z); return add(mesh, m);
   };
-  // Plants: a tapered terracotta pot with a cluster of broad, tilted leaves (monstera-ish silhouette).
-  const plant = (x: number, z: number, size = 1, y = 0) => {
-    cyl(x, y + 1.1 * size, z, 2.2 * size, 2.4 * size, 1.8 * size, terracotta);
-    cyl(x, y + 2.2 * size, z, 0.12 * size, 2.3 * size, 2.3 * size, cable);
-    for (let i = 0; i < 9; i++) {
-      const a = i * 2.39996; const r = (0.5 + (i % 3) * 0.45) * size;
-      const l = CreateSphere('dress', { diameter: 1, segments: 6 }, scene);
-      l.scaling.set(1.9 * size, 0.12 * size, 1.1 * size);
-      l.position.set(x + Math.cos(a) * r, y + (2.9 + (i % 4) * 0.8) * size, z + Math.sin(a) * r);
-      l.rotation.set(0.35 * Math.sin(i), -a, 0.5 + 0.1 * (i % 3));
-      add(l, i % 2 ? leaf : leafLight);
-      const stem = cyl(x + Math.cos(a) * r * 0.5, y + (2.5 + (i % 4) * 0.4) * size, z + Math.sin(a) * r * 0.5,
-        (1 + (i % 4) * 0.8) * size, 0.06 * size, 0.08 * size, leaf, 5);
-      stem.rotation.set(Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35);
-    }
-  };
-  const chair = (x: number, z: number, ry: number, fabric: Material) => {
-    const s = Math.sin(ry), c = Math.cos(ry);
-    cyl(x, 0.12, z, 0.24, 2.6, 2.6, p.dark, 5);
-    cyl(x, 1.2, z, 2, 0.25, 0.25, p.metal, 8);
-    box(x, 2.3, z, 2.4, 0.4, 2.3, fabric, ry);
-    box(x - s * 1.15, 3.8, z - c * 1.15, 2.3, 2.6, 0.3, fabric, ry);
-  };
   const keyboard = (x: number, y: number, z: number) => {
     box(x, y, z, 2.1, 0.1, 0.7, p.dark);
     for (let i = 0; i < 4; i++) box(x, y + 0.06, z - 0.24 + i * 0.16, 1.9, 0.04, 0.1, p.paint);
@@ -89,16 +69,16 @@ export function dressMissionAreas(scene: Scene, p: Palette): Mesh[] {
   };
 
   // ---------- 01 RECEPTION ----------
-  plant(15.5, -52, 1.25); plant(-9.5, -52.5, 0.9);
+  kit.place({ prop: 'Plant', x: 15.5, z: -52, scale: 1.05 }); kit.place({ prop: 'Plant', x: -9.5, z: -52.5, scale: 0.8 });
   // Lounge: a long mustard sofa and a low oak coffee table against the east wall.
-  box(16, 1.2, -47.5, 3.4, 2.4, 9, mustard); box(17.8, 3.6, -47.5, 1, 3.4, 9, mustard);
-  for (const dz of [-4.8, 4.8]) box(16.4, 2.6, -47.5 + dz, 4.2, 1.6, 0.7, mustard);
+  kit.place({ prop: 'Sofa', x: 16.4, z: -47.5, ry: -Math.PI / 2 }); collide(16.4, 1.5, -47.5, 3.8, 3, 9.6);
+
   box(11.5, 1.6, -47.5, 4, 0.22, 5, p.wood);
   for (const [dx, dz] of [[-1.6, -2.1], [1.6, -2.1], [-1.6, 2.1], [1.6, 2.1]]) cyl(11.5 + dx, 0.75, -47.5 + dz, 1.5, 0.16, 0.16, p.metal, 8);
   box(11, 1.82, -48.4, 1.6, 0.18, 2.1, pink); box(11.2, 1.98, -48.2, 1.5, 0.14, 2, teal);
   mug(12.4, 1.72, -46.6, yellow);
   // Reception desk dressing: monitor-facing keyboard, a mug and a tiny potted succulent.
-  keyboard(-3, 3.97, -48); mug(-8.5, 3.92, -48.6, p.coral); plant(-9.4, -50, 0.32, 3.92);
+  keyboard(-3, 3.97, -48); mug(-8.5, 3.92, -48.6, p.coral); kit.place({ prop: 'PlantSmall', x: -9.4, y: 3.92, z: -50, scale: 0.6 });
   // Gallery wall: three colourful framed prints on the east wall.
   frame(18.65, 8.5, -50, 4, 3, p.blue, true); frame(18.65, 8.5, -45, 2.8, 3.6, p.coral, true);
   frame(18.65, 5.5, -42.6, 2.2, 1.6, yellow, true);
@@ -112,14 +92,14 @@ export function dressMissionAreas(scene: Scene, p: Palette): Mesh[] {
   for (let y = 5.4; y < 8; y += 0.45) {
     for (const x of [-9.6, -0.6]) box(x, y, -43.35, 3.6, 0.1, 0.2, p.metal);
   }
-  box(-5, 11.9, -43, 5.6, 4.2, 4.6, p.metal); cyl(-5, 13.6, -43, 1.2, 3, 3, p.metal, 24);
+  kit.place({ prop: 'Duct', x: -5, y: 12, z: -43, ry: Math.PI / 2, scale: 0.9 });
   for (let i = 0; i < 5; i++) box(-7.2 + i * 1.1, 4.64, -45.7, 0.5, 0.06, 0.35, yellow, 0.6);
   box(-5, 4.66, -45.7, 5.2, 0.03, 0.08, cable);
-  plant(14, -44.8, 0.8);
+  kit.place({ prop: 'Plant', x: 14, z: -44.8, scale: 0.7 });
 
   // ---------- 02 OFFICE ----------
   // PIX's desk chair stands south of its console; NEE's patch-bay desk is left clear underneath.
-  chair(-5, -37.2, 0, teal); chair(7.5, -35.5, 0.35, mustard);
+  kit.place({ prop: 'Chair', x: -5, z: -37.2, ry: Math.PI }); kit.place({ prop: 'Chair', x: 7.5, z: -35.5, ry: Math.PI + 0.35 });
   keyboard(-6, 3.97, -34.2); keyboard(7.2, 3.97, -32.4); mug(-1.7, 3.92, -33.6, pink); mug(9.6, 3.92, -30.4, p.blue);
   // Notebooks and sticky notes on the desks.
   box(-8.2, 4.0, -33.8, 1.6, 0.14, 2.1, p.coral, 0.2); box(9.8, 4.0, -32, 1.4, 0.12, 1.9, yellow, -0.3);
@@ -132,12 +112,9 @@ export function dressMissionAreas(scene: Scene, p: Palette): Mesh[] {
   frame(-18.6, 7, -35, 9, 4.6, white, true);
   for (let i = 0; i < 5; i++) box(-18.5, 6 + i * 0.55, -38.5 + i * 0.9, 0.04, 0.12, 2 + (i % 3), i % 2 ? p.blue : p.coral);
   // Bookshelf and planter beyond the office glass.
-  box(17.5, 5, -33, 2, 10, 7, p.wood);
-  for (let y = 1.4; y < 10; y += 2.2) {
-    box(17, y + 0.75, -34.6, 1.4, 1.4, 0.35, p.blue); box(17, y + 0.65, -33.9, 1.3, 1.2, 0.3, p.coral);
-    box(17, y + 0.8, -31.6, 1.4, 1.5, 0.4, teal); box(17, y + 0.5, -32.6, 1.2, 0.9, 1.0, mustard);
-  }
-  plant(15.5, -40.5, 1.0); plant(15.8, -28.5, 0.75);
+  kit.place({ prop: 'Bookshelf', x: 17.6, z: -33 }); collide(17.6, 5, -33, 2, 10, 7);
+
+  kit.place({ prop: 'Plant', x: 15.5, z: -40.5, scale: 0.85 }); kit.place({ prop: 'Plant', x: 15.8, z: -28.5, scale: 0.65 });
   box(1, 0.06, -35, 18, 0.02, 0.3, mustard); box(1, 0.06, -35.6, 18, 0.02, 0.15, p.paint);
   pendant(-4, -34); pendant(7, -32);
 
@@ -161,8 +138,8 @@ export function dressMissionAreas(scene: Scene, p: Palette): Mesh[] {
   box(3, 0.04, -24.5, 30, 0.02, 0.25, yellow); box(3, 0.04, -9, 30, 0.02, 0.25, yellow);
   // Precision cooling units and copper refrigerant runs on the east wall.
   for (const z of [-22, -9]) {
-    box(17.4, 5, z, 2.4, 10, 5, p.paint); box(16.15, 7, z, 0.05, 3, 4, p.dark);
-    box(16.15, 2.5, z, 0.05, 0.4, 3.5, cyanLed);
+    kit.place({ prop: 'Cooling', x: 17.4, z }); collide(17.4, 5, z, 2.4, 10, 5);
+
   }
   for (const y of [11.2, 11.7]) cyl(18.3, y, -15.5, 20, 0.3, 0.3, copper, 8).rotation.x = Math.PI / 2;
   pendant(-4, -17, 8); pendant(8, -9, 8);
@@ -173,12 +150,8 @@ export function dressMissionAreas(scene: Scene, p: Palette): Mesh[] {
     cyl(-18.4, y, -20, 80, 0.35, 0.35, m, 8).rotation.x = Math.PI / 2;
   }
   for (const z of [-46, -24, -2]) {
-    for (let y = 4.2; y < 12; y += 3.6) box(-18.2, y, z, 1.2, 0.15, 6, p.metal);
-    for (const dz of [-2.9, 2.9]) box(-18.2, 6, z + dz, 1.2, 12, 0.12, p.metal);
-    for (let y = 4.3; y < 12; y += 3.6) {
-      box(-18.2, y + 0.75, z - 1.6, 1, 1.4, 2, y < 6 ? p.coral : yellow);
-      box(-18.2, y + 0.6, z + 1.4, 1, 1.1, 2.2, y < 6 ? teal : pink);
-    }
+    kit.place({ prop: 'Shelving', x: -18.2, z }); collide(-18.25, 6, z, 1.1, 12, 6);
+
   }
   // Painted chevrons on the escape floor, pointing toward pickup.
   for (let z = 10; z > -58; z -= 12) {
@@ -186,15 +159,6 @@ export function dressMissionAreas(scene: Scene, p: Palette): Mesh[] {
   }
   // Extraction pad: hazard border.
   for (let i = 0; i < 6; i++) box(-17.6 + i * 1.05, 0.18, -64.7, 0.5, 0.04, 0.4, yellow, 0.6);
-
-  // Instrument graphic for cooling units' screens and office whiteboard header.
-  const tex = new DynamicTexture('dress-cooling-ui', { width: 256, height: 128 }, scene, true);
-  const c = tex.getContext(); c.fillStyle = '#0f2a2c'; c.fillRect(0, 0, 256, 128);
-  c.fillStyle = '#8fe0e8'; c.font = '600 30px sans-serif'; c.fillText('18.5°C', 20, 54);
-  c.fillStyle = '#5c9a8f'; c.font = '16px sans-serif'; c.fillText('COLD AISLE  ·  OK', 20, 92); tex.update();
-  const ui = new StandardMaterial('dress-cooling-ink', scene);
-  ui.diffuseTexture = tex; ui.emissiveTexture = tex; ui.specularColor.setAll(0);
-  for (const z of [-22, -9]) box(16.1, 7, z, 0.02, 2.6, 3.6, ui);
 
   const merged: Mesh[] = [];
   for (const [material, meshes] of groups) {

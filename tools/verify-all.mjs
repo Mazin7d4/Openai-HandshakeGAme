@@ -8,7 +8,7 @@ for (const check of checks) {
   const started = Date.now();
   const run = spawnSync(process.execPath, [`tools/${check}.mjs`, url], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
   results[check] = { pass: run.status === 0, seconds: Math.round((Date.now() - started) / 1000) };
-  if (run.status !== 0) results[check].error = (run.stderr.match(/Error[^\n]*/) ?? [''])[0].slice(0, 300);
+  if (run.status !== 0) results[check].error = (run.stderr.match(/^\w*Error: [^\n]*/m) ?? [run.stderr.slice(-300)])[0].slice(0, 300);
   console.log(check, JSON.stringify(results[check]));
 }
 process.exit(Object.values(results).every(r => r.pass) ? 0 : 1);

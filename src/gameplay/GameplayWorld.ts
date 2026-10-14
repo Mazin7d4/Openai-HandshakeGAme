@@ -57,6 +57,7 @@ export class GameplayWorld {
       }),
       new Grabbable(scene, plugin, {
         id: 'prototype',
+        cradled: true,
         label: 'Quantum Prototype',
         position: Vector3.FromArray(Object.values(layout.objects.prototype)),
         color: new Color3(0.32, 0.95, 0.72),

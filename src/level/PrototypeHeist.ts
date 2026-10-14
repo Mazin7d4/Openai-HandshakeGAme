@@ -7,6 +7,7 @@ import { addStaticBody } from '../physics/staticBody.ts';
 import { Door } from '../gameplay/Door.ts';
 import { createLabPalette } from './LabPalette.ts';
 import { dressMissionAreas, mergeDecorative } from './AreaDressing.ts';
+import { loadPropKit } from './PropKit.ts';
 import layout from './heist-layout.json';
 
 export interface HeistPresentation {
@@ -228,7 +229,15 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     const screen = CreatePlane('instrument-screen', { width: 2.52, height: 1.52 }, scene);
     screen.position.set(x + 1.6, 5.4, z + 0.835); screen.material = displayMat; screen.isPickable = false;
   }
-  dressMissionAreas(scene, p);
+  const kit = await loadPropKit(scene);
+  // Server gallery: replace the flat rack slabs with instanced Blender rack units (collision box stays).
+  for (const [z, x, width] of [[-21, -4, 16], [-13, 7, 22]] as const) {
+    const n = Math.round(width / 2.4); const w = width / n;
+    for (let i = 0; i < n; i++) kit.place({ prop: 'Rack', x: x - width / 2 + w * (i + 0.5), z, scale: [w / 2.4, 1, 1] });
+    const bank = scene.getMeshByName(`rack-bank-${z}`); if (bank) bank.isVisible = false;
+  }
+  for (const name of ['rack-upright', 'rack-tray', 'rack-status']) for (const m of scene.meshes.filter(m => m.name === name)) m.dispose();
+  dressMissionAreas(scene, p, kit);
   // Batch Astra's repeated physics-free trim (rack trays/LEDs, battens, fixtures) into one mesh per material.
   mergeDecorative(scene, ['rack-upright', 'rack-tray', 'rack-status', 'oak-batten', 'pendant-shell',
     'pendant-diffuser', 'pendant-wire', 'vault-mullion', 'extraction-lamp']);
