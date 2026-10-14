@@ -31,6 +31,7 @@ export class MissionDirector {
   private readonly objectiveDetail: HTMLParagraphElement | null;
   private readonly detectionFill: HTMLDivElement | null;
   private readonly completeOverlay: HTMLDivElement | null;
+  private successTimer: number | null = null;
   private readonly stats: HTMLDListElement | null;
   private localElapsed = 0;
   private lastStage = this.state.stage;
@@ -227,6 +228,7 @@ export class MissionDirector {
   }
 
   dispose(): void {
+    if (this.successTimer !== null) window.clearTimeout(this.successTimer);
     this.audio.stopAlarm();
     this.unsubscribe?.();
     this.security.dispose();
@@ -254,8 +256,8 @@ export class MissionDirector {
 
   private beginAlarm(): void {
     gameEvents.emit('heist', { beat: 'pickup', position: VAULT.clone(), role: this.state.prototypeHeldBy });
-    this.audio.pickup();
-    this.audio.startAlarm();
+    this.audio.prototypePickup();
+    window.setTimeout(() => { if (this.state.alarm && this.state.stage === 'escape') this.audio.startAlarm(); }, 600);
   }
 
   private presentStageChange(): void {
@@ -268,7 +270,12 @@ export class MissionDirector {
       this.audio.missionComplete();
       gameEvents.emit('heist', { beat: 'extract', position: EXTRACTION.clone() });
       this.renderStats();
-      this.completeOverlay?.classList.add('visible');
+      // Let the extraction confetti play before the results panel covers it.
+      if (this.successTimer !== null) window.clearTimeout(this.successTimer);
+      this.successTimer = window.setTimeout(() => {
+        this.successTimer = null;
+        if (this.state.stage === 'complete') this.completeOverlay?.classList.add('visible');
+      }, 1200);
     } else if (this.state.stage !== 'complete') {
       this.completedPresented = false;
       this.completeOverlay?.classList.remove('visible');
@@ -284,7 +291,7 @@ export class MissionDirector {
         : this.state.stage === 'steal-prototype'
           ? ['MEET THE PROTOTYPE', 'The vault is open. Rise to the display cradle; [E] to carry the core.']
           : this.state.stage === 'escape'
-            ? ['EVERYBODY OUT!', 'Main shutter sealed! West relief vent is open. Follow green floor lights; throw loose objects at patrols. Both drones must reach PICKUP / 01.']
+            ? ['EVERYBODY OUT!', 'Main shutter sealed! West relief vent is open. Heavy Lab Crate is jamming the relief vent - haul it clear together. Follow green floor lights; throw loose objects at patrols. Both drones must reach PICKUP / 01.']
             : ['PROTOTYPE SECURED', 'Extraction complete'];
     this.objectiveTitle.textContent = title;
     this.objectiveDetail.textContent = detail;

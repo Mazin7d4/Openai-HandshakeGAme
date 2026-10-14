@@ -44,8 +44,8 @@ export class GameplayWorld {
         position: Vector3.FromArray(Object.values(layout.objects['crate-blue'])),
         color: new Color3(0.32, 0.42, 0.48),
         shape: 'box',
-        size: 1.2,
-        grabRadius: 3.1,
+        size: 3.6,
+        grabRadius: 4.8,
       }),
       new Grabbable(scene, plugin, {
         id: 'crate-pink',

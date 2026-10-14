@@ -153,7 +153,7 @@ class HandshakeRoom extends Room {
     this.roomId = roomCode();
     this.setMetadata({ code: this.roomId });
     for (const [id, position] of Object.entries(layout.objects)) {
-      const radius = { 'cargo-core': 3.3, 'crate-blue': 3.1, 'crate-pink': 3, prototype: 3.2 }[id];
+      const radius = { 'cargo-core': 3.3, 'crate-blue': 4.8, 'crate-pink': 3, prototype: 3.2 }[id];
       this.state.objects.set(id, createGrabbable(id, position.x, position.y, position.z, radius));
     }
     this.onMessage('snapshot', (client, message) => {

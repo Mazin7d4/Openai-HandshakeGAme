@@ -101,6 +101,13 @@ export class GameAudio {
     this.sequence([[180, 0], [520, 75]], 0.09, 0.04);
   }
 
+  /** Prototype lift-off: rising shimmer + low thump, distinct from ordinary grabs. */
+  prototypePickup(): void {
+    this.tone(90, 0.35, 0.06, 'triangle');
+    this.sweep(300, 1400, 900, 0.45, 0.035, 'sine');
+    this.sequence([[784, 120], [988, 220], [1319, 320]], 0.22, 0.03);
+  }
+
   throwObject(): void {
     this.sequence([[420, 0], [150, 80]], 0.08, 0.032);
   }

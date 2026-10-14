@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { arrival, toNee, servers, vault, escape } from './heist-route.mjs';
+import { arrival, toNee, servers, vault, clearCrate, escape } from './heist-route.mjs';
 
 const APP_URL = process.argv[2] ?? process.env.APP_URL ?? 'http://127.0.0.1:5173/';
 const DEBUG_URL = new URL(APP_URL);
@@ -19,6 +19,13 @@ async function playerPosition(page, id) {
   const text = await readout(page);
   const match = text.match(new RegExp(`${id}\\s+x\\s+(-?\\d+\\.\\d)\\s+y\\s+(-?\\d+\\.\\d)\\s+z\\s+(-?\\d+\\.\\d)`));
   if (!match) throw new Error(`Missing ${id} position in ${text}`);
+  return { x: Number(match[1]), y: Number(match[2]), z: Number(match[3]) };
+}
+
+async function cratePosition(page) {
+  const text = await readout(page);
+  const match = text.match(/crate-blue:(?:free|pix|nee)@(-?\d+\.\d+),(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (!match) throw new Error(`Missing crate-blue position in ${text}`);
   return { x: Number(match[1]), y: Number(match[2]), z: Number(match[3]) };
 }
 
@@ -258,8 +265,27 @@ try {
     waitForText(guest, 'mission:escape', 10_000),
   ]);
 
+  const initialCratePos = await cratePosition(host);
+  await travel(clearCrate.approach);
+  await host.bringToFront();
+  await host.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
+  await Promise.all([
+    waitForText(host, 'crate-blue:pix', 10_000),
+    waitForText(guest, 'crate-blue:pix', 10_000),
+  ]);
+  await travel(clearCrate.drag);
+  await host.bringToFront();
+  await host.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
+  await Promise.all([
+    waitForText(host, 'crate-blue:free', 10_000),
+    waitForText(guest, 'crate-blue:free', 10_000),
+  ]);
+  const finalCratePos = await cratePosition(host);
+  const crateDist = Math.hypot(finalCratePos.x - initialCratePos.x, finalCratePos.z - initialCratePos.z);
+  assert(crateDist > 3, `Crate only moved ${crateDist.toFixed(2)} units (expected > 3)`);
+
   // The alarm opens the west relief vent; return using its own vertical route.
-  await travel(escape);
+  await travel(escape.slice(3));
 
   // 9. Mission complete appears for both
   await Promise.all([

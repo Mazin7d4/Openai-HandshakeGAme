@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { arrival, toNee, servers, vault, escape } from './heist-route.mjs';
+import { arrival, toNee, servers, vault, clearCrate, escape } from './heist-route.mjs';
 
 const RAW_URL = process.argv[2] ?? 'http://localhost:5173/';
 // ?autotest enables the test-only position autopilot (src/dev/Autopilot.ts): frame-rate independent.
@@ -27,6 +27,12 @@ async function position(id) {
   const text = await readout();
   const match = text.match(new RegExp(`${id}\\s+x\\s+(-?\\d+\\.\\d)\\s+y\\s+(-?\\d+\\.\\d)\\s+z\\s+(-?\\d+\\.\\d)`));
   if (!match) throw new Error(`Missing ${id}: ${text}`);
+  return { x: Number(match[1]), y: Number(match[2]), z: Number(match[3]) };
+}
+async function cratePosition() {
+  const text = await readout();
+  const match = text.match(/crate-blue:(?:free|pix|nee)@(-?\d+\.\d+),(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (!match) throw new Error(`Missing crate-blue in readout: ${text}`);
   return { x: Number(match[1]), y: Number(match[2]), z: Number(match[3]) };
 }
 async function ensureActive(id) {
@@ -180,9 +186,29 @@ try {
   await page.evaluate(() => window.__autotest.stop('nee'));
   await page.locator('#dev-readout').filter({ hasText: 'mission:escape' }).waitFor({ timeout: 10000 });
   await shot('p4-pickup-alarm', 400);
-  await travel(escape.slice(0, Math.ceil(escape.length / 2)));
+  const initialCrate = await cratePosition();
+  // NEE keeps the prototype back from the vent so PIX's [E] targets the crate, not the core.
+  await pilot(['nee'], { x: -5, y: 4.5, z: 13 });
+  await page.evaluate(() => window.__autotest.goto('nee', -9, 4.5, 13, 1));
+  for (const point of clearCrate.approach) await pilot(['pix'], point);
+  await ensureActive('player-1');
+  for (let attempt = 0; attempt < 4 && !(await readout()).includes('crate-blue:pix'); attempt++) {
+    await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
+    await page.locator('#dev-readout').filter({ hasText: 'crate-blue:pix' }).waitFor({ timeout: 4000 }).catch(() => {});
+    if (process.env.TRACE) console.log('CRATE GRAB', attempt, await readout());
+  }
+  if (!(await readout()).includes('crate-blue:pix')) throw new Error(`PIX failed to grab crate: ${await readout()}`);
+  for (const point of clearCrate.drag) await pilot(['pix'], point);
+  await ensureActive('player-1');
+  await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
+  await page.locator('#dev-readout').filter({ hasText: 'crate-blue:free' }).waitFor({ timeout: 10000 });
+  const finalCrate = await cratePosition();
+  const crateDist = Math.hypot(finalCrate.x - initialCrate.x, finalCrate.z - initialCrate.z);
+  if (crateDist <= 3) throw new Error(`Crate only moved ${crateDist.toFixed(2)} units (expected > 3)`);
+  const remainingEscape = escape.slice(3);
+  await travel(remainingEscape.slice(0, Math.ceil(remainingEscape.length / 2)));
   await shot('p4-alarm-escape');
-  await travel(escape.slice(Math.ceil(escape.length / 2)));
+  await travel(remainingEscape.slice(Math.ceil(remainingEscape.length / 2)));
   await page.getByTestId('mission-complete').waitFor({ state: 'visible', timeout: 10_000 });
   await shot('p4-extraction', 700);
   if (errors.length) throw new Error(errors.join('\n'));
