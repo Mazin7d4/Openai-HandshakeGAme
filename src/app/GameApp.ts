@@ -5,6 +5,7 @@ import { BotControlSource } from '../control/BotControlSource.ts';
 import type { DroneControlSource } from '../control/DroneControlSource.ts';
 import { HumanControlSource } from '../control/HumanControlSource.ts';
 import { RemoteControlSource } from '../control/RemoteControlSource.ts';
+import { Autopilot } from '../dev/Autopilot.ts';
 import { DevOrbitCamera } from '../dev/DevOrbitCamera.ts';
 import { DevReadout } from '../dev/DevReadout.ts';
 import { reportStabilityIssue, StabilityDiagnostics } from '../dev/StabilityDiagnostics.ts';
@@ -61,6 +62,8 @@ export class GameApp {
   private readonly hud: GameHud | null;
   private readonly diagnostics = new StabilityDiagnostics();
   private readonly idleAxes = zeroFlightAxes();
+  /** TEST-ONLY (?autotest): position-targeted steering for deterministic verifiers. */
+  private readonly autopilot = Autopilot.enabled ? new Autopilot() : null;
   private paused = false;
   private activeDevRole: DroneRole = 'pix';
   private readonly onResize = () => {
@@ -223,6 +226,7 @@ export class GameApp {
   }
 
   start(): void {
+    this.autopilot?.install();
     window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKeyDown);
     this.engine.runRenderLoop(() => {
@@ -273,14 +277,18 @@ export class GameApp {
       if (control.remoteState) {
         player.drone.applyRemoteState(control.remoteState);
       } else if (player.control.kind !== 'remote') {
+        const piloted = this.autopilot?.steer(player.role, player.drone.position, basis) ?? null;
         const actions = this.gameplay.isRoleHacking(player.role)
           ? this.idleAxes
-          : control.actions;
+          : piloted ?? control.actions;
         player.drone.steer(dt, actions, basis, faceGameplayCamera);
       }
       if (player.control.kind !== 'remote') {
-        this.gameplay.handle(player.role, player.drone, control.interactions);
-        if (control.interactions.pause) this.setPaused(true);
+        const interactions = this.autopilot
+          ? this.autopilot.interactions(player.role, control.interactions)
+          : control.interactions;
+        this.gameplay.handle(player.role, player.drone, interactions);
+        if (interactions.pause) this.setPaused(true);
         switchDrone ||= control.interactions.switchDrone;
       }
     }

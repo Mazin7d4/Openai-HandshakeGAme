@@ -1,7 +1,10 @@
 import { chromium } from 'playwright';
 import { arrival, toNee, servers, vault, escape } from './heist-route.mjs';
 
-const APP_URL = process.argv[2] ?? 'http://localhost:5173/';
+const RAW_URL = process.argv[2] ?? 'http://localhost:5173/';
+// ?autotest enables the test-only position autopilot (src/dev/Autopilot.ts): frame-rate independent.
+const APP_URL = RAW_URL + (RAW_URL.includes('?') ? '&' : '?') + 'autotest';
+const ROLE = { 'player-1': 'pix', 'player-2': 'nee' };
 const browser = await chromium.launch({
   headless: true,
   args: ['--use-gl=angle', process.env.ANGLE ? `--use-angle=${process.env.ANGLE}` : '--use-angle=d3d11', '--enable-webgl', '--ignore-gpu-blocklist'],
@@ -115,7 +118,25 @@ try {
   await page.goto(APP_URL);
   await page.getByTestId('dev-local').click();
   await page.locator('#boot-status').waitFor({ state: 'detached', timeout: 30_000 });
+  await page.waitForFunction(() => window.__autotest, null, { timeout: 30_000 });
+  const pilot = async (roles, point, timeout = 150_000) => {
+    const tol = point.tolerance ?? 1;
+    await page.evaluate(({ roles, p, tol }) => { for (const r of roles) window.__autotest.goto(r, p.x, p.y ?? 2.2, p.z, tol); }, { roles, p: point, tol });
+    try {
+      await page.waitForFunction((roles) => roles.every(r => window.__autotest.arrived(r)) || document.querySelector('#dev-readout')?.textContent.includes('mission:complete'), roles, { timeout, polling: 250 });
+    } catch {
+      const at = await page.evaluate((roles) => roles.map(r => [r, window.__autotest.position(r)]), roles);
+      throw new Error(`autopilot ${roles} failed to reach ${JSON.stringify(point)} at ${JSON.stringify(at)}\nREADOUT:\n${await readout()}`);
+    }
+  };
   const travel = async (points) => {
+    for (const point of points) {
+      await pilot(['pix'], point);
+      await pilot(['nee'], point);
+      if (process.env.TRACE) console.log(JSON.stringify(point), (await readout()).match(/prototype:\S+/)?.[0]);
+    }
+  };
+  const legacyTravel = async (points) => {
     const step = async (id, point, previous) => {
       try { await move(id, point, 25000, point.tolerance ?? 1); }
       catch (error) {
@@ -132,16 +153,16 @@ try {
     }
   };
   await travel(arrival);
-  await ensureActive('player-1'); await pressGameKey('f'); await solvePacket();
+  await ensureActive('player-1'); await page.evaluate(() => window.__autotest.press('pix', 'interact')); await solvePacket();
   await travel(toNee);
-  await ensureActive('player-2'); await pressGameKey('f'); await solveSignal();
+  await ensureActive('player-2'); await page.evaluate(() => window.__autotest.press('nee', 'interact')); await solveSignal();
   await travel(servers);
-  await ensureActive('player-2'); await pressGameKey('f'); await solveMemory();
+  await ensureActive('player-2'); await page.evaluate(() => window.__autotest.press('nee', 'interact')); await solveMemory();
   await page.locator('#dev-readout').filter({ hasText: 'door:open' }).waitFor();
   await travel(vault);
   // Low-FPS tolerant: retry the grab a couple of times and wait on replicated state, not a fixed delay.
   for (let attempt = 0; attempt < 3 && !(await readout()).includes('mission:escape'); attempt++) {
-    await ensureActive('player-2'); await pressGameKey('e');
+    await ensureActive('player-2'); await page.evaluate(() => window.__autotest.press('nee', 'grabDrop'));
     await page.locator('#dev-readout').filter({ hasText: 'mission:escape' }).waitFor({ timeout: 4000 }).catch(() => {});
   }
   if (!(await readout()).includes('mission:escape')) throw new Error(`Prototype grab did not trigger alarm. ${await readout()}`);
