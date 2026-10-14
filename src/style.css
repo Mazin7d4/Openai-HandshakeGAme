@@ -490,7 +490,7 @@ input {
 
 /* First-time quick controls card (GameHud). Never blocks clicks or the canvas. */
 .controls-card {
-  position: fixed; left: 18px; bottom: 18px; z-index: 12; width: 270px; padding: 14px 16px;
+  position: fixed; left: 18px; bottom: 44px; z-index: 12; width: 270px; padding: 14px 16px;
   border-radius: 14px; background: rgba(18, 24, 30, 0.72); backdrop-filter: blur(8px);
   color: #f4efe6; font: 500 12px/1.4 system-ui, sans-serif; pointer-events: none;
   border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
