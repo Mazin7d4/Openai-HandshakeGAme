@@ -1,3 +1,4 @@
+import type { AbstractMesh } from '@babylonjs/core';
 import {
   Color3,
   Color4,
@@ -50,15 +51,30 @@ export function createScene(engine: Engine): Scene {
   shadows.usePercentageCloserFiltering = true;
   shadows.filteringQuality = ShadowGenerator.QUALITY_LOW;
   shadows.bias = 0.0005; shadows.normalBias = 0.035; shadows.setDarkness(0.25);
+  const staticCasters: { mesh: AbstractMesh; x: number; z: number; r: number }[] = [];
+  const dynamicCasters: AbstractMesh[] = [];
   scene.onBeforeRenderObservable.addOnce(() => {
     for (const mesh of scene.meshes) {
-      if (mesh.name.includes('player-') && mesh.isVisible) { shadows.addShadowCaster(mesh); continue; }
+      if (mesh.name.includes('player-') && mesh.isVisible) { shadows.addShadowCaster(mesh); dynamicCasters.push(mesh, ...mesh.getChildMeshes()); continue; }
       if (!(mesh.name.startsWith('Hero_') || mesh.metadata?.castShadow)) continue;
       // Draw-call budget: only big props cast into the shadow pass; small clutter just receives.
       mesh.computeWorldMatrix(true);
-      if (mesh.getBoundingInfo().boundingSphere.radiusWorld >= 0.45) shadows.addShadowCaster(mesh, false);
+      const sphere = mesh.getBoundingInfo().boundingSphere;
+      if (sphere.radiusWorld >= 0.45) staticCasters.push({ mesh, x: sphere.centerWorld.x, z: sphere.centerWorld.z, r: sphere.radiusWorld });
     }
   });
+  // Shadow-pass culling: only static casters overlapping the camera-following 48 m ortho box are
+  // rendered into the shadow map (rebuilt only when the 2 m-snapped centre moves).
+  let castersKey = '';
+  const refreshCasters = (fx: number, fz: number) => {
+    const key = `${fx},${fz}`;
+    if (key === castersKey || staticCasters.length === 0) return;
+    castersKey = key;
+    const list = shadows.getShadowMap()!.renderList!;
+    list.length = 0;
+    for (const m of dynamicCasters) list.push(m);
+    for (const c of staticCasters) if (Math.abs(c.x - fx) < 27 + c.r && Math.abs(c.z - fz) < 27 + c.r) list.push(c.mesh);
+  };
   // The shadow frustum used to be pinned over the lab; it now follows the camera (snapped to a 2 m grid
   // to avoid shimmer), so every mission area gets contact shadows from the same 1024 map.
   const sunDir = sun.direction.normalizeToNew();
@@ -68,6 +84,7 @@ export function createScene(engine: Engine): Scene {
     const p = cam.globalPosition;
     const fx = Math.round(p.x / 2) * 2, fz = Math.round(p.z / 2) * 2;
     sun.position.set(fx - sunDir.x * 38, 4 - sunDir.y * 38, fz - sunDir.z * 38);
+    refreshCasters(fx, fz);
   });
 
   if (!lowFx) {
