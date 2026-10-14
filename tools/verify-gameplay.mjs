@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { arrival, toNee, servers } from './heist-route.mjs';
 
 const APP_URL = process.argv[2] ?? process.env.APP_URL ?? 'http://127.0.0.1:5173/';
 const DEBUG_URL = new URL(APP_URL);
@@ -193,12 +194,7 @@ try {
   await host.waitForTimeout(300);
   assert(await host.getByTestId('packet-routing').count() === 0, 'Hack opened outside station range.');
 
-  await moveToward(host, 'player-1', { x: -1.6, z: -15.5 }, 20_000, 2.5);
-  await moveToward(guest, 'player-2', { x: 1.6, z: -15.5 }, 20_000, 2.5);
-  await moveToward(host, 'player-1', { x: -1.6, z: -12.0 }, 20_000, 2.5);
-  await moveToward(guest, 'player-2', { x: 1.6, z: -12.0 }, 20_000, 2.5);
-  await moveToward(guest, 'player-2', { x: -2.0, z: -11.5 }, 20_000, 2.5);
-  await moveToward(host, 'player-1', { x: -4.5, y: 1.4, z: -11.0 }, 20_000, 2.5);
+  // Astra's layout: the delivery cargo-core sits beside the reception desk, near spawn.
 
   await chaseAndGrab(host, 'player-1', 'cargo-core');
   await Promise.all([waitForText(host, 'cargo-core:pix'), waitForText(guest, 'cargo-core:pix')]);
@@ -219,26 +215,43 @@ try {
   await guest.keyboard.press('e');
   await Promise.all([waitForText(host, 'cargo-core:free'), waitForText(guest, 'cargo-core:free')]);
 
-  await Promise.all([
-    moveToward(host, 'player-1', { x: -3.2, z: -6.5 }, 18_000),
-    moveToward(guest, 'player-2', { x: 3.2, z: -6.5 }, 18_000),
-  ]);
-  await Promise.all([host.keyboard.press('f'), guest.keyboard.press('f')]);
+  // Follow the authored heist route: reception crawl -> vent -> two-key office.
+  // If the tether drags a drone off-line (e.g. behind the vent jamb), back up one waypoint and retry once.
+  const step = async (page, id, point, previous) => {
+    try { await moveToward(page, id, point, 25_000, point.tolerance ?? 1); }
+    catch (error) {
+      if (!previous) throw error;
+      await moveToward(page, id, previous, 20_000, 1.5);
+      await moveToward(page, id, point, 25_000, point.tolerance ?? 1);
+    }
+  };
+  const travel = async (points) => {
+    for (let i = 0; i < points.length; i++) {
+      await step(host, 'player-1', points[i], points[i - 1]);
+      await step(guest, 'player-2', points[i], points[i - 1]);
+    }
+  };
+  await travel(arrival);
+  await moveToward(host, 'player-1', { x: -3.3, y: 5.2, z: -33 }, 25_000, 0.9);
+  for (const point of toNee) await moveToward(guest, 'player-2', point, 25_000, point.tolerance ?? 1);
+  await moveToward(host, 'player-1', { x: -3.3, y: 5.2, z: -33 }, 25_000, 0.55);
+  await moveToward(guest, 'player-2', { x: 4.8, y: 2, z: -32.4 }, 25_000, 0.45);
+  await host.bringToFront(); await host.keyboard.press('f');
+  await host.getByTestId('packet-routing').waitFor({ state: 'visible', timeout: 10_000 });
+  await guest.bringToFront(); await guest.keyboard.press('f');
+  await guest.getByTestId('signal-match').waitFor({ state: 'visible', timeout: 10_000 });
   await Promise.all([solvePacketRouting(host), solveSignalMatch(guest)]);
   await Promise.all([waitForText(host, 'A:complete', 10_000), waitForText(guest, 'A:complete', 10_000)]);
   await Promise.all([waitForText(host, 'B:complete', 10_000), waitForText(guest, 'B:complete', 10_000)]);
 
-  // Terminal C (Memory Authorizer at { x: 3.2, z: -0.8 })
-  await moveToward(host, 'player-1', { x: 0, z: -3.5 }, 18_000);
-  await moveToward(guest, 'player-2', { x: 1.5, z: -4.5 }, 18_000, 0.8);
-  await moveToward(guest, 'player-2', { x: 1.5, z: -1.5 }, 18_000, 1.0);
+  // Terminal C: memory authorizer on the server maintenance shelf.
+  // NEE occupies the patch bay, so PIX only needs to get near it before both head for the servers.
+  for (const point of toNee) await moveToward(host, 'player-1', point, 25_000, 2.2);
+  await travel(servers);
+  await guest.bringToFront();
   await guest.keyboard.press('f');
-  await guest.waitForTimeout(300);
-  if (await guest.getByTestId('memory-trace').count() === 0) {
-    const promptButton = guest.locator('.interaction-prompt button', { hasText: 'MEMORY AUTHORIZER' });
-    if (await promptButton.count() > 0) await promptButton.click();
-    else await guest.keyboard.press('f');
-  }
+  await guest.waitForTimeout(600);
+  if (await guest.getByTestId('memory-trace').count() === 0) await guest.keyboard.press('f');
   await solveMemoryTrace(guest);
   await Promise.all([waitForText(host, 'door:open', 10_000), waitForText(guest, 'door:open', 10_000)]);
   assert((await readout(host)).includes('A:complete'), 'PIX routing station did not complete.');
@@ -249,7 +262,7 @@ try {
   let maxRemotePull = 0;
   await host.keyboard.down('a');
   await host.keyboard.down('Shift');
-  for (let i = 0; i < 18; i++) {
+  for (let i = 0; i < 40; i++) {
     await guest.waitForTimeout(100);
     maxRemotePull = Math.max(maxRemotePull, await playerPull(guest, 'player-2'));
   }

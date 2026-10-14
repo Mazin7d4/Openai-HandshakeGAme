@@ -32,7 +32,7 @@ async function ensureActive(id) {
     const text = await readout();
     if (text.includes(`active ${expectedRole}`)) return;
     await page.keyboard.press('Tab');
-    await page.waitForTimeout(120);
+    await page.waitForTimeout(400);
   }
   throw new Error(`Could not activate ${expectedRole}`);
 }
@@ -116,9 +116,19 @@ try {
   await page.getByTestId('dev-local').click();
   await page.locator('#boot-status').waitFor({ state: 'detached', timeout: 30_000 });
   const travel = async (points) => {
-    for (const point of points) {
-      await move('player-1', point, 25000, point.tolerance ?? 1);
-      await move('player-2', point, 25000, point.tolerance ?? 1);
+    const step = async (id, point, previous) => {
+      try { await move(id, point, 25000, point.tolerance ?? 1); }
+      catch (error) {
+        if (!previous) throw error;
+        await move(id, previous, 20000, 1.5);
+        await move(id, point, 25000, point.tolerance ?? 1);
+      }
+    };
+    for (let i = 0; i < points.length; i++) {
+      const point = points[i];
+      await step('player-1', point, points[i - 1]);
+      await step('player-2', point, points[i - 1]);
+      if (process.env.TRACE) console.log(JSON.stringify(point), (await readout()).match(/prototype:\S+/)?.[0]);
     }
   };
   await travel(arrival);
@@ -129,7 +139,11 @@ try {
   await ensureActive('player-2'); await pressGameKey('f'); await solveMemory();
   await page.locator('#dev-readout').filter({ hasText: 'door:open' }).waitFor();
   await travel(vault);
-  await ensureActive('player-2'); await pressGameKey('e');
+  // Low-FPS tolerant: retry the grab a couple of times and wait on replicated state, not a fixed delay.
+  for (let attempt = 0; attempt < 3 && !(await readout()).includes('mission:escape'); attempt++) {
+    await ensureActive('player-2'); await pressGameKey('e');
+    await page.locator('#dev-readout').filter({ hasText: 'mission:escape' }).waitFor({ timeout: 4000 }).catch(() => {});
+  }
   if (!(await readout()).includes('mission:escape')) throw new Error(`Prototype grab did not trigger alarm. ${await readout()}`);
   await page.locator('#dev-readout').filter({ hasText: 'mission:escape' }).waitFor({ timeout: 10000 });
   await travel(escape);

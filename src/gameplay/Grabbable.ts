@@ -42,6 +42,8 @@ export interface GrabbableSpec {
 }
 
 /** A small dynamic body that can switch between local physics and a replicated pose. */
+const OUT_OF_WORLD_Y = -3;
+
 export class Grabbable implements Interactable {
   readonly id: string;
   readonly mesh: Mesh;
@@ -283,7 +285,17 @@ export class Grabbable implements Interactable {
       this.aggregate.body.setLinearVelocity(this.zero);
       return;
     }
-    this.lastSafePosition.copyFrom(this.mesh.position);
+    // Fast throws at low frame rates can tunnel through the floor slab. Recover to the last in-world pose
+    // instead of letting the object fall forever (it used to end up clamped at y=-200 on the server).
+    if (this.mesh.position.y < OUT_OF_WORLD_Y) {
+      console.warn(`[physics] ${this.id} left the world; restored to its last safe pose.`);
+      this.mesh.position.copyFrom(this.lastSafePosition);
+      this.mesh.position.y = Math.max(this.mesh.position.y, 1);
+      this.teleportBody();
+      this.aggregate.body.setLinearVelocity(this.zero);
+      return;
+    }
+    if (this.mesh.position.y > 0.2) this.lastSafePosition.copyFrom(this.mesh.position);
     if (this.velocity.lengthSquared() > MAX_FREE_SPEED * MAX_FREE_SPEED) {
       clampMagnitude(this.velocity, MAX_FREE_SPEED);
       this.aggregate.body.setLinearVelocity(this.velocity);

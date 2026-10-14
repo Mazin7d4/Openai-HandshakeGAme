@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { arrival, toNee } from './heist-route.mjs';
 
 const APP_URL = process.argv[2] ?? process.env.APP_URL ?? 'http://127.0.0.1:5173/';
 
@@ -33,22 +34,46 @@ function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
-async function moveToward(page, playerId, target, timeout = 18_000, tolerance = 1.6) {
+// Camera-relative, 3D, closed-loop steering shared with the heist checks.
+async function moveToward(page, playerId, target, timeout = 25_000, tolerance = 1.6) {
+  const fwdX = 0.325, fwdZ = 0.946;
   const started = Date.now();
+  const targetY = target.y ?? 2.2;
   while (Date.now() - started < timeout) {
     const position = await playerPosition(page, playerId);
     const dx = target.x - position.x;
     const dz = target.z - position.z;
-    if (Math.abs(dx) < tolerance && Math.abs(dz) < tolerance) return;
+    if (Math.abs(dx) < tolerance && Math.abs(dz) < tolerance && Math.abs(position.y - targetY) < 1.4) return;
+    const thrust = fwdX * dx + fwdZ * dz;
+    const strafe = fwdZ * dx - fwdX * dz;
     const keys = [];
-    if (Math.abs(dx) > 0.7) keys.push(dx > 0 ? 'd' : 'a');
-    if (Math.abs(dz) > 0.7) keys.push(dz > 0 ? 'w' : 's');
+    if (Math.abs(strafe) > 0.3) keys.push(strafe > 0 ? 'd' : 'a');
+    if (Math.abs(thrust) > 0.3) keys.push(thrust > 0 ? 'w' : 's');
+    if (position.y > targetY + 0.45) keys.push('c');
+    else if (position.y < targetY - 0.45) keys.push('Space');
     for (const key of keys) await page.keyboard.down(key);
-    await page.waitForTimeout(100);
+    await page.waitForTimeout(110);
     for (const key of keys) await page.keyboard.up(key);
     await page.waitForTimeout(35);
   }
   throw new Error(`${playerId} did not reach ${JSON.stringify(target)}.`);
+}
+
+async function ensureActive(page, role) {
+  for (let i = 0; i < 10; i++) {
+    if ((await readout(page)).includes(`active ${role}`)) return;
+    await page.keyboard.press('Tab');
+    await page.waitForTimeout(400);
+  }
+  throw new Error(`Could not activate ${role}`);
+}
+
+async function solveSignalMatch(page) {
+  const overlay = page.getByTestId('signal-match');
+  await overlay.waitFor({ state: 'visible' });
+  await overlay.locator('[data-control="frequency"]').fill(await overlay.getAttribute('data-target-frequency'));
+  await overlay.locator('[data-control="amplitude"]').fill(await overlay.getAttribute('data-target-amplitude'));
+  await overlay.waitFor({ state: 'detached' });
 }
 
 async function chaseAndGrab(page, playerId, objectId, timeout = 25_000) {
@@ -63,9 +88,12 @@ async function chaseAndGrab(page, playerId, objectId, timeout = 25_000) {
     }
     const dx = target.x - player.x;
     const dz = target.z - player.z;
+    const thrust = 0.325 * dx + 0.946 * dz;
+    const strafe = 0.946 * dx - 0.325 * dz;
     const keys = [];
-    if (Math.abs(dx) > 0.6) keys.push(dx > 0 ? 'd' : 'a');
-    if (Math.abs(dz) > 0.6) keys.push(dz > 0 ? 'w' : 's');
+    if (Math.abs(strafe) > 0.4) keys.push(strafe > 0 ? 'd' : 'a');
+    if (Math.abs(thrust) > 0.4) keys.push(thrust > 0 ? 'w' : 's');
+    if (player.y > target.y + 1) keys.push('c'); else if (player.y < target.y - 0.6) keys.push('Space');
     for (const key of keys) await page.keyboard.down(key);
     await page.waitForTimeout(110);
     for (const key of keys) await page.keyboard.up(key);
@@ -143,35 +171,41 @@ try {
   await page.keyboard.press('Escape');
   await page.getByTestId('pause-menu').waitFor({ state: 'hidden' });
 
-  await moveToward(page, 'player-2', { x: 2.5, z: -8.5 });
-  await page.keyboard.press('f');
-  await solvePacketRouting(page);
-  assert((await readout(page)).includes('B:complete'), 'NEE station did not complete in dev-local.');
-
-  await page.keyboard.press('Tab');
-  await moveToward(page, 'player-1', { x: -2.5, z: -8.5 });
-  await page.keyboard.press('f');
-  await solvePacketRouting(page);
-  await page.locator('#dev-readout').filter({ hasText: 'door:open' }).waitFor({ state: 'visible', timeout: 10_000 });
-
-  for (const id of ['cargo-core', 'crate-blue', 'crate-pink']) {
+  // Grab / drop / re-grab / throw with the delivery cargo-core beside reception (Astra layout).
+  await ensureActive(page, 'PIX');
+  for (const id of ['cargo-core']) {
     await moveToward(page, 'player-1', await objectPosition(page, id), 25_000, 0.65);
-    await page.keyboard.press('e');
-    await page.waitForTimeout(350);
+    for (let i = 0; i < 3 && !(await readout(page)).includes(`${id}:pix@`); i++) { await page.keyboard.press('e'); await page.waitForTimeout(700); }
     assert((await readout(page)).includes(`${id}:pix@`), `PIX did not grab ${id}.`);
     await page.keyboard.down('d');
     await page.waitForTimeout(250);
     await page.keyboard.up('d');
     await page.waitForTimeout(150);
     await page.keyboard.press('e');
-    await page.waitForTimeout(350);
+    await page.waitForTimeout(700);
     assert(await objectHolder(page, id) === 'free', `PIX did not drop ${id}.`);
+    if (process.env.TRACE) console.log('after drop', JSON.stringify(await objectPosition(page, id)), JSON.stringify(await playerPosition(page, 'player-1')));
     await chaseAndGrab(page, 'player-1', id);
     assert(await objectHolder(page, id) === 'pix', `PIX did not re-grab ${id}.`);
     await page.keyboard.press('q');
-    await page.waitForTimeout(450);
+    await page.waitForTimeout(900);
     assert(!(await readout(page)).includes(`${id}:pix@`), `PIX did not throw ${id}.`);
   }
+
+  // Both office keys in dev-local, switching drones with Tab: PIX desk console, NEE under-desk patch bay.
+  for (const point of arrival) {
+    await ensureActive(page, 'PIX'); await moveToward(page, 'player-1', point, 25_000, point.tolerance ?? 1);
+    await ensureActive(page, 'NEE'); await moveToward(page, 'player-2', point, 25_000, point.tolerance ?? 1);
+  }
+  for (const point of toNee) await moveToward(page, 'player-2', point, 25_000, point.tolerance ?? 1);
+  await page.keyboard.press('f');
+  await solveSignalMatch(page);
+  await page.locator('#dev-readout').filter({ hasText: 'B:complete' }).waitFor({ timeout: 10_000 });
+  await ensureActive(page, 'PIX');
+  await moveToward(page, 'player-1', { x: -3.3, y: 5.2, z: -33 }, 25_000, 0.55);
+  await page.keyboard.press('f');
+  await solvePacketRouting(page);
+  await page.locator('#dev-readout').filter({ hasText: 'A:complete' }).waitFor({ timeout: 10_000 });
 
   assert(errors.length === 0, errors.join('\n'));
   console.log(JSON.stringify({

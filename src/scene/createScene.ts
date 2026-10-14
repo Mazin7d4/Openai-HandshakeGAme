@@ -13,12 +13,19 @@ import {
 } from '@babylonjs/core';
 import { createStudioEnvironment } from './studioEnvironment.ts';
 
+/** `?scale=N` renders at 1/N resolution (low-end GPUs, software-render CI); `?lowfx` drops glow. */
+const params = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
+export const renderScale = Math.min(6, Math.max(1, Number(params.get('scale')) || 1));
+export const lowFx = params.has('lowfx');
+
 export function createEngine(canvas: HTMLCanvasElement): Engine {
-  return new Engine(canvas, true, {
-    adaptToDeviceRatio: true,
-    antialias: true,
+  const engine = new Engine(canvas, !lowFx, {
+    adaptToDeviceRatio: renderScale === 1,
+    antialias: !lowFx,
     powerPreference: 'high-performance',
   });
+  if (renderScale > 1) engine.setHardwareScalingLevel(renderScale);
+  return engine;
 }
 
 export function createScene(engine: Engine): Scene {
@@ -49,8 +56,10 @@ export function createScene(engine: Engine): Scene {
     }
   });
 
-  const glow = new GlowLayer('glow', scene, { blurKernelSize: 32 });
-  glow.intensity = 0.22;
+  if (!lowFx) {
+    const glow = new GlowLayer('glow', scene, { blurKernelSize: 32 });
+    glow.intensity = 0.22;
+  }
 
   // Shared soft daylight reflections on painted surfaces, glass, metal and drones.
   scene.environmentTexture = createStudioEnvironment(scene);

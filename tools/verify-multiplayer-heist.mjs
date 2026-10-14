@@ -163,10 +163,19 @@ try {
   assert((await readout(host)).includes('active PIX'), 'Host is not PIX');
   assert((await readout(guest)).includes('active NEE'), 'Guest is not NEE');
 
+  // If the tether drags a drone off-line (e.g. behind the vent jamb), back up one waypoint and retry once.
+  const step = async (page, id, point, previous) => {
+    try { await moveToward(page, id, point, 25000, point.tolerance ?? 1); }
+    catch (error) {
+      if (!previous) throw error;
+      await moveToward(page, id, previous, 20_000, 1.5);
+      await moveToward(page, id, point, 25000, point.tolerance ?? 1);
+    }
+  };
   const travel = async (points) => {
-    for (const point of points) {
-      await moveToward(host, 'player-1', point, 25000, point.tolerance ?? 1);
-      await moveToward(guest, 'player-2', point, 25000, point.tolerance ?? 1);
+    for (let i = 0; i < points.length; i++) {
+      await step(host, 'player-1', points[i], points[i - 1]);
+      await step(guest, 'player-2', points[i], points[i - 1]);
     }
   };
   // Traverse actual reception furniture and the high vent.
