@@ -195,7 +195,8 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     for (const dx of [-2.6, 2.6]) box('pendant-wire', x + dx, 13, z, 0.025, 2.5, 0.025, p.dark, false);
   }
   // Escape: a fast west spine, two altitude changes and a final dive onto the delivery pad.
-  box('escape-low-obstacle', -15.5, 1.6, -9, 6.4, 3.2, 0.7, p.sage);
+  box('escape-low-obstacle', -15.5, 1.6, -9, 6.4, 3.2, 0.7, p.wood);
+  box('escape-low-obstacle-cap', -15.5, 3.24, -9, 6.5, 0.08, 0.8, p.metal, false);
   box('escape-high-obstacle', -15.5, 10.6, -34, 6.4, 6.8, 0.7, p.sage, true, true);
   const strips: Mesh[] = [];
   for (let z = 13; z > -60; z -= 6) {

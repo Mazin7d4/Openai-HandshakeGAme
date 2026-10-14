@@ -153,6 +153,25 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
     kit.place({ prop: 'Shelving', x: -18.2, z }); collide(-18.25, 6, z, 1.1, 12, 6);
 
   }
+  // Robotics-lab finish for the spine: oak wainscot + aluminium rail on both walls, warm wall washers,
+  // a ceiling cable tray, and two planters at the pickup end. All merged; nothing enters the flight lane.
+  const glow = make('wall-washer', '#FFF1D6', 0.6, 0, '#FFD9A0');
+  for (const [x0, z0, z1] of [[-12.32, -56, 0.5], [-12.32, 1.5, 8.6], [-18.62, -60, 10]] as const) {
+    const dir = x0 > -15 ? -1 : 1;
+    for (let z = z0; z < z1 - 0.5; z += 4) {
+      const len = Math.min(3.85, z1 - z);
+      box(x0, 1.5, z + len / 2, 0.12, 2.9, len - 0.1, p.wood);
+    }
+    box(x0 + dir * 0.06, 3.05, (z0 + z1) / 2, 0.14, 0.12, z1 - z0, p.metal);
+    box(x0 + dir * 0.04, 0.12, (z0 + z1) / 2, 0.12, 0.24, z1 - z0, p.dark);
+  }
+  for (let z = -52; z <= 6; z += 12) {
+    box(-12.45, 8.2, z, 0.12, 0.45, 2.6, glow);
+    box(-12.33, 8.2, z, 0.1, 0.7, 2.9, p.metal);
+  }
+  box(-13, 12.6, -24, 0.9, 0.08, 72, p.metal);
+  for (const dx of [-0.25, 0, 0.22]) cyl(-13 + dx, 12.72, -24, 72, 0.12, 0.12, cable, 6).rotation.x = Math.PI / 2;
+  for (const z of [-58, -50]) kit.place({ prop: 'Plant', x: -18, z });
   // Painted chevrons on the escape floor, pointing toward pickup.
   for (let z = 10; z > -58; z -= 12) {
     for (const s of [-1, 1]) box(-15.5 + s * 1.2, 0.03, z, 2, 0.02, 0.35, yellow, s * 0.7);
