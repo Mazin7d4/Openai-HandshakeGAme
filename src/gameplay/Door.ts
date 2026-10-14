@@ -20,11 +20,18 @@ export class Door {
   private readonly plugin: HavokPlugin;
   private readonly aggregate;
   private open = false;
+  private readonly closedY: number;
+  private readonly openY: number;
 
-  constructor(scene: Scene, plugin: HavokPlugin) {
+  constructor(scene: Scene, plugin: HavokPlugin, spec?: {
+    name: string; x: number; y: number; z: number;
+    width: number; height: number; depth: number; travel: number;
+  }) {
     this.plugin = plugin;
-    this.mesh = CreateBox('locked-door', { width: 5.35, height: 4.4, depth: 0.6 }, scene);
-    this.mesh.position.set(0, CLOSED_Y, 2);
+    this.closedY = spec?.y ?? CLOSED_Y;
+    this.openY = spec ? spec.y + spec.travel : OPEN_Y;
+    this.mesh = CreateBox(spec?.name ?? 'locked-door', spec ?? { width: 5.35, height: 4.4, depth: 0.6 }, scene);
+    this.mesh.position.set(spec?.x ?? 0, this.closedY, spec?.z ?? 2);
     applySolidColor(this.mesh, new Color3(0.16, 0.21, 0.24), scene);
     this.aggregate = addStaticBody(this.mesh, scene);
     this.aggregate.body.setMotionType(PhysicsMotionType.ANIMATED);
@@ -40,7 +47,7 @@ export class Door {
   }
 
   update(dt: number): void {
-    const target = this.open ? OPEN_Y : CLOSED_Y;
+    const target = this.open ? this.openY : this.closedY;
     this.mesh.position.y += (target - this.mesh.position.y) * (1 - Math.exp(-5 * dt));
     this.plugin.setPhysicsBodyTransformation(this.aggregate.body, this.mesh);
   }

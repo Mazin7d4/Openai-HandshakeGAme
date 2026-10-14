@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { arrival, toNee, servers, vault, escape } from './heist-route.mjs';
 
 const APP_URL = process.argv[2] ?? process.env.APP_URL ?? 'http://127.0.0.1:5173/';
 const DEBUG_URL = new URL(APP_URL);
@@ -21,6 +22,16 @@ async function playerPosition(page, id) {
 
 async function waitForText(page, text, timeout = 12_000) {
   await page.locator('#dev-readout').filter({ hasText: text }).waitFor({ state: 'visible', timeout });
+}
+
+async function startHackWithKey(page, testId) {
+  await page.bringToFront();
+  await page.getByTestId('game-canvas').click({ force: true });
+  await page.keyboard.down('f');
+  await page.waitForTimeout(300);
+  await page.keyboard.up('f');
+  await page.getByTestId(testId).waitFor({ state: 'visible', timeout: 10000 })
+    .catch(async () => { throw new Error(`${testId} did not start: ${await readout(page)}`); });
 }
 
 const fwdX = 0.325;
@@ -152,69 +163,29 @@ try {
   assert((await readout(host)).includes('active PIX'), 'Host is not PIX');
   assert((await readout(guest)).includes('active NEE'), 'Guest is not NEE');
 
-  // 2. Infiltration & Stage sync
-  await moveToward(host, 'player-1', { x: -1.6, z: -15.5 }, 20_000, 2.5);
-  await moveToward(guest, 'player-2', { x: 1.6, z: -15.5 }, 20_000, 2.5);
-  await moveToward(host, 'player-1', { x: -1.6, z: -12.0 }, 20_000, 2.5);
-  await moveToward(guest, 'player-2', { x: 1.6, z: -12.0 }, 20_000, 2.5);
-  await Promise.all([
-    waitForText(host, 'mission:hack-security'),
-    waitForText(guest, 'mission:hack-security'),
-  ]);
-
-  // 3. Independent hacking
-  await moveToward(host, 'player-1', { x: -3.2, z: -6.5 }, 18_000);
-  await moveToward(guest, 'player-2', { x: 3.2, z: -6.5 }, 18_000);
-  await host.bringToFront();
-  await host.keyboard.press('f');
-  await guest.bringToFront();
-  await guest.keyboard.press('f');
-  await host.waitForTimeout(300);
-  if (await host.getByTestId('packet-routing').count() === 0) {
-    const promptButton = host.locator('.interaction-prompt button');
-    if (await promptButton.count() > 0) await promptButton.click();
-    else {
-      await host.bringToFront();
-      await host.keyboard.press('f');
+  const travel = async (points) => {
+    for (const point of points) {
+      await moveToward(host, 'player-1', point, 25000, point.tolerance ?? 1);
+      await moveToward(guest, 'player-2', point, 25000, point.tolerance ?? 1);
     }
-  }
-  if (await guest.getByTestId('signal-match').count() === 0) {
-    const promptButton = guest.locator('.interaction-prompt button');
-    if (await promptButton.count() > 0) await promptButton.click();
-    else {
-      await guest.bringToFront();
-      await guest.keyboard.press('f');
-    }
-  }
+  };
+  // Traverse actual reception furniture and the high vent.
+  await travel(arrival);
+  await Promise.all([waitForText(host, 'mission:hack-security'), waitForText(guest, 'mission:hack-security')]);
+  await moveToward(host, 'player-1', {x:-3.3,y:5.2,z:-33}, 25000, 0.9);
+  for (const point of toNee) await moveToward(guest, 'player-2', point, 25000, point.tolerance ?? 1);
+  await moveToward(host, 'player-1', {x:-3.3,y:5.2,z:-33}, 25000, 0.55);
+  await startHackWithKey(host, 'packet-routing');
+  await moveToward(guest, 'player-2', {x:4.8,y:2,z:-32.4}, 25000, 0.45);
+  await startHackWithKey(guest, 'signal-match');
   await Promise.all([solvePacketRouting(host), solveSignalMatch(guest)]);
-  await Promise.all([waitForText(host, 'A:complete'), waitForText(guest, 'A:complete')]);
-  await Promise.all([waitForText(host, 'B:complete'), waitForText(guest, 'B:complete')]);
-
-  // Terminal C (Memory Authorizer)
-  await moveToward(host, 'player-1', { x: 0, z: -3.5 }, 18_000);
-  await moveToward(guest, 'player-2', { x: 1.5, z: -4.5 }, 18_000, 0.8);
-  await moveToward(guest, 'player-2', { x: 1.5, z: -1.5 }, 18_000, 1.0);
-  await guest.keyboard.press('f');
-  await guest.waitForTimeout(300);
-  if (await guest.getByTestId('memory-trace').count() === 0) {
-    const promptButton = guest.locator('.interaction-prompt button', { hasText: 'MEMORY AUTHORIZER' });
-    if (await promptButton.count() > 0) await promptButton.click();
-    else await guest.keyboard.press('f');
-  }
+  await Promise.all([waitForText(host, 'A:complete'), waitForText(guest, 'B:complete')]);
+  for (const point of toNee) await moveToward(host, 'player-1', point, 25000, point.tolerance ?? 1);
+  await travel(servers);
+  await startHackWithKey(guest, 'memory-trace');
   await solveMemoryTrace(guest);
-
-  // 4. Door opens on both clients
-  await Promise.all([waitForText(host, 'door:open', 10_000), waitForText(guest, 'door:open', 10_000)]);
-
-  // 5. Reach vault
-  await moveToward(guest, 'player-2', { x: 0, z: 3 }, 25_000, 1.8);
-  await moveToward(host, 'player-1', { x: 0, z: 3 }, 25_000, 1.8);
-  await moveToward(guest, 'player-2', { x: 0, z: 7 }, 25_000, 1.8);
-  await moveToward(host, 'player-1', { x: 0, z: 7 }, 25_000, 1.8);
-  await moveToward(guest, 'player-2', { x: 0, z: 11 }, 25_000, 1.8);
-  await moveToward(host, 'player-1', { x: 0, z: 11 }, 25_000, 1.8);
-  await moveToward(guest, 'player-2', { x: 0, y: 1.6, z: 15.5 }, 25_000, 1.5);
-  await moveToward(host, 'player-1', { x: 0, z: 13 }, 25_000, 1.8);
+  await Promise.all([waitForText(host, 'door:open'), waitForText(guest, 'door:open')]);
+  await travel(vault);
 
   // 6. Grab prototype -> Alarm & Security triggers
   await guest.bringToFront();
@@ -244,29 +215,8 @@ try {
     waitForText(guest, 'mission:escape', 10_000),
   ]);
 
-  // 7. Escape through west service corridor
-  await moveToward(guest, 'player-2', { x: 0, z: 13 }, 20_000, 1.8);
-  await moveToward(host, 'player-1', { x: 0, z: 13 }, 20_000, 1.8);
-  await moveToward(guest, 'player-2', { x: -6, z: 13 }, 20_000, 1.8);
-  await moveToward(host, 'player-1', { x: -6, z: 13 }, 20_000, 1.8);
-  await moveToward(guest, 'player-2', { x: -15, z: 13 }, 20_000, 2.0);
-  await moveToward(host, 'player-1', { x: -15, z: 13 }, 20_000, 2.0);
-  await moveToward(guest, 'player-2', { x: -15, z: 7 }, 20_000, 2.0);
-  await moveToward(host, 'player-1', { x: -15, z: 7 }, 20_000, 2.0);
-  await moveToward(guest, 'player-2', { x: -15, z: 1 }, 20_000, 2.0);
-  await moveToward(host, 'player-1', { x: -15, z: 1 }, 20_000, 2.0);
-  await moveToward(guest, 'player-2', { x: -15, z: -5 }, 20_000, 2.0);
-  await moveToward(host, 'player-1', { x: -15, z: -5 }, 20_000, 2.0);
-  await moveToward(guest, 'player-2', { x: -15, z: -8, y: 4.5 }, 20_000, 2.0);
-  await moveToward(host, 'player-1', { x: -15, z: -8, y: 4.5 }, 20_000, 2.0);
-  await moveToward(guest, 'player-2', { x: -15, z: -12, y: 4.5 }, 25_000, 2.0);
-  await moveToward(host, 'player-1', { x: -15, z: -12, y: 4.5 }, 25_000, 2.0);
-  await moveToward(guest, 'player-2', { x: -15, z: -16, y: 2.2 }, 20_000, 2.0);
-  await moveToward(host, 'player-1', { x: -15, z: -16, y: 2.2 }, 20_000, 2.0);
-
-  // 8. Reach extraction zone
-  await moveToward(guest, 'player-2', { x: -13, z: -20, y: 2.2 }, 25_000, 2.0);
-  await moveToward(host, 'player-1', { x: -13, z: -20, y: 2.2 }, 25_000, 2.0);
+  // The alarm opens the west relief vent; return using its own vertical route.
+  await travel(escape);
 
   // 9. Mission complete appears for both
   await Promise.all([

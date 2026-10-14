@@ -24,7 +24,7 @@ import type { GameMode } from './GameMode.ts';
 
 export interface GameAppOptions {
   canvas: HTMLCanvasElement;
-  createLevel: (scene: Scene) => Vector3;
+  createLevel: (scene: Scene) => Vector3 | Promise<Vector3>;
   uiParent?: HTMLElement;
   devParent?: HTMLElement;
   mode?: GameMode;
@@ -139,7 +139,7 @@ export class GameApp {
     const engine = createEngine(options.canvas);
     const scene = createScene(engine);
     const plugin = await enableHavok(scene);
-    const spawn = options.createLevel(scene);
+    const spawn = await options.createLevel(scene);
     const assets = new AssetLoader(scene);
     const mode = options.mode ?? 'dev-local';
     const multiplayer = options.multiplayer ?? null;
@@ -242,6 +242,7 @@ export class GameApp {
     void this.multiplayer?.dispose();
     this.devReadout?.dispose();
     this.devOrbit?.dispose();
+    this.cameraRig.dispose();
     this.gameplay.dispose();
     this.hud?.dispose();
     this.diagnostics.dispose();
@@ -311,7 +312,7 @@ export class GameApp {
       this.gameplay.publish();
     }
     this.tether.updateVisual();
-    this.cameraRig.update(dt, this.drones);
+    this.cameraRig.update(dt, this.drones, this.gameplay.cameraContext);
     this.devOrbit?.update(this.drones);
     this.devReadout?.update(
       this.snapshots,

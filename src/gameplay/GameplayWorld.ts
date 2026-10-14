@@ -9,6 +9,8 @@ import { GrabSystem } from './GrabSystem.ts';
 import { Grabbable } from './Grabbable.ts';
 import { HackSession } from './HackSession.ts';
 import { MissionDirector } from './MissionDirector.ts';
+import layout from '../level/heist-layout.json';
+import { dressPrototype } from '../level/PrototypeVisual.ts';
 
 /** Small reusable interaction layer for the dev gameplay room. */
 export class GameplayWorld {
@@ -29,7 +31,7 @@ export class GameplayWorld {
       new Grabbable(scene, plugin, {
         id: 'cargo-core',
         label: 'Power Core',
-        position: new Vector3(-5.5, 0.65, -10.5),
+        position: Vector3.FromArray(Object.values(layout.objects['cargo-core'])),
         color: new Color3(0.16, 0.64, 0.9),
         shape: 'sphere',
         size: 1,
@@ -38,7 +40,7 @@ export class GameplayWorld {
       new Grabbable(scene, plugin, {
         id: 'crate-blue',
         label: 'Lab Crate',
-        position: new Vector3(4.2, 0.65, 7.2),
+        position: Vector3.FromArray(Object.values(layout.objects['crate-blue'])),
         color: new Color3(0.32, 0.42, 0.48),
         shape: 'box',
         size: 1.2,
@@ -47,7 +49,7 @@ export class GameplayWorld {
       new Grabbable(scene, plugin, {
         id: 'crate-pink',
         label: 'Coolant Cell',
-        position: new Vector3(-4.5, 0.65, 10.5),
+        position: Vector3.FromArray(Object.values(layout.objects['crate-pink'])),
         color: new Color3(0.72, 0.28, 0.38),
         shape: 'cylinder',
         size: 0.9,
@@ -56,13 +58,14 @@ export class GameplayWorld {
       new Grabbable(scene, plugin, {
         id: 'prototype',
         label: 'Quantum Prototype',
-        position: new Vector3(0, 1.65, 16.2),
+        position: Vector3.FromArray(Object.values(layout.objects.prototype)),
         color: new Color3(0.32, 0.95, 0.72),
         shape: 'sphere',
         size: 1.15,
         grabRadius: 3.2,
       }),
     ];
+    dressPrototype(objects.find((object) => object.id === 'prototype')!.mesh, scene);
     this.grab = new GrabSystem(
       objects,
       session,
@@ -128,6 +131,8 @@ export class GameplayWorld {
   describe(): string {
     return `${this.grab.describe()}\n${this.hack.describe()}\n${this.mission.describe()}`;
   }
+
+  get cameraContext() { return this.mission.cameraContext; }
 
   dispose(): void {
     this.grab.dispose();

@@ -1,6 +1,6 @@
 import { GameApp } from './app/GameApp.ts';
 import type { GameMode } from './app/GameMode.ts';
-import { createTestRoom } from './dev/TestRoom.ts';
+import { createPrototypeHeist } from './level/PrototypeHeist.ts';
 import { MultiplayerSession } from './network/MultiplayerSession.ts';
 import type { RoomStatus } from './network/NetworkTypes.ts';
 import './style.css';
@@ -189,7 +189,7 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   try {
     game = await GameApp.create({
       canvas,
-      createLevel: createTestRoom,
+      createLevel: createPrototypeHeist,
       uiParent: root,
       devParent: mode === 'dev-local' || new URLSearchParams(window.location.search).has('debug')
         ? root

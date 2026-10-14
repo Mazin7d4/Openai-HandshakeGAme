@@ -9,6 +9,7 @@ import { HackStation, type HackStationId } from './HackStation.ts';
 import { MemoryTraceView } from './MemoryTraceView.ts';
 import { PacketRoutingView } from './PacketRoutingView.ts';
 import { SignalMatchView } from './SignalMatchView.ts';
+import layout from '../level/heist-layout.json';
 
 interface ActiveHack {
   station: HackStation;
@@ -50,7 +51,7 @@ export class HackSession {
       new HackStation(scene, {
         id: 'terminal-a',
         label: 'PIX PACKET CONSOLE',
-        position: new Vector3(-5.2, 1.25, -5.8),
+        position: Vector3.FromArray(Object.values(layout.terminals['terminal-a'])),
         interactionRadius: 3.2,
         minigameType: 'packet-routing',
         allowedRole: 'pix',
@@ -59,7 +60,7 @@ export class HackSession {
       new HackStation(scene, {
         id: 'terminal-b',
         label: 'NEE SIGNAL CONSOLE',
-        position: new Vector3(5.2, 1.25, -5.8),
+        position: Vector3.FromArray(Object.values(layout.terminals['terminal-b'])),
         interactionRadius: 3.2,
         minigameType: 'signal-match',
         allowedRole: 'nee',
@@ -68,7 +69,7 @@ export class HackSession {
       new HackStation(scene, {
         id: 'terminal-c',
         label: 'MEMORY AUTHORIZER',
-        position: new Vector3(3.2, 1.25, -0.8),
+        position: Vector3.FromArray(Object.values(layout.terminals['terminal-c'])),
         interactionRadius: 3.1,
         minigameType: 'memory-trace',
         allowedRole: 'either',
@@ -156,6 +157,8 @@ export class HackSession {
   allComplete(): boolean {
     return this.completionCount() === this.stations.length;
   }
+
+  isComplete(id: HackStationId): boolean { return this.completed[id]; }
 
   dispose(): void {
     this.closeView();

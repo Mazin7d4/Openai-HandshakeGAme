@@ -1,0 +1,17 @@
+{
+  "unitsPerMetre": 5,
+  "spawn": { "x": 0, "y": 2.15, "z": -62 },
+  "infiltrationZ": -54,
+  "extraction": { "x": -15, "y": 2, "z": -61 },
+  "terminals": {
+    "terminal-a": { "x": -5.2, "y": 5.1, "z": -33 },
+    "terminal-b": { "x": 5.2, "y": 2, "z": -31 },
+    "terminal-c": { "x": -4, "y": 7.1, "z": -5.8 }
+  },
+  "objects": {
+    "cargo-core": { "x": -5.5, "y": 0.65, "z": -50 },
+    "crate-blue": { "x": 4.2, "y": 0.65, "z": 7.2 },
+    "crate-pink": { "x": -4.5, "y": 0.65, "z": 10.5 },
+    "prototype": { "x": 0, "y": 5.25, "z": 18 }
+  }
+}

@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { arrival, toNee, servers, vault, escape } from './heist-route.mjs';
 
 const APP_URL = process.argv[2] ?? 'http://localhost:5173/';
 const browser = await chromium.launch({
@@ -114,55 +115,24 @@ try {
   await page.goto(APP_URL);
   await page.getByTestId('dev-local').click();
   await page.locator('#boot-status').waitFor({ state: 'detached', timeout: 30_000 });
-  await move('player-1', { x: 0, z: -15.5 });
-  await move('player-2', { x: 0, z: -15.5 });
-  await move('player-1', { x: -5.2, z: -5.8 });
-  await pressGameKey('f');
-  await solvePacket();
-  await move('player-2', { x: 5.2, z: -5.8 });
-  await pressGameKey('f');
-  await solveSignal();
-  await move('player-1', { x: 0, z: -3.5 });
-  await move('player-2', { x: 1.5, z: -4.5 });
-  await move('player-2', { x: 2.2, z: -1.0 }, 30_000, 1.5);
-  await page.locator('.interaction-prompt button', { hasText: 'MEMORY AUTHORIZER' }).click();
-  await page.waitForTimeout(500);
-  if (await page.getByTestId('memory-trace').count() === 0) {
-    await pressGameKey('f');
-    await page.waitForTimeout(500);
-  }
-  if (await page.getByTestId('memory-trace').count() === 0) {
-    throw new Error(`Memory terminal did not open. HUD=${await page.locator('.interaction-prompt').innerText()} READOUT=${await readout()}`);
-  }
-  await solveMemory();
+  const travel = async (points) => {
+    for (const point of points) {
+      await move('player-1', point, 25000, point.tolerance ?? 1);
+      await move('player-2', point, 25000, point.tolerance ?? 1);
+    }
+  };
+  await travel(arrival);
+  await ensureActive('player-1'); await pressGameKey('f'); await solvePacket();
+  await travel(toNee);
+  await ensureActive('player-2'); await pressGameKey('f'); await solveSignal();
+  await travel(servers);
+  await ensureActive('player-2'); await pressGameKey('f'); await solveMemory();
   await page.locator('#dev-readout').filter({ hasText: 'door:open' }).waitFor();
-  await move('player-2', { x: 0, z: 4 }, 30_000, 2.2);
-  await move('player-1', { x: 0, z: 4 }, 30_000, 2.2);
-  await move('player-2', { x: 0, z: 10 }, 30_000, 2.2);
-  await move('player-1', { x: 0, z: 10 }, 30_000, 2.2);
-  await move('player-2', { x: 0, z: 16.2 }, 35_000, 2.6);
-  await pressGameKey('e');
-  await page.locator('#dev-readout').filter({ hasText: 'mission:escape' }).waitFor({ timeout: 10_000 });
-  await move('player-2', { x: 0, z: 13 }, 30_000, 1.8);
-  await move('player-1', { x: 0, z: 13 }, 30_000, 1.8);
-  await move('player-2', { x: -6, z: 13 }, 30_000, 1.8);
-  await move('player-1', { x: -6, z: 13 }, 30_000, 1.8);
-  await move('player-2', { x: -15, z: 13 }, 30_000, 2.0);
-  await move('player-1', { x: -15, z: 13 }, 30_000, 2.0);
-  await move('player-2', { x: -15, z: 7 }, 30_000, 2.0);
-  await move('player-1', { x: -15, z: 7 }, 30_000, 2.0);
-  await move('player-2', { x: -15, z: 1 }, 30_000, 2.0);
-  await move('player-1', { x: -15, z: 1 }, 30_000, 2.0);
-  await move('player-2', { x: -15, z: -5 }, 30_000, 2.0);
-  await move('player-1', { x: -15, z: -5 }, 30_000, 2.0);
-  await move('player-2', { x: -15, z: -8, y: 4.5 }, 30_000, 2.0);
-  await move('player-1', { x: -15, z: -8, y: 4.5 }, 30_000, 2.0);
-  await move('player-2', { x: -15, z: -12, y: 4.5 }, 35_000, 2.0);
-  await move('player-1', { x: -15, z: -12, y: 4.5 }, 35_000, 2.0);
-  await move('player-2', { x: -15, z: -16, y: 2.2 }, 30_000, 2.0);
-  await move('player-1', { x: -15, z: -16, y: 2.2 }, 30_000, 2.0);
-  await move('player-2', { x: -13, z: -20, y: 2.2 }, 35_000, 2.0);
-  await move('player-1', { x: -13, z: -20, y: 2.2 }, 35_000, 2.0);
+  await travel(vault);
+  await ensureActive('player-2'); await pressGameKey('e');
+  if (!(await readout()).includes('mission:escape')) throw new Error(`Prototype grab did not trigger alarm. ${await readout()}`);
+  await page.locator('#dev-readout').filter({ hasText: 'mission:escape' }).waitFor({ timeout: 10000 });
+  await travel(escape);
   await page.getByTestId('mission-complete').waitFor({ state: 'visible', timeout: 10_000 });
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(JSON.stringify({

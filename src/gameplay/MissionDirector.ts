@@ -7,8 +7,10 @@ import type { Drone } from '../player/Drone.ts';
 import type { GrabSystem } from './GrabSystem.ts';
 import type { HackSession } from './HackSession.ts';
 import { SecuritySystem } from './SecuritySystem.ts';
+import layout from '../level/heist-layout.json';
+import { updateHeistPresentation } from '../level/PrototypeHeist.ts';
 
-const EXTRACTION = new Vector3(-13, 2, -20);
+const EXTRACTION = new Vector3(layout.extraction.x, layout.extraction.y, layout.extraction.z);
 
 const FRESH_STATE: MissionNetworkState = {
   stage: 'infiltrate', alarm: false, securityActive: false, prototypeHeldBy: null,
@@ -35,6 +37,8 @@ export class MissionDirector {
   private completedPresented = false;
   private cameraDisabledFor = 0;
   private hacksWereComplete = false;
+  private readonly scene: Scene;
+  private routeHint = 'Enter beneath reception, then rise together through the service vent.';
 
   constructor(
     scene: Scene,
@@ -45,6 +49,7 @@ export class MissionDirector {
     uiParent?: HTMLElement,
     onLeave?: () => void,
   ) {
+    this.scene = scene;
     this.multiplayer = multiplayer;
     this.audio = audio;
     this.alarmLight = new PointLight('alarm-light', new Vector3(0, 5.5, 8), scene);
@@ -143,7 +148,7 @@ export class MissionDirector {
     this.hacksWereComplete = hack.allComplete();
     if (!this.multiplayer) {
       this.state = { ...this.state, elapsedSeconds: this.localElapsed };
-      if (this.state.stage === 'infiltrate' && [...drones.values()].some((drone) => drone.position.z > -18)) {
+      if (this.state.stage === 'infiltrate' && [...drones.values()].some((drone) => drone.position.z > layout.infiltrationZ)) {
         this.state = { ...this.state, stage: 'hack-security' };
       }
       if (this.state.stage === 'hack-security' && hack.allComplete()) {
@@ -164,6 +169,19 @@ export class MissionDirector {
       else this.state = { ...this.state, tetherSaves: this.state.tetherSaves + 1 };
     }
     hack.setAlarmed(this.state.alarm);
+    updateHeistPresentation(this.scene, dt, {
+      alarm: this.state.alarm,
+      complete: this.state.extracted,
+      officeOpen: hack.isComplete('terminal-a') && hack.isComplete('terminal-b'),
+    });
+    const centerZ = [...drones.values()].reduce((sum, drone) => sum + drone.position.z, 0) / Math.max(1, drones.size);
+    this.routeHint = centerZ < -40
+      ? 'Under reception, then climb into the high vent. Stay close through the opening.'
+      : !hack.isComplete('terminal-a') || !hack.isComplete('terminal-b')
+        ? 'Two keys: PIX on the left desktop; NEE beneath the right desk. Move together between them.'
+        : !hack.isComplete('terminal-c')
+          ? 'Server gallery unlocked. Weave around the racks or fly over them; reach the high memory shelf.'
+          : 'Vault authorized. Through the central shutter, then climb to the companion core.';
     this.security.update(dt, drones, this.state.securityActive, this.cameraDisabledFor > 0, tetherStrain);
     this.alarmLight.intensity = this.state.alarm ? 1.6 + Math.sin(this.localElapsed * 9) * 1.2 : 0;
     this.renderObjective(hack.completionCount());
@@ -174,6 +192,10 @@ export class MissionDirector {
     return `mission:${this.state.stage} alarm:${this.state.alarm ? 'on' : 'off'} ` +
       `security:${this.state.securityActive ? 'active' : 'standby'} prototype:${this.state.prototypeHeldBy ?? 'free'} ` +
       `spotted:${this.state.timesSpotted} thrown:${this.state.objectsThrown}`;
+  }
+
+  get cameraContext() {
+    return { alarm: this.state.alarm, vaultOpen: this.hacksWereComplete, complete: this.state.extracted };
   }
 
   dispose(): void {
@@ -224,13 +246,13 @@ export class MissionDirector {
   private renderObjective(hackCount: number): void {
     if (!this.objectiveTitle || !this.objectiveDetail || !this.detectionFill) return;
     const [title, detail] = this.state.stage === 'infiltrate'
-      ? ['INFILTRATE THE LAB', 'Find the reception opening']
+      ? ['A SMALL DELIVERY', this.routeHint]
       : this.state.stage === 'hack-security'
-        ? ['HACK SECURITY', `${hackCount} / 3 TERMINALS`]
+        ? ['INSIDE MORROW', `${hackCount} / 3 access keys · ${this.routeHint}`]
         : this.state.stage === 'steal-prototype'
-          ? ['STEAL THE PROTOTYPE', 'The vault is open']
+          ? ['MEET THE PROTOTYPE', 'The vault is open. Rise to the display cradle; [E] to carry the core.']
           : this.state.stage === 'escape'
-            ? ['ESCAPE!', 'Carry the prototype to the exterior extraction zone']
+            ? ['EVERYBODY OUT!', 'Main shutter sealed! West relief vent is open. Follow green floor lights; throw loose objects at patrols. Both drones must reach PICKUP / 01.']
             : ['PROTOTYPE SECURED', 'Extraction complete'];
     this.objectiveTitle.textContent = title;
     this.objectiveDetail.textContent = detail;

@@ -132,7 +132,9 @@ export class GameHud {
     for (const [key, action] of [
       ['WASD', 'Move'], ['SPACE', 'Ascend'], ['CTRL / C', 'Descend'], ['SHIFT', 'Boost'],
       ['E', 'Grab / Drop'], ['Q', 'Throw held object'], ['F', 'Interact / Hack'],
-      ['TAB', 'Switch drone (Dev Local)'], ['ESC', 'Pause'], ['F2', 'Inspection camera'],
+      ['TAB', 'Switch drone (Dev Local)'], ['ESC', 'Pause'],
+      ['RIGHT DRAG / WHEEL', 'Look a little / adjust framing'],
+      ['TWO FINGERS', 'Look / pinch on touch screens'], ['F2', 'Inspection camera'],
     ]) {
       const dt = document.createElement('dt');
       dt.textContent = key;

@@ -23,10 +23,10 @@ export class DevReadout {
     this.controls.textContent = mode === 'dev-local'
       ? 'ACTIVE  WASD move   Space rise   Ctrl/C fall   Shift boost      ' +
         'E grab/drop   Q throw   F hack   Tab switch drone   Esc pause      ' +
-        'F2 inspect camera'
+        'right-drag look  wheel frame  F2 inspect camera'
       : 'LOCAL  WASD move   Space rise   Ctrl/C fall   LShift boost      ' +
         'E grab/drop   Q throw   F hack   Esc pause      ' +
-        'F2  inspect camera (drag orbit, wheel zoom)';
+        'right-drag look  wheel frame  F2 inspect camera (drag orbit)';
     parent.append(this.readout, this.controls);
   }
 

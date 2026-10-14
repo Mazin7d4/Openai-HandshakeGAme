@@ -1,5 +1,6 @@
 import { CloseCode, Room, Server, WebSocketTransport } from 'colyseus';
 import { schema, t } from '@colyseus/schema';
+import layout from '../src/level/heist-layout.json' with { type: 'json' };
 
 const PORT = Number.parseInt(process.env.PORT ?? '2567', 10);
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -8,12 +9,8 @@ const MAX_WORLD_COORDINATE = 200;
 const MAX_PLAYER_SPEED = 28;
 const MAX_OBJECT_SPEED = 32;
 const TERMINAL_RANGE = 5;
-const TERMINALS = {
-  'terminal-a': { x: -5.2, y: 1.25, z: -5.8 },
-  'terminal-b': { x: 5.2, y: 1.25, z: -5.8 },
-  'terminal-c': { x: 3.2, y: 1.25, z: -0.8 },
-};
-const EXTRACTION = { x: -13, y: 2, z: -20 };
+const TERMINALS = layout.terminals;
+const EXTRACTION = layout.extraction;
 
 const Vec3 = schema(
   {
@@ -155,10 +152,10 @@ class HandshakeRoom extends Room {
     this.maxClients = 2;
     this.roomId = roomCode();
     this.setMetadata({ code: this.roomId });
-    this.state.objects.set('cargo-core', createGrabbable('cargo-core', -5.5, 0.65, -10.5, 3.3));
-    this.state.objects.set('crate-blue', createGrabbable('crate-blue', 4.2, 0.65, 7.2, 3.1));
-    this.state.objects.set('crate-pink', createGrabbable('crate-pink', -4.5, 0.65, 10.5, 3));
-    this.state.objects.set('prototype', createGrabbable('prototype', 0, 1.65, 16.2, 3.2));
+    for (const [id, position] of Object.entries(layout.objects)) {
+      const radius = { 'cargo-core': 3.3, 'crate-blue': 3.1, 'crate-pink': 3, prototype: 3.2 }[id];
+      this.state.objects.set(id, createGrabbable(id, position.x, position.y, position.z, radius));
+    }
     this.onMessage('snapshot', (client, message) => {
       this.applySnapshot(client.sessionId, message);
     });
@@ -185,8 +182,8 @@ class HandshakeRoom extends Room {
     player.role = role;
     player.connected = true;
     player.position.x = role === 'pix' ? -1.6 : 1.6;
-    player.position.y = 2.15;
-    player.position.z = -23;
+    player.position.y = layout.spawn.y;
+    player.position.z = layout.spawn.z;
     this.state.players.set(client.sessionId, player);
     this.state.started = this.state.players.size === 2;
   }
@@ -362,7 +359,7 @@ class HandshakeRoom extends Room {
     const mission = this.state.mission;
     mission.elapsedSeconds = (Date.now() - this.missionStartedAt) / 1000;
     const players = Array.from(this.state.players.values());
-    if (mission.stage === 'infiltrate' && players.some((player) => player.position.z > -18)) {
+    if (mission.stage === 'infiltrate' && players.some((player) => player.position.z > layout.infiltrationZ)) {
       mission.stage = 'hack-security';
     }
     if (mission.stage === 'hack-security' && this.state.hack.doorOpen) {
@@ -407,9 +404,9 @@ class HandshakeRoom extends Room {
     if (prototype) {
       prototype.heldBy = '';
       prototype.mode = 'free';
-      prototype.position.x = 0;
-      prototype.position.y = 1.65;
-      prototype.position.z = 16.2;
+      prototype.position.x = layout.objects.prototype.x;
+      prototype.position.y = layout.objects.prototype.y;
+      prototype.position.z = layout.objects.prototype.z;
       prototype.velocity.x = 0;
       prototype.velocity.y = 0;
       prototype.velocity.z = 0;
