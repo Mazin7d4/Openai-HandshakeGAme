@@ -4,7 +4,7 @@ import { arrival, toNee, servers, vault, escape } from './heist-route.mjs';
 const APP_URL = process.argv[2] ?? 'http://localhost:5173/';
 const browser = await chromium.launch({
   headless: true,
-  args: ['--use-gl=angle', '--use-angle=d3d11', '--enable-webgl', '--ignore-gpu-blocklist'],
+  args: ['--use-gl=angle', process.env.ANGLE ? `--use-angle=${process.env.ANGLE}` : '--use-angle=d3d11', '--enable-webgl', '--ignore-gpu-blocklist'],
 });
 const page = await browser.newPage();
 const errors = [];

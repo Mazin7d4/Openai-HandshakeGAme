@@ -152,7 +152,7 @@ async function solveMemoryTrace(page) {
 
 const browser = await chromium.launch({
   headless: true,
-  args: ['--use-gl=angle', '--use-angle=d3d11', '--enable-webgl', '--ignore-gpu-blocklist'],
+  args: ['--use-gl=angle', process.env.ANGLE ? `--use-angle=${process.env.ANGLE}` : '--use-angle=d3d11', '--enable-webgl', '--ignore-gpu-blocklist'],
 });
 const hostContext = await browser.newContext();
 const guestContext = await browser.newContext();

@@ -6,6 +6,7 @@ import '@babylonjs/loaders/glTF';
 import { addStaticBody } from '../physics/staticBody.ts';
 import { Door } from '../gameplay/Door.ts';
 import { createLabPalette } from './LabPalette.ts';
+import { dressMissionAreas, mergeDecorative } from './AreaDressing.ts';
 import layout from './heist-layout.json';
 
 export interface HeistPresentation { alarm: boolean; complete: boolean; officeOpen: boolean }
@@ -184,5 +185,9 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     const screen = CreatePlane('instrument-screen', { width: 2.52, height: 1.52 }, scene);
     screen.position.set(x + 1.6, 5.4, z + 0.835); screen.material = displayMat; screen.isPickable = false;
   }
+  dressMissionAreas(scene, p);
+  // Batch Astra's repeated physics-free trim (rack trays/LEDs, battens, fixtures) into one mesh per material.
+  mergeDecorative(scene, ['rack-upright', 'rack-tray', 'rack-status', 'oak-batten', 'pendant-shell',
+    'pendant-diffuser', 'pendant-wire', 'vault-mullion', 'extraction-lamp']);
   return new Vector3(layout.spawn.x, layout.spawn.y, layout.spawn.z);
 }
