@@ -3,6 +3,7 @@ import { arrival, toNee, servers } from './heist-route.mjs';
 
 const APP_URL = process.argv[2] ?? process.env.APP_URL ?? 'http://127.0.0.1:5173/';
 const DEBUG_URL = new URL(APP_URL);
+DEBUG_URL.searchParams.set('autotest', '1');
 DEBUG_URL.searchParams.set('debug', '1');
 
 function assert(condition, message) {
@@ -41,11 +42,19 @@ async function waitForText(page, text, timeout = 10_000) {
 const fwdX = 0.325;
 const fwdZ = 0.946;
 
-async function moveToward(page, playerId, target, timeout = 18_000, tolerance = 2.0) {
+async function moveToward(page, playerId, target, timeout = 18_000, tolerance = 2.0, hold = false) {
   await page.bringToFront();
   await page.getByTestId('game-canvas').click();
-  const started = Date.now();
   const targetY = target.y ?? 2.2;
+  // Frame-rate independent autopilot (test-only ?autotest seam); keyboard loop below is the fallback.
+  if (await page.evaluate(() => Boolean(window.__autotest))) {
+    const role = playerId === 'player-1' ? 'pix' : 'nee';
+    const p = { x: target.x, y: targetY, z: target.z, tol: Math.min(tolerance, 2), hold };
+    await page.evaluate(({ role, p }) => window.__autotest.goto(role, p.x, p.y, p.z, p.tol, p.hold), { role, p });
+    await page.waitForFunction((role) => window.__autotest.arrived(role), role, { timeout: timeout * 4, polling: 250 }).catch(() => undefined);
+    if (!hold) await page.evaluate((role) => window.__autotest.stop(role), role);
+  }
+  const started = Date.now();
   while (Date.now() - started < timeout) {
     const position = await playerPosition(page, playerId);
     const dx = target.x - position.x;
@@ -234,12 +243,14 @@ try {
   await travel(arrival);
   await moveToward(host, 'player-1', { x: -3.3, y: 5.2, z: -33 }, 25_000, 0.9);
   for (const point of toNee) await moveToward(guest, 'player-2', point, 25_000, point.tolerance ?? 1);
-  await moveToward(host, 'player-1', { x: -3.3, y: 5.2, z: -33 }, 25_000, 0.55);
-  await moveToward(guest, 'player-2', { x: 4.8, y: 2, z: -32.4 }, 25_000, 0.45);
+  await moveToward(host, 'player-1', { x: -3.3, y: 5.2, z: -33 }, 25_000, 0.55, true);
+  await moveToward(guest, 'player-2', { x: 4.8, y: 2, z: -32.4 }, 25_000, 0.45, true);
+  await moveToward(host, 'player-1', { x: -3.3, y: 5.2, z: -33 }, 25_000, 0.55, true);
   await host.bringToFront(); await host.keyboard.press('f');
   await host.getByTestId('packet-routing').waitFor({ state: 'visible', timeout: 10_000 });
   await guest.bringToFront(); await guest.keyboard.press('f');
   await guest.getByTestId('signal-match').waitFor({ state: 'visible', timeout: 10_000 });
+  await Promise.all([host.evaluate(() => window.__autotest?.stop('pix')), guest.evaluate(() => window.__autotest?.stop('nee'))]);
   await Promise.all([solvePacketRouting(host), solveSignalMatch(guest)]);
   await Promise.all([waitForText(host, 'A:complete', 10_000), waitForText(guest, 'A:complete', 10_000)]);
   await Promise.all([waitForText(host, 'B:complete', 10_000), waitForText(guest, 'B:complete', 10_000)]);
