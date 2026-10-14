@@ -32,6 +32,7 @@ export class MissionDirector {
   private readonly detectionFill: HTMLDivElement | null;
   private readonly completeOverlay: HTMLDivElement | null;
   private successTimer: number | null = null;
+  private alarmTimer: number | null = null;
   private readonly stats: HTMLDListElement | null;
   private localElapsed = 0;
   private lastStage = this.state.stage;
@@ -229,6 +230,7 @@ export class MissionDirector {
 
   dispose(): void {
     if (this.successTimer !== null) window.clearTimeout(this.successTimer);
+    if (this.alarmTimer !== null) window.clearTimeout(this.alarmTimer);
     this.audio.stopAlarm();
     this.unsubscribe?.();
     this.security.dispose();
@@ -257,7 +259,8 @@ export class MissionDirector {
   private beginAlarm(): void {
     gameEvents.emit('heist', { beat: 'pickup', position: VAULT.clone(), role: this.state.prototypeHeldBy });
     this.audio.prototypePickup();
-    window.setTimeout(() => { if (this.state.alarm && this.state.stage === 'escape') this.audio.startAlarm(); }, 600);
+    if (this.alarmTimer !== null) window.clearTimeout(this.alarmTimer);
+    this.alarmTimer = window.setTimeout(() => { this.alarmTimer = null; if (this.state.alarm && this.state.stage === 'escape') this.audio.startAlarm(); }, 600);
   }
 
   private presentStageChange(): void {
