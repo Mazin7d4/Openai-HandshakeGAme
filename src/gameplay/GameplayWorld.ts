@@ -114,6 +114,12 @@ export class GameplayWorld {
     this.mission.update(dt, drones, this.hack, this.grab, tetherStrain);
   }
 
+  /** TEST-ONLY (?autotest&stage=escape): vault hacked, NEE carrying the prototype, alarm on. */
+  debugStartEscape(): void {
+    this.hack.debugCompleteAll();
+    this.grab.debugGrab('prototype', 'nee');
+  }
+
   publish(): void {
     this.grab.publish();
   }

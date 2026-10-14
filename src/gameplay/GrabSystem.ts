@@ -49,6 +49,15 @@ export class GrabSystem {
     }
   }
 
+  /** TEST-ONLY: hand an object straight to a role (local modes only). */
+  debugGrab(id: string, role: DroneRole): void {
+    if (this.session) return;
+    const object = this.objects.find((candidate) => candidate.id === id);
+    if (!object || object.heldBy) return;
+    object.grab(role);
+    this.onGrab?.(object.id, role);
+  }
+
   hasHeld(role: DroneRole): boolean {
     return this.objects.some((object) => object.heldBy === role);
   }

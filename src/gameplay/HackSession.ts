@@ -154,6 +154,13 @@ export class HackSession {
     return Object.values(this.completed).filter(Boolean).length;
   }
 
+  /** TEST-ONLY (?autotest&stage=escape, local modes): mark every station hacked. */
+  debugCompleteAll(): void {
+    if (this.multiplayer) return;
+    for (const station of this.stations) this.setComplete(station.id, true);
+    this.doorOpen = true;
+  }
+
   allComplete(): boolean {
     return this.completionCount() === this.stations.length;
   }

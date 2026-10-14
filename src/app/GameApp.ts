@@ -238,7 +238,11 @@ export class GameApp {
     const engine = createEngine(options.canvas);
     const scene = createScene(engine);
     const plugin = await enableHavok(scene);
-    const spawn = await options.createLevel(scene);
+    const levelSpawn = await options.createLevel(scene);
+    // TEST-ONLY: ?autotest&stage=escape starts local modes in the alarm escape, beside the heavy crate.
+    const escapeStage = Autopilot.enabled && (options.mode ?? 'dev-local') !== 'multiplayer'
+      && new URLSearchParams(window.location.search).get('stage') === 'escape';
+    const spawn = escapeStage ? new Vector3(-7, 4.5, 13) : levelSpawn;
     const assets = new AssetLoader(scene);
     const mode = options.mode ?? 'dev-local';
     const multiplayer = options.multiplayer ?? null;
@@ -304,6 +308,7 @@ export class GameApp {
     });
     const uiParent = options.uiParent ?? options.devParent;
     const gameplay = new GameplayWorld(scene, plugin, mode, multiplayer, uiParent, options.onLeaveGame);
+    if (escapeStage) gameplay.debugStartEscape();
 
     const cameraRig = new CinematicCamera(scene);
     cameraRig.snap(drones);
