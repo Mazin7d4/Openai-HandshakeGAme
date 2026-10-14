@@ -8,7 +8,7 @@ import type { InteractionActions } from '../input/InteractionActions.ts';
  * checks behave the same at 2 FPS (software WebGL) and 144 FPS.
  * It steers through the normal FlightAxes seam: no teleporting, real collisions.
  */
-export interface AutopilotTarget { x: number; y: number; z: number; tolerance: number }
+export interface AutopilotTarget { x: number; y: number; z: number; tolerance: number; hold: boolean }
 type Role = 'pix' | 'nee';
 
 export class Autopilot {
@@ -22,8 +22,9 @@ export class Autopilot {
 
   install(): void {
     (window as unknown as { __autotest: unknown }).__autotest = {
-      goto: (role: Role, x: number, y: number, z: number, tolerance = 1) => {
-        this.targets.set(role, { x, y, z, tolerance });
+      /** hold=true keeps station after arriving (resists tether drag) until stop()/next goto. */
+      goto: (role: Role, x: number, y: number, z: number, tolerance = 1, hold = false) => {
+        this.targets.set(role, { x, y, z, tolerance, hold });
         this.arrived.set(role, false);
       },
       stop: (role: Role) => this.targets.delete(role),
@@ -44,9 +45,10 @@ export class Autopilot {
     const dy = target.y - at.y;
     const dz = target.z - at.z;
     const planar = Math.hypot(dx, dz);
+    if (target.hold && this.arrived.get(role) && planar > target.tolerance * 1.5) this.arrived.set(role, false);
     if (planar < target.tolerance && Math.abs(dy) < 0.6) {
       this.arrived.set(role, true);
-      this.targets.delete(role);
+      if (!target.hold) this.targets.delete(role);
       return { strafe: 0, thrust: 0, lift: 0, boost: false };
     }
     // Proportional steering in camera space; saturates far away, eases in close so

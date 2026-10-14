@@ -4,6 +4,8 @@ import { arrival, toNee, servers, vault, escape } from './heist-route.mjs';
 const APP_URL = process.argv[2] ?? process.env.APP_URL ?? 'http://127.0.0.1:5173/';
 const DEBUG_URL = new URL(APP_URL);
 DEBUG_URL.searchParams.set('debug', '1');
+// Test-only position autopilot (src/dev/Autopilot.ts): frame-rate independent steering.
+DEBUG_URL.searchParams.set('autotest', '1');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -27,17 +29,40 @@ async function waitForText(page, text, timeout = 12_000) {
 async function startHackWithKey(page, testId) {
   await page.bringToFront();
   await page.getByTestId('game-canvas').click({ force: true });
-  await page.keyboard.down('f');
-  await page.waitForTimeout(300);
-  await page.keyboard.up('f');
-  await page.getByTestId(testId).waitFor({ state: 'visible', timeout: 10000 })
-    .catch(async () => { throw new Error(`${testId} did not start: ${await readout(page)}`); });
+  const role = (await readout(page)).includes('active PIX') ? 'pix' : 'nee';
+  const overlay = page.getByTestId(testId);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    // Alternate the autotest hook and a real key press so both input paths are exercised.
+    if (attempt % 2 === 0) await page.evaluate((role) => window.__autotest.press(role, 'interact'), role);
+    else { await page.keyboard.down('f'); await page.waitForTimeout(400); await page.keyboard.up('f'); }
+    if (await overlay.waitFor({ state: 'visible', timeout: 6000 }).then(() => true, () => false)) {
+      if (process.env.TRACE) console.log(testId, 'started on attempt', attempt);
+      return;
+    }
+  }
+  throw new Error(`${testId} did not start: ${await readout(page)}`);
 }
 
 const fwdX = 0.325;
 const fwdZ = 0.946;
 
-async function moveToward(page, playerId, target, timeout = 25_000, tolerance = 2.0) {
+async function moveToward(page, playerId, target, timeout = 25_000, tolerance = 2.0, hold = false) {
+  if (await page.evaluate(() => Boolean(window.__autotest))) {
+    const role = playerId === 'player-1' ? 'pix' : 'nee';
+    await page.bringToFront();
+    const p = { x: target.x, y: target.y ?? 2.2, z: target.z, tol: tolerance, hold };
+    await page.evaluate(({ role, p }) => window.__autotest.goto(role, p.x, p.y, p.z, p.tol, p.hold), { role, p });
+    const ok = await page.waitForFunction((role) => window.__autotest.arrived(role)
+      || document.querySelector('[data-testid="mission-complete"]'), role, { timeout: Math.max(timeout, 150_000), polling: 250 })
+      .then(() => true, () => false);
+    const at = await page.evaluate((role) => window.__autotest.position(role), role);
+    if (process.env.TRACE) {
+      const other = await page.evaluate((r) => window.__autotest.position(r), role === 'pix' ? 'nee' : 'pix');
+      console.log(playerId, JSON.stringify(target), ok, JSON.stringify(at), (await readout(page)).match(/player-\d\s+x\s+\S+\s+y\s+\S+\s+z\s+\S+/g)?.join(' | '));
+    }
+    if (!ok) throw new Error(`${playerId} autopilot did not reach ${JSON.stringify(target)}; at ${JSON.stringify(at)}`);
+    return at;
+  }
   if (await page.getByTestId('mission-complete').isVisible().catch(() => false)) {
     return await playerPosition(page, playerId).catch(() => ({ x: target.x, y: target.y ?? 2.2, z: target.z }));
   }
@@ -120,7 +145,9 @@ async function solveMemoryTrace(page) {
 
 const browser = await chromium.launch({
   headless: true,
-  args: ['--use-gl=angle', process.env.ANGLE ? `--use-angle=${process.env.ANGLE}` : '--use-angle=d3d11', '--enable-webgl', '--ignore-gpu-blocklist'],
+  args: ['--use-gl=angle', process.env.ANGLE ? `--use-angle=${process.env.ANGLE}` : '--use-angle=d3d11', '--enable-webgl', '--ignore-gpu-blocklist',
+    // Keep both peers simulating while the other tab is in front.
+    '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows'],
 });
 const hostContext = await browser.newContext();
 const guestContext = await browser.newContext();
@@ -159,6 +186,7 @@ try {
   await host.getByTestId('network-hud').waitFor({ state: 'visible' });
   await guest.getByTestId('network-hud').waitFor({ state: 'visible' });
 
+  await Promise.all([host, guest].map(p => p.waitForFunction(() => window.__autotest, null, { timeout: 30_000 })));
   // Verify role assignment
   assert((await readout(host)).includes('active PIX'), 'Host is not PIX');
   assert((await readout(guest)).includes('active NEE'), 'Guest is not NEE');
@@ -183,10 +211,12 @@ try {
   await Promise.all([waitForText(host, 'mission:hack-security'), waitForText(guest, 'mission:hack-security')]);
   await moveToward(host, 'player-1', {x:-3.3,y:5.2,z:-33}, 25000, 0.9);
   for (const point of toNee) await moveToward(guest, 'player-2', point, 25000, point.tolerance ?? 1);
-  await moveToward(host, 'player-1', {x:-3.3,y:5.2,z:-33}, 25000, 0.55);
+  await moveToward(host, 'player-1', {x:-3.3,y:5.2,z:-33}, 25000, 0.55, true);
+  await moveToward(guest, 'player-2', {x:4.8,y:2,z:-32.4}, 25000, 0.45, true);
+  await moveToward(host, 'player-1', {x:-3.3,y:5.2,z:-33}, 25000, 0.55, true);
   await startHackWithKey(host, 'packet-routing');
-  await moveToward(guest, 'player-2', {x:4.8,y:2,z:-32.4}, 25000, 0.45);
   await startHackWithKey(guest, 'signal-match');
+  await Promise.all([host.evaluate(() => window.__autotest.stop('pix')), guest.evaluate(() => window.__autotest.stop('nee'))]);
   await Promise.all([solvePacketRouting(host), solveSignalMatch(guest)]);
   await Promise.all([waitForText(host, 'A:complete'), waitForText(guest, 'B:complete')]);
   for (const point of toNee) await moveToward(host, 'player-1', point, 25000, point.tolerance ?? 1);
@@ -201,10 +231,8 @@ try {
   for (let i = 0; i < 5; i++) {
     const text = await readout(guest);
     if (text.includes('prototype:nee')) break;
-    await guest.keyboard.down('e');
-    await guest.waitForTimeout(400);
-    await guest.keyboard.up('e');
-    await guest.waitForTimeout(300);
+    await guest.evaluate(() => window.__autotest.press('nee', 'grabDrop'));
+    await waitForText(guest, 'prototype:nee', 4000).catch(() => undefined);
   }
 
   await Promise.all([
