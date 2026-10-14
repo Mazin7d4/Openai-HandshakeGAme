@@ -52,8 +52,18 @@ export function createScene(engine: Engine): Scene {
   shadows.bias = 0.0005; shadows.normalBias = 0.035; shadows.setDarkness(0.25);
   scene.onBeforeRenderObservable.addOnce(() => {
     for (const mesh of scene.meshes) {
-      if (mesh.name.startsWith('Hero_') || mesh.name.includes('player-') && mesh.isVisible) shadows.addShadowCaster(mesh);
+      if (mesh.name.startsWith('Hero_') || mesh.metadata?.castShadow || mesh.name.includes('player-') && mesh.isVisible) shadows.addShadowCaster(mesh);
     }
+  });
+  // The shadow frustum used to be pinned over the lab; it now follows the camera (snapped to a 2 m grid
+  // to avoid shimmer), so every mission area gets contact shadows from the same 1024 map.
+  const sunDir = sun.direction.normalizeToNew();
+  sun.shadowMaxZ = 75;
+  scene.onBeforeRenderObservable.add(() => {
+    const cam = scene.activeCamera; if (!cam) return;
+    const p = cam.globalPosition;
+    const fx = Math.round(p.x / 2) * 2, fz = Math.round(p.z / 2) * 2;
+    sun.position.set(fx - sunDir.x * 38, 4 - sunDir.y * 38, fz - sunDir.z * 38);
   });
 
   if (!lowFx) {
