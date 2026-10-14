@@ -6,6 +6,7 @@ import {
   type Scene,
 } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
+import './meshopt.ts';
 
 export interface LoadedModel {
   readonly root: TransformNode;
