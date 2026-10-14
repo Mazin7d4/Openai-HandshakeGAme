@@ -189,7 +189,7 @@ export class GrabSystem {
     let nearest: Grabbable | null = null;
     let nearestDistance = Number.POSITIVE_INFINITY;
     for (const object of this.objects) {
-      if (this.canGrab && !this.canGrab(object.id, role)) continue;
+      if (object.heldBy || (this.canGrab && !this.canGrab(object.id, role))) continue;
       const distance = object.distanceTo(drone.position);
       if (distance <= object.grabRadius && distance < nearestDistance) {
         nearest = object;
