@@ -157,6 +157,8 @@ export class GameApp {
       assets.loadModel(DRONE_MODEL_URL),
     ]);
 
+    // Late-bound refs so the single-player companion can perceive drones/camera created below.
+    const live: { drones?: Drone[]; camera?: CinematicCamera; gameplay?: GameplayWorld } = {};
     const controlFor = (role: DroneRole): DroneControlSource => {
       if (mode === 'multiplayer') {
         return role === localRole
@@ -166,7 +168,12 @@ export class GameApp {
       if (mode === 'singleplayer') {
         return role === 'pix'
           ? new HumanControlSource(PLAYER_ONE_KEYS)
-          : new BotControlSource();
+          : new BotControlSource({
+            self: () => live.drones?.[1]?.position ?? null,
+            leader: () => live.drones?.[0]?.position ?? null,
+            basis: () => live.camera!.getPlanarBasis(),
+            busy: () => live.gameplay?.isRoleHacking('nee') ?? false,
+          });
       }
       return role === 'pix'
         ? new HumanControlSource(PLAYER_ONE_KEYS)
@@ -204,6 +211,7 @@ export class GameApp {
 
     const cameraRig = new CinematicCamera(scene);
     cameraRig.snap(drones);
+    Object.assign(live, { drones, camera: cameraRig, gameplay });
     scene.activeCamera = cameraRig.camera;
     const devReadout = options.devParent ? new DevReadout(options.devParent, mode) : null;
     const devOrbit = options.devParent ? new DevOrbitCamera(scene, options.canvas) : null;

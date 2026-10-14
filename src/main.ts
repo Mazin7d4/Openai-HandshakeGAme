@@ -72,9 +72,14 @@ function showMainMenu(): void {
 }
 
 function showSinglePlayer(): void {
-  const panel = menuPanel('Single Player', 'CPU companion coming next.');
+  const panel = menuPanel('Single Player', 'Fly PIX. A CPU NEE follows you (early preview: it follows, it does not hack yet).');
   const actions = element('div', 'menu-actions');
-  actions.append(menuButton('BACK', 'back', showMainMenu));
+  actions.append(
+    menuButton('START', 'start-singleplayer', () => {
+      void startGame('singleplayer');
+    }),
+    menuButton('BACK', 'back', showMainMenu),
+  );
   panel.append(actions);
 }
 
