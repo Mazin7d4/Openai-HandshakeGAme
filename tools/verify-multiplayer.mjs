@@ -1,6 +1,9 @@
 import { chromium } from 'playwright';
 
-const APP_URL = process.argv[2] ?? process.env.APP_URL ?? 'http://127.0.0.1:5173/';
+const rawUrl = process.argv[2] ?? process.env.APP_URL ?? 'http://127.0.0.1:5173/';
+const urlObj = new URL(rawUrl);
+urlObj.searchParams.set('debug', '1');
+const APP_URL = urlObj.toString();
 const SCREENSHOT_PATH = process.env.SCREENSHOT_PATH;
 
 function assert(condition, message) {

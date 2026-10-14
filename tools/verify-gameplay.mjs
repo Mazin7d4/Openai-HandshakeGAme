@@ -37,44 +37,76 @@ async function waitForText(page, text, timeout = 10_000) {
   await page.locator('#dev-readout').filter({ hasText: text }).waitFor({ state: 'visible', timeout });
 }
 
-async function moveToward(page, playerId, target, timeout = 12_000) {
+const fwdX = 0.325;
+const fwdZ = 0.946;
+
+async function moveToward(page, playerId, target, timeout = 18_000, tolerance = 2.0) {
+  await page.bringToFront();
+  await page.getByTestId('game-canvas').click();
   const started = Date.now();
+  const targetY = target.y ?? 2.2;
   while (Date.now() - started < timeout) {
     const position = await playerPosition(page, playerId);
     const dx = target.x - position.x;
     const dz = target.z - position.z;
-    if (Math.abs(dx) < 1.7 && Math.abs(dz) < 1.7) return position;
+    const dy = targetY - position.y;
+    if (Math.abs(dx) <= tolerance && Math.abs(dz) <= tolerance && Math.abs(dy) <= 1.4) return position;
+    const thrust = fwdX * dx + fwdZ * dz;
+    const strafe = fwdZ * dx - fwdX * dz;
     const keys = [];
-    if (Math.abs(dx) >= 0.7) keys.push(dx > 0 ? 'd' : 'a');
-    if (Math.abs(dz) >= 0.7) keys.push(dz > 0 ? 'w' : 's');
+    if (Math.abs(strafe) > 0.3) keys.push(strafe > 0 ? 'd' : 'a');
+    if (Math.abs(thrust) > 0.3) keys.push(thrust > 0 ? 'w' : 's');
+    if (position.y > targetY + 0.45) keys.push('c');
+    else if (position.y < targetY - 0.45) keys.push('Space');
+    keys.push('Shift');
     for (const key of keys) await page.keyboard.down(key);
     await page.waitForTimeout(110);
     for (const key of keys) await page.keyboard.up(key);
     await page.waitForTimeout(35);
   }
-  throw new Error(`${playerId} did not reach ${JSON.stringify(target)}; ended at ${JSON.stringify(await playerPosition(page, playerId))}`);
+  const finalPos = await playerPosition(page, playerId);
+  if (Math.abs(target.x - finalPos.x) <= tolerance && Math.abs(target.z - finalPos.z) <= tolerance) return finalPos;
+  throw new Error(`${playerId} did not reach ${JSON.stringify(target)}; ended at ${JSON.stringify(finalPos)}`);
 }
 
-async function chaseAndGrab(page, playerId, objectId, timeout = 15_000) {
+async function chaseAndGrab(page, playerId, objectId, timeout = 25_000) {
+  await page.bringToFront();
+  await page.getByTestId('game-canvas').click();
   const started = Date.now();
+  let lastDist = 0;
+  const targetRole = playerId.replace('player-1', 'pix').replace('player-2', 'nee');
   while (Date.now() - started < timeout) {
     const [player, object] = await Promise.all([
       playerPosition(page, playerId),
       objectState(page, objectId),
     ]);
-    if (Math.hypot(player.x - object.x, player.y - object.y, player.z - object.z) < 3) {
-      await page.keyboard.press('e');
-      return;
+    const dist3D = Math.hypot(player.x - object.x, player.y - object.y, player.z - object.z);
+    lastDist = dist3D;
+    if (dist3D < 3.0) {
+      await page.keyboard.down('e');
+      await page.waitForTimeout(400);
+      await page.keyboard.up('e');
+      await page.waitForTimeout(400);
+      const state = await objectState(page, objectId);
+      if (state.holder === targetRole) return;
     }
+    const dx = object.x - player.x;
+    const dz = object.z - player.z;
+    const thrust = fwdX * dx + fwdZ * dz;
+    const strafe = fwdZ * dx - fwdX * dz;
     const keys = [];
-    if (Math.abs(object.x - player.x) >= 0.7) keys.push(object.x > player.x ? 'd' : 'a');
-    if (Math.abs(object.z - player.z) >= 0.7) keys.push(object.z > player.z ? 'w' : 's');
+    if (Math.abs(strafe) > 0.3) keys.push(strafe > 0 ? 'd' : 'a');
+    if (Math.abs(thrust) > 0.3) keys.push(thrust > 0 ? 'w' : 's');
+    if (player.y > object.y + 0.45) keys.push('c');
+    else if (player.y < object.y - 0.45) keys.push('Space');
+    keys.push('Shift');
     for (const key of keys) await page.keyboard.down(key);
-    await page.waitForTimeout(110);
+    await page.waitForTimeout(130);
     for (const key of keys) await page.keyboard.up(key);
-    await page.waitForTimeout(35);
+    await page.waitForTimeout(40);
   }
-  throw new Error(`${playerId} could not catch ${objectId}.`);
+  const [player, object] = await Promise.all([playerPosition(page, playerId), objectState(page, objectId)]);
+  throw new Error(`${playerId} could not catch ${objectId}; distance was ${lastDist}, player=${JSON.stringify(player)}, object=${JSON.stringify(object)}`);
 }
 
 async function solvePacketRouting(page) {
@@ -95,7 +127,33 @@ async function solvePacketRouting(page) {
   await overlay.waitFor({ state: 'detached', timeout: 10_000 });
 }
 
-const browser = await chromium.launch({ headless: true });
+async function solveSignalMatch(page) {
+  const overlay = page.getByTestId('signal-match');
+  await overlay.waitFor({ state: 'visible', timeout: 10_000 });
+  await overlay.locator('[data-control="frequency"]').fill(await overlay.getAttribute('data-target-frequency'));
+  await overlay.locator('[data-control="amplitude"]').fill(await overlay.getAttribute('data-target-amplitude'));
+  await overlay.waitFor({ state: 'detached', timeout: 10_000 });
+}
+
+async function solveMemoryTrace(page) {
+  const overlay = page.getByTestId('memory-trace');
+  await overlay.waitFor({ state: 'visible', timeout: 10_000 });
+  for (let round = 0; round < 3; round++) {
+    await overlay.locator('.hack-status').filter({ hasText: 'REPEAT' }).waitFor({ timeout: 15_000 });
+    const sequence = (await overlay.getAttribute('data-sequence')).split(',').map(Number);
+    for (const index of sequence) {
+      await overlay.locator(`[data-index="${index}"]`).click();
+      await page.waitForTimeout(100);
+    }
+    await page.waitForTimeout(750);
+  }
+  await overlay.waitFor({ state: 'detached', timeout: 15_000 });
+}
+
+const browser = await chromium.launch({
+  headless: true,
+  args: ['--use-gl=angle', '--use-angle=d3d11', '--enable-webgl', '--ignore-gpu-blocklist'],
+});
 const hostContext = await browser.newContext();
 const guestContext = await browser.newContext();
 const host = await hostContext.newPage();
@@ -124,20 +182,25 @@ try {
     guest.getByTestId('game-canvas').waitFor({ state: 'visible', timeout: 30_000 }),
   ]);
 
-  await host.keyboard.press('f');
-  await host.waitForTimeout(300);
-  assert(await host.getByTestId('packet-routing').count() === 0, 'Hack opened outside station range.');
   await Promise.all([
     host.locator('#boot-status').waitFor({ state: 'detached', timeout: 30_000 }),
     guest.locator('#boot-status').waitFor({ state: 'detached', timeout: 30_000 }),
   ]);
+  await host.getByTestId('network-hud').waitFor({ state: 'visible' });
+  await guest.getByTestId('network-hud').waitFor({ state: 'visible' });
 
-  await host.keyboard.down('w');
-  await host.waitForTimeout(700);
-  await host.keyboard.up('w');
-  await host.waitForTimeout(250);
-  await host.keyboard.press('e');
-  await host.waitForTimeout(700);
+  await host.keyboard.press('f');
+  await host.waitForTimeout(300);
+  assert(await host.getByTestId('packet-routing').count() === 0, 'Hack opened outside station range.');
+
+  await moveToward(host, 'player-1', { x: -1.6, z: -15.5 }, 20_000, 2.5);
+  await moveToward(guest, 'player-2', { x: 1.6, z: -15.5 }, 20_000, 2.5);
+  await moveToward(host, 'player-1', { x: -1.6, z: -12.0 }, 20_000, 2.5);
+  await moveToward(guest, 'player-2', { x: 1.6, z: -12.0 }, 20_000, 2.5);
+  await moveToward(guest, 'player-2', { x: -2.0, z: -11.5 }, 20_000, 2.5);
+  await moveToward(host, 'player-1', { x: -4.5, y: 1.4, z: -11.0 }, 20_000, 2.5);
+
+  await chaseAndGrab(host, 'player-1', 'cargo-core');
   await Promise.all([waitForText(host, 'cargo-core:pix'), waitForText(guest, 'cargo-core:pix')]);
 
   await host.waitForTimeout(500);
@@ -157,14 +220,30 @@ try {
   await Promise.all([waitForText(host, 'cargo-core:free'), waitForText(guest, 'cargo-core:free')]);
 
   await Promise.all([
-    moveToward(host, 'player-1', { x: -2.5, z: -8.5 }, 18_000),
-    moveToward(guest, 'player-2', { x: 2.5, z: -8.5 }, 18_000),
+    moveToward(host, 'player-1', { x: -3.2, z: -6.5 }, 18_000),
+    moveToward(guest, 'player-2', { x: 3.2, z: -6.5 }, 18_000),
   ]);
   await Promise.all([host.keyboard.press('f'), guest.keyboard.press('f')]);
-  await Promise.all([solvePacketRouting(host), solvePacketRouting(guest)]);
+  await Promise.all([solvePacketRouting(host), solveSignalMatch(guest)]);
+  await Promise.all([waitForText(host, 'A:complete', 10_000), waitForText(guest, 'A:complete', 10_000)]);
+  await Promise.all([waitForText(host, 'B:complete', 10_000), waitForText(guest, 'B:complete', 10_000)]);
+
+  // Terminal C (Memory Authorizer at { x: 3.2, z: -0.8 })
+  await moveToward(host, 'player-1', { x: 0, z: -3.5 }, 18_000);
+  await moveToward(guest, 'player-2', { x: 1.5, z: -4.5 }, 18_000, 0.8);
+  await moveToward(guest, 'player-2', { x: 1.5, z: -1.5 }, 18_000, 1.0);
+  await guest.keyboard.press('f');
+  await guest.waitForTimeout(300);
+  if (await guest.getByTestId('memory-trace').count() === 0) {
+    const promptButton = guest.locator('.interaction-prompt button', { hasText: 'MEMORY AUTHORIZER' });
+    if (await promptButton.count() > 0) await promptButton.click();
+    else await guest.keyboard.press('f');
+  }
+  await solveMemoryTrace(guest);
   await Promise.all([waitForText(host, 'door:open', 10_000), waitForText(guest, 'door:open', 10_000)]);
   assert((await readout(host)).includes('A:complete'), 'PIX routing station did not complete.');
   assert((await readout(host)).includes('B:complete'), 'NEE routing station did not complete.');
+  assert((await readout(host)).includes('C:complete'), 'Memory trace station did not complete.');
 
   const idleBefore = await playerPosition(guest, 'player-2');
   let maxRemotePull = 0;

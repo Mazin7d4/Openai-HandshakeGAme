@@ -294,7 +294,7 @@ export function createTestRoom(scene: Scene): Vector3 {
   addBox(scene, { name: 'extraction-pad', x: -13, y: 0.04, z: -20, width: 7, height: 0.12, depth: 7, color: cyan });
 
   // Perimeter is deliberately segmented: reception opening south, emergency route west.
-  addBox(scene, { name: 'south-wall-left', x: -11.5, y: 4, z: -17.5, width: 15, height: 8, depth: 0.8, color: wall });
+  addBox(scene, { name: 'south-wall-left', x: -8, y: 4, z: -17.5, width: 8, height: 8, depth: 0.8, color: wall });
   addBox(scene, { name: 'south-wall-right', x: 11.5, y: 4, z: -17.5, width: 15, height: 8, depth: 0.8, color: wall });
   addBox(scene, { name: 'south-entry-lintel', x: 0, y: 6.7, z: -17.5, width: 8, height: 2.6, depth: 0.8, color: dark });
   addBox(scene, { name: 'east-wall', x: 18.5, y: 4, z: 4.5, width: 1, height: 8, depth: 45, color: wall });
@@ -310,12 +310,12 @@ export function createTestRoom(scene: Scene): Vector3 {
   addBox(scene, { name: 'office-glass-right', x: 10.5, y: 2.3, z: -7.4, width: 6, height: 4.6, depth: 0.18, color: glass });
 
   // Server/security room: paired terminals sit apart so players have independent UI and space.
-  for (const [index, x] of [-15, -12, 12, 15].entries()) {
+  for (const [index, x] of [-7, -4, 4, 7].entries()) {
     addBox(scene, { name: `server-rack-${index}`, x, y: 1.6, z: -3.5, width: 1.8, height: 3.2, depth: 4, color: server });
   }
   addBox(scene, { name: 'server-shelf-left', x: -10, y: 2.2, z: -1.5, width: 0.7, height: 4.4, depth: 5.5, color: dark });
   addBox(scene, { name: 'server-shelf-right', x: 10, y: 2.2, z: -1.5, width: 0.7, height: 4.4, depth: 5.5, color: dark });
-  addBox(scene, { name: 'security-wall-left', x: -11.2, y: 4, z: 2, width: 14.5, height: 8, depth: 0.8, color: dark });
+  addBox(scene, { name: 'security-wall-left', x: -7.8, y: 4, z: 2, width: 7.7, height: 8, depth: 0.8, color: dark });
   addBox(scene, { name: 'security-wall-right', x: 11.2, y: 4, z: 2, width: 14.5, height: 8, depth: 0.8, color: dark });
   addBox(scene, { name: 'security-lintel', x: 0, y: 6.5, z: 2, width: 8, height: 3, depth: 0.8, color: dark });
 
@@ -338,10 +338,10 @@ export function createTestRoom(scene: Scene): Vector3 {
   // Alarm escape is a west service corridor, not the central entry path.
   addBox(scene, { name: 'escape-divider-south', x: -12, y: 3, z: -0.25, width: 0.7, height: 6, depth: 18.5, color: dark });
   addBox(scene, { name: 'escape-divider-north', x: -12, y: 3, z: 17.25, width: 0.7, height: 6, depth: 0.5, color: dark });
-  addBox(scene, { name: 'escape-ceiling', x: -15.2, y: 4.3, z: 4, width: 6, height: 0.4, depth: 27, color: wall });
-  addBox(scene, { name: 'escape-turn', x: -15, y: 2.5, z: -9.5, width: 7, height: 5, depth: 0.7, color: dark });
-  // A vent-height alternate opening above the turn rewards vertical flight.
-  addBox(scene, { name: 'escape-turn-lintel', x: -15, y: 6.2, z: -9.5, width: 7, height: 2.4, depth: 0.7, color: wall });
+  addBox(scene, { name: 'escape-ceiling', x: -15.2, y: 4.3, z: 5.0, width: 6, height: 0.4, depth: 25.0, color: wall });
+  addBox(scene, { name: 'escape-turn', x: -15, y: 1.8, z: -9.5, width: 7, height: 3.6, depth: 0.7, color: dark });
+  // A vent-height alternate opening above the turn rewards vertical flight (opening between y = 3.6 and y = 5.4).
+  addBox(scene, { name: 'escape-turn-lintel', x: -15, y: 6.8, z: -9.5, width: 7, height: 2.8, depth: 0.7, color: wall });
 
   return new Vector3(0, 2.15, -23);
 }
