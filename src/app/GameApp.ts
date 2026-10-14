@@ -273,6 +273,10 @@ export class GameApp {
             leader: () => live.drones?.[0]?.position ?? null,
             basis: () => live.camera!.getPlanarBasis(),
             busy: () => live.gameplay?.isRoleHacking('nee') ?? false,
+            leaderHacking: () => live.gameplay?.isRoleHacking('pix') ?? false,
+            leaderHauling: () => live.gameplay?.isRoleHaulingHeavy('pix') ?? false,
+            leaderVelocity: () => live.drones?.[0]?.velocity ?? null,
+            leaderInTrouble: () => live.drones?.[0]?.inTrouble ?? false,
           });
       }
       return role === 'pix'
@@ -442,7 +446,7 @@ export class GameApp {
     this.devReadout?.update(
       this.snapshots,
       this.tether.currentStrain,
-      this.gameplay.describe(),
+      this.gameplay.describe() + this.players.map((p) => p.control instanceof BotControlSource ? ` bot:${p.control.state}` : '').join(''),
       {
         fps: this.engine.getFps(),
         activeRole: this.mode === 'dev-local'

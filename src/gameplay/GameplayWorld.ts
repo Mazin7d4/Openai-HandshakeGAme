@@ -134,6 +134,10 @@ export class GameplayWorld {
     return this.hack.isRoleHacking(role);
   }
 
+  isRoleHaulingHeavy(role: DroneRole): boolean {
+    return this.grab.isHaulingHeavy(role);
+  }
+
   heldObjectId(role: DroneRole): string | null {
     return this.grab.heldObjectId(role);
   }

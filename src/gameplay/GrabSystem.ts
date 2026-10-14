@@ -180,6 +180,10 @@ export class GrabSystem {
       object.heldBy === null && object.distanceTo(point) <= radius && object.speed >= minimumSpeed);
   }
 
+  isHaulingHeavy(role: DroneRole): boolean {
+    return this.objects.some((object) => object.heldBy === role && object.heavy);
+  }
+
   promptsFor(role: DroneRole, drone: Drone): string[] {
     const held = this.objects.find((object) => object.heldBy === role);
     if (held?.heavy && !held.helped) {
