@@ -1,4 +1,4 @@
-import { Logger } from '@babylonjs/core';
+import { Logger } from '@babylonjs/core/Misc/logger.js';
 
 let reportedIssues = 0;
 

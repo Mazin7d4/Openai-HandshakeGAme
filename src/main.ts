@@ -1,6 +1,10 @@
-import { GameApp } from './app/GameApp.ts';
+import type { GameApp } from './app/GameApp.ts';
 import type { GameMode } from './app/GameMode.ts';
-import { createPrototypeHeist } from './level/PrototypeHeist.ts';
+// The engine, physics and level are split into lazy chunks so the menu appears immediately;
+// they start downloading in the background as soon as the menu is up.
+const loadGame = () => Promise.all([import('./app/GameApp.ts'), import('./level/PrototypeHeist.ts')]);
+const gameModules = { promise: null as ReturnType<typeof loadGame> | null };
+const preloadGame = () => (gameModules.promise ??= loadGame());
 import { MultiplayerSession } from './network/MultiplayerSession.ts';
 import type { RoomStatus } from './network/NetworkTypes.ts';
 import './style.css';
@@ -187,6 +191,7 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   }
 
   try {
+    const [{ GameApp }, { createPrototypeHeist }] = await preloadGame();
     game = await GameApp.create({
       canvas,
       createLevel: createPrototypeHeist,
@@ -222,3 +227,5 @@ if (import.meta.hot) {
     game = null;
   });
 }
+
+setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
