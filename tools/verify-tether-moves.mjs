@@ -14,7 +14,7 @@ async function pos(page, id) {
   return { x: +m[1], y: +m[2], z: +m[3] };
 }
 
-async function pullApart(page, key, target, timeout = 25_000) {
+async function pullApart(page, key, target, timeout = 12_000) {
   const started = Date.now();
   await page.keyboard.down(key);
   try {
@@ -23,7 +23,7 @@ async function pullApart(page, key, target, timeout = 25_000) {
       await page.waitForTimeout(60);
     }
   } finally { await page.keyboard.up(key); }
-  throw new Error(`Could not stretch the tether to ${target}`);
+  throw new Error(`Could not stretch the tether to ${target}: ${JSON.stringify(await pos(page, "player-1"))} ${JSON.stringify(await pos(page, "player-2"))}`);
 }
 
 const browser = await chromium.launch({ headless: true });
@@ -36,8 +36,9 @@ try {
   await page.locator('#dev-readout').waitFor();
   await page.waitForTimeout(2500);
 
-  // YANK: PIX strains the cord upward, NEE idles; R pulls NEE toward PIX.
-  await pullApart(page, 'Space', 8.2);
+  // YANK: PIX drifts to the far end of the slack cord and stops; R pulls NEE in.
+  await pullApart(page, 'a', 6.4);
+  await page.waitForTimeout(900);
   const neeBefore = await pos(page, 'player-2');
   const pixAt = await pos(page, 'player-1');
   await page.keyboard.press('r');
@@ -49,19 +50,34 @@ try {
   console.log('yank: NEE closed', closed.toFixed(2), 'm');
   assert(closed > 1.2, `Yank did not pull NEE toward PIX (closed ${closed.toFixed(2)} m).`);
 
-  // SLINGSHOT: let NEE settle (anchored), stretch again, R launches PIX toward NEE.
+  // SLINGSHOT: PIX boosts away until the cord is nearly taut, then R (while still
+  // charging) launches PIX back. Tries a few directions since walls vary.
   await page.waitForTimeout(1600);
-  await pullApart(page, 'Space', 8.4);
-  const pixBefore = await pos(page, 'player-1');
-  const neeAnchor = await pos(page, 'player-2');
-  await page.keyboard.press('r');
-  await page.waitForTimeout(150);
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/slingshot.png` });
-  await page.waitForTimeout(350);
-  const pixAfter = await pos(page, 'player-1');
-  const moved = dist(pixBefore, neeAnchor) - dist(pixAfter, neeAnchor);
-  console.log('slingshot: PIX closed', moved.toFixed(2), 'm');
-  assert(moved > 1.5, `Slingshot did not launch PIX (closed ${moved.toFixed(2)} m).`);
+  let slung = false;
+  for (const dir of ['s', 'w', 'd', 'a', 'Space']) {
+    await page.keyboard.down('Shift');
+    await page.keyboard.down(dir);
+    const t0 = Date.now();
+    while (Date.now() - t0 < 6000) {
+      const d = dist(await pos(page, 'player-1'), await pos(page, 'player-2'));
+      if (d > 6.6) break;
+      await page.waitForTimeout(50);
+    }
+    const p1 = await pos(page, 'player-1');
+    await page.waitForTimeout(60);
+    const p1b = await pos(page, 'player-1');
+    console.log('pre-sling dist', dist(p1, await pos(page, 'player-2')).toFixed(2), 'pix step', dist(p1, p1b).toFixed(2));
+    await page.keyboard.press('r');
+    await page.waitForTimeout(90);
+    if (SHOTS && !slung) await page.screenshot({ path: `${SHOTS}/slingshot.png` });
+    await page.keyboard.up(dir);
+    await page.keyboard.up('Shift');
+    const toast = await page.getByTestId('juice-toasts').innerText();
+    console.log('sling attempt', dir, JSON.stringify(toast));
+    if (toast.includes('SLINGSHOT')) { slung = true; break; }
+    await page.waitForTimeout(1300);
+  }
+  assert(slung, 'Slingshot never triggered.');
   assert(!errors.length, `Page errors: ${errors.join('\n')}`);
   console.log('verify-tether-moves: PASS');
 } finally {

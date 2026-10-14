@@ -435,7 +435,7 @@ export class GameApp {
   }
 
   private partnerAnchored(partner: LocalPlayer): boolean {
-    return partner.drone.speed < 2.5 || this.gameplay.isRoleHacking(partner.role);
+    return this.gameplay.isRoleHacking(partner.role);
   }
 
   private yank(player: LocalPlayer): void {
@@ -460,8 +460,8 @@ export class GameApp {
     if (partner.drone.inTrouble) return [`[R] YANK ${name} TO SAFETY`];
     const strain = this.tether.currentStrain;
     const kind: YankKind | null = this.moves.preview(player.drone, partner.drone, strain, this.partnerAnchored(partner));
-    if (kind === 'sling' && strain > 0.55) return [`[R] SLINGSHOT PAST ${name}`];
-    if (kind === 'yank' && strain > 0.6) {
+    if (kind === 'sling') return [`[R] SLINGSHOT PAST ${name}`];
+    if (kind === 'yank' && strain > 0.25) {
       this.hintTimer += dt;
       return this.hintTimer < 9 ? [`[R] YANK ${name}`] : [];
     }

@@ -23,8 +23,8 @@ export interface YankResult {
 /**
  * The tether's signature active moves, built on top of the passive spring:
  *  - YANK: burst-pull the partner toward you (rescues a partner in trouble).
- *  - SLINGSHOT: when the cord is taut and your partner is holding still,
- *    yank launches *you* toward and past them.
+ *  - SLINGSHOT: charge away until the cord goes taut (or pull against an
+ *    anchored/hacking partner) and yank launches *you* back toward and past them.
  *  - BUMP: up close, a harmless "boop" that nudges the partner away.
  *
  * Each client only ever writes its own drone's velocity. The partner's
@@ -72,7 +72,11 @@ export class TetherMoves {
     const d = Vector3.Distance(self.position, partner.position);
     if (d > TETHER_TUNING.maxLength + 1.5) return null;
     if (d < BUMP_RANGE) return 'bump';
-    if (strain > 0.45 && partnerAnchored) return 'sling';
+    // Charging away from the partner on a taut cord: release = slingshot back past them.
+    const away = (self.velocity.x * (self.position.x - partner.position.x)
+      + self.velocity.y * (self.position.y - partner.position.y)
+      + self.velocity.z * (self.position.z - partner.position.z)) / d;
+    if ((d > TETHER_TUNING.restLength - 0.6 && away > 3) || (partnerAnchored && strain > 0.3)) return 'sling';
     return 'yank';
   }
 
@@ -107,6 +111,9 @@ export class TetherMoves {
       // Launch self toward (and past) the anchored partner.
       const launch = this.dir.scale(-(17 + strain * 6));
       launch.y += 2.2;
+      // Cancel the outward charge so the elastic energy turns straight around.
+      const outward = Math.max(0, Vector3.Dot(self.velocity, this.dir));
+      launch.subtractInPlace(this.dir.scale(outward));
       self.yankedBy(launch, 1);
       self.react('proud', 1.1);
       this.impulse.copyFrom(this.dir).scaleInPlace(2.2);
