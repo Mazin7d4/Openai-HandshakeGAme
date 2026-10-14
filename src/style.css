@@ -527,3 +527,10 @@ input {
   78% { opacity: 1; transform: translateY(0); }
   100% { opacity: 0; transform: translateY(-18px); }
 }
+.mission-crew { display: flex; align-items: center; justify-content: center; gap: 18px; margin: -10px 0 8px; }
+.crew-face { display: inline-grid; place-items: center; width: 58px; height: 40px; border-radius: 12px; background: #0b1d22; font: 700 18px/1 ui-monospace, monospace; letter-spacing: .1em; animation: crew-bob 1.4s ease-in-out infinite; }
+.crew-face.pix { color: #5fd8ff; box-shadow: 0 0 0 2px #2a8fd0, 0 0 18px #2fb4ff66; }
+.crew-face.nee { color: #ff7a9c; box-shadow: 0 0 0 2px #d0566f, 0 0 18px #ff6f9166; animation-delay: .35s; }
+.mission-rating { color: #ffd27a; font-size: 30px; letter-spacing: .12em; text-shadow: 0 0 14px #ffb84d88; }
+.mission-quip { margin: 0 0 18px; color: #bfe6dc; font-size: 14px; font-style: italic; }
+@keyframes crew-bob { 50% { transform: translateY(-4px) rotate(-3deg); } }

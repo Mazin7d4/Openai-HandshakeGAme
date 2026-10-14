@@ -114,6 +114,12 @@ async function solveMemory() {
   await overlay.waitFor({ state: 'detached', timeout: 15_000 });
 }
 
+// SHOTS=<dir> saves the authored heist beats (vault reveal, alarm, extraction) for review.
+const shot = async (name, delay = 0) => {
+  if (!process.env.SHOTS) return;
+  if (delay) await page.waitForTimeout(delay);
+  await page.screenshot({ path: `${process.env.SHOTS}/${name}.png` });
+};
 try {
   await page.goto(APP_URL);
   await page.getByTestId('dev-local').click();
@@ -160,6 +166,7 @@ try {
   await ensureActive('player-2'); await page.evaluate(() => window.__autotest.press('nee', 'interact')); await solveMemory();
   await page.locator('#dev-readout').filter({ hasText: 'door:open' }).waitFor();
   await travel(vault);
+  await shot('p4-vault-reveal', 1500);
   // Low-FPS tolerant: retry the grab a couple of times and wait on replicated state, not a fixed delay.
   for (let attempt = 0; attempt < 3 && !(await readout()).includes('mission:escape'); attempt++) {
     // Both drones share the last vault waypoint, so PIX's body can shove NEE ~0.6 m back out of the
@@ -172,8 +179,12 @@ try {
   if (!(await readout()).includes('mission:escape')) throw new Error(`Prototype grab did not trigger alarm. ${await readout()}`);
   await page.evaluate(() => window.__autotest.stop('nee'));
   await page.locator('#dev-readout').filter({ hasText: 'mission:escape' }).waitFor({ timeout: 10000 });
-  await travel(escape);
+  await shot('p4-pickup-alarm', 400);
+  await travel(escape.slice(0, Math.ceil(escape.length / 2)));
+  await shot('p4-alarm-escape');
+  await travel(escape.slice(Math.ceil(escape.length / 2)));
   await page.getByTestId('mission-complete').waitFor({ state: 'visible', timeout: 10_000 });
+  await shot('p4-extraction', 700);
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(JSON.stringify({
     devLocalTabSwitch: true,

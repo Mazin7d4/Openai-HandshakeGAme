@@ -208,7 +208,6 @@ export class GameApp {
             this.juice.burst('nee', pos, 40);
             for (const drone of this.drones) drone.react('proud', 6);
             this.cameraRig.addShake(0.3);
-            this.hud?.toast('HOME FREE!', 'good');
             break;
         }
       }),

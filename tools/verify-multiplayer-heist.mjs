@@ -231,9 +231,15 @@ try {
   for (let i = 0; i < 5; i++) {
     const text = await readout(guest);
     if (text.includes('prototype:nee')) break;
+    if (process.env.TRACE) console.log('grab attempt', i, text.replace(/\n/g, ' | '));
+    // PIX shares the last vault waypoint and can shove NEE just outside the 3.2 grab radius
+    // (seen: NEE parked 3.37 from the core). Hold NEE well inside range first, as verify-heist does.
+    await guest.evaluate(() => window.__autotest.goto('nee', 1.6, 5.4, 18, 0.4, true));
+    await guest.waitForFunction(() => window.__autotest.arrived('nee'), null, { timeout: 30_000, polling: 250 }).catch(() => {});
     await guest.evaluate(() => window.__autotest.press('nee', 'grabDrop'));
     await waitForText(guest, 'prototype:nee', 4000).catch(() => undefined);
   }
+  await guest.evaluate(() => window.__autotest.stop('nee'));
 
   await Promise.all([
     waitForText(host, 'prototype:nee', 10_000),
