@@ -2,6 +2,7 @@ import {
   ImportMeshAsync, Matrix, Mesh, PBRMaterial, Quaternion, TransformNode, Vector3, type Scene,
 } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
+import '../assets/meshopt.ts';
 
 export type PropName = 'Sofa' | 'Chair' | 'Rack' | 'Shelving' | 'Plant' | 'PlantSmall' | 'Cooling' | 'Duct' | 'Bookshelf' | 'Monitor';
 export interface PropPlacement { prop: PropName; x: number; y?: number; z: number; ry?: number; scale?: number | [number, number, number] }

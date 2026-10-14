@@ -3,6 +3,7 @@ import {
   PBRMaterial, StandardMaterial, Vector3, type HavokPlugin, type Material, type Mesh, type Scene,
 } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
+import '../assets/meshopt.ts';
 import { addStaticBody } from '../physics/staticBody.ts';
 import { Door } from '../gameplay/Door.ts';
 import { createLabPalette } from './LabPalette.ts';

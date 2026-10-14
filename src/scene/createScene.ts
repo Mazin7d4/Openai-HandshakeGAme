@@ -52,7 +52,11 @@ export function createScene(engine: Engine): Scene {
   shadows.bias = 0.0005; shadows.normalBias = 0.035; shadows.setDarkness(0.25);
   scene.onBeforeRenderObservable.addOnce(() => {
     for (const mesh of scene.meshes) {
-      if (mesh.name.startsWith('Hero_') || mesh.metadata?.castShadow || mesh.name.includes('player-') && mesh.isVisible) shadows.addShadowCaster(mesh);
+      if (mesh.name.includes('player-') && mesh.isVisible) { shadows.addShadowCaster(mesh); continue; }
+      if (!(mesh.name.startsWith('Hero_') || mesh.metadata?.castShadow)) continue;
+      // Draw-call budget: only big props cast into the shadow pass; small clutter just receives.
+      mesh.computeWorldMatrix(true);
+      if (mesh.getBoundingInfo().boundingSphere.radiusWorld >= 0.45) shadows.addShadowCaster(mesh, false);
     }
   });
   // The shadow frustum used to be pinned over the lab; it now follows the camera (snapped to a 2 m grid
