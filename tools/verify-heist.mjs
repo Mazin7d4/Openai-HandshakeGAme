@@ -162,10 +162,15 @@ try {
   await travel(vault);
   // Low-FPS tolerant: retry the grab a couple of times and wait on replicated state, not a fixed delay.
   for (let attempt = 0; attempt < 3 && !(await readout()).includes('mission:escape'); attempt++) {
+    // Both drones share the last vault waypoint, so PIX's body can shove NEE ~0.6 m back out of the
+    // 3.2 m grab radius (seen as an intermittent 1-in-4 failure). Hold NEE well inside range first.
+    await page.evaluate(() => window.__autotest.goto('nee', 1.6, 5.4, 18, 0.4, true));
+    await page.waitForFunction(() => window.__autotest.arrived('nee'), null, { timeout: 30_000, polling: 250 }).catch(() => {});
     await ensureActive('player-2'); await page.evaluate(() => window.__autotest.press('nee', 'grabDrop'));
     await page.locator('#dev-readout').filter({ hasText: 'mission:escape' }).waitFor({ timeout: 4000 }).catch(() => {});
   }
   if (!(await readout()).includes('mission:escape')) throw new Error(`Prototype grab did not trigger alarm. ${await readout()}`);
+  await page.evaluate(() => window.__autotest.stop('nee'));
   await page.locator('#dev-readout').filter({ hasText: 'mission:escape' }).waitFor({ timeout: 10000 });
   await travel(escape);
   await page.getByTestId('mission-complete').waitFor({ state: 'visible', timeout: 10_000 });
