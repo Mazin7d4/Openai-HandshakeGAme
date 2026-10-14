@@ -17,33 +17,43 @@ Render setup: headless Chromium with SwiftShader software WebGL (no GPU). It run
 7. `14139d5` **Shadows across every area.** The shadow frustum follows the camera and snaps to a 2 m grid to avoid shimmer. Blender props cast shadows. It reuses the same single 1024 shadow map.
 8. `d9f6e27` + final commit. **First-time quick-controls card:** a short controls list plus "stay tethered, follow the beacon". It auto-hides (16 s on first run, 6 s after that), [H] toggles it, and it is listed in the pause controls. It never blocks clicks. The final commit moves it above the bottom hint line and updates these reports.
 
+9. `d2f3e70` Test-only `?autotest` autopilot (`src/dev/Autopilot.ts`): steers by position through the normal control seam (no teleporting, real collisions), so verifiers behave the same at 2 FPS and 144 FPS. Only active with `?autotest`. verify-heist passes end-to-end.
+10. `2d8a94f` **Meshopt-compressed GLBs** (drone 370→137 kB, robotics-hero 1067→431 kB, office-kit 927→427 kB; 2.36 → 0.99 MB total). Decoder is vendored at `public/vendor/meshopt_decoder.js` and served from our own origin, not a CDN (checked: all three GLBs + decoder load 200 from localhost, no console errors). Re-run `tools/compress-glbs.sh` after any Blender re-export.
+11. `cf39356` + `c8d4148` **Shadow pass culling.** Only large props are shadow candidates, and static casters outside the camera-following 48 m shadow box are dropped from the shadow pass (refreshed only when the snapped centre moves). Spawn draw calls 432 → 377. Also fixed a dev-server-only duplicate Babylon import.
+12. `d6dd5a9` **Controls redundancy removed.** The bottom line now only shows dev extras (Tab, right-drag, wheel, F2, [H], Esc); player controls live only in the quick-controls card and pause menu.
+13. `e06e82e` + `626528c` Autopilot `hold` mode (keeps station against tether drag at co-op terminals). **verify-multiplayer-heist and verify-gameplay now pass.**
+14. `ec20d99` **First-pass CPU companion.** Single Player → START now launches the game: you fly PIX, and the CPU NEE (`BotControlSource` with sensors) follows with slack so the tether stays loose, matches altitude, boosts to catch up, and holds still while hacking. It does not hack, grab or plan yet. Dev-local's inactive drone stays idle as before. New `tools/verify-singleplayer.mjs` (in verify-all).
+
 Untouched: flight, tether, hacking, security, server and replication code. No changes to main.
 
-## Performance (`tools/capture-areas.mjs`, 1280x720, dev-local, software render)
-| | Before (Astra 401bcdd) | After (final) |
+## Performance (`tools/capture-areas.mjs`, 1280x720, dev-local spawn, software render)
+| | Before (Astra 401bcdd) | After (final, c8d4148) |
 |---|---|---|
 | Meshes | 377 | 425 |
 | Active meshes | 243 | 297 |
-| Draw calls | 494 | 432 |
+| Draw calls | 494 | **377** (-24%) |
 | Materials | 67 | 94 |
 | Triangles | 94k | 182k |
-| Scene CPU frame time | 7.5 ms | 9.3 ms |
-| Initial JS chunk | 6.25 MB | 186 kB (+5.9 MB lazy level chunk) |
-| Load to playable (local) | 3.0 s | 2.8 s |
+| Scene CPU frame time (SwiftShader) | 7.5 ms | 12.9–15.7 ms* |
+| Initial JS chunk | 6.25 MB | 186 kB (+170 kB GameApp, +5.9 MB lazy PrototypeHeist chunk) |
+| GLB assets | 2.36 MB (Grok props, uncompressed) | 0.99 MB (meshopt) |
+| Load to playable (local) | 3.0 s | 2.6 s |
 
-Draw calls were 326 before the prop kit and the shadows. They went back up to 432 because the Blender props are instanced but each instance still counts, and shadow casters add a shadow pass. That's still 13% below Astra, with twice the geometry detail and shadows everywhere. Real-GPU FPS on the 1070 is **unmeasured**.
+*Frame time under software rendering also includes the full-map shadow pass that Astra's build did not have and is noisy between runs (9.3–15.7 ms tonight; 15.7 ms in the final capture with a dev server and verifier running alongside); it is not a GPU number. Real FPS on the 1070 is **unmeasured**.
 
-## Tests (final code, software WebGL, `node tools/verify-all.mjs`)
-| Check | Astra baseline | Final |
+## Tests (final code c8d4148, software WebGL, `node tools/verify-all.mjs`)
+Run 04:34–05:08 AM PT on final code (`dist/` preview + local server).
+
+| Check | Astra 401bcdd | Final c8d4148 |
 |---|---|---|
-| `npm run build` | pass | **pass** |
-| verify-multiplayer | pass | **pass** |
-| verify-dev-local | fail (old waypoints) | **pass** |
-| verify-gameplay | fail (old waypoints) | **pass** |
-| verify-heist | fail (vent stall) | fail. Run 1: packet hack overlay didn't open at terminal A. Run 2: NEE missed a 0.45 m waypoint near the vent at **2 FPS** |
-| verify-multiplayer-heist | fail (vent stall) | fail, but it got further: through hacks A and B and the trip to the servers, then the memory-trace hack didn't start (15 FPS) |
+| `npm run build` | pass | **pass** (chunk-size warning only) |
+| verify-multiplayer | pass | **pass** (13 s) |
+| verify-dev-local | fail (old waypoints) | **pass** (156 s) |
+| verify-gameplay | fail (old waypoints) | **pass** on verify-all retry (804 s); first attempt failed: player-2 couldn't catch cargo-core (6.5 m away) |
+| verify-heist | fail (vent stall) | **FAIL tonight, 2/2 runs**: all three hacks done and the vault door opens, but NEE's grab press at the prototype (1.7 m away, inside the 3.2 m grab radius) never picks it up, so the alarm never fires (3–18 FPS). Passed earlier in the night before c8d4148; not root-caused, so I didn't attempt a fix |
+| verify-multiplayer-heist | fail (vent stall) | **pass** (206 s), full mission incl. prototype grab, alarm, escape |
+| verify-singleplayer (new) | n/a | **pass** (22–24 s; tether gap 1.18, NEE moved 13.2 m following PIX) |
 
-The heist verifiers steer with timed key presses, so at 2–15 FPS they fail at a different place on each run. This is not a proven regression, but **the full mission is still NOT verified end-to-end.** The shadow change costs a little extra CPU and GPU, which may slow the software render further. Stress tests were not run.
 
 ## Screenshots (`/workspace/handshake/report/screens/`, fresh before/after pairs from the same cameras)
 - `before-reception.png` / `after-reception.png`: lobby, desk and under-desk route
@@ -55,15 +65,18 @@ The heist verifiers steer with timed key presses, so at 2–15 FPS they fail at 
 - `before-gameplay-camera.png` / `after-gameplay-camera.png`: spawn view with the new quick-controls card
 
 ## Remaining problems
-- Full heist not verified end-to-end. It needs a real GPU run.
-- The controls card and the bottom hint line overlap in purpose. Pick one later.
-- The level chunk is 5.9 MB. Havok wasm and the GLBs could be split or compressed further (Draco/meshopt).
-- Draw calls (432) could go lower with thin instances and fewer shadow casters (only the big props).
-- One 1024 shadow map, so shadows look soft at distance. No baked AO outside the lab.
-- Nothing has been playtested by a human.
+- **verify-heist (single-browser dev-local) fails at the prototype grab on the final code**, while the multiplayer heist passes the same step. Likely suspects: c8d4148 (shadow culling / meshopt import) or the cradle lock in `Grabbable.ts` vs the dev-local grab path. Investigate first.
+- Nothing has been playtested by a human or on a real GPU; all FPS evidence is software rendering.
+- CPU companion is follow-only: no hacking, grabbing, rescuing, or path-finding (it can get snagged on walls/doorframes and relies on the tether to drag it through).
+- verify-* now steer with the test-only autopilot; the old keyboard path is a fallback, so real key-feel at low FPS isn't what's being tested.
+- Level chunk still 5.9 MB (Havok wasm + Babylon); draw calls 377 could drop further with thin instances.
+- One 1024 shadow map: soft shadows at distance; no baked AO outside the lab.
+- With `?debug=1` the dev readout text overlaps the quick-controls card (dev-only view; players don't see it).
+- Stress tests (`stress-multiplayer`, `stress-stability`) were not run.
 
 ## Recommended next
-1. On the 1070: `npm run build`, then `node tools/verify-all.mjs "http://localhost:5173/"` (full res) and a 10-minute co-op playtest. Note the FPS in each area.
-2. If the heist steps still fail on the GPU, look first at the terminal-A interaction range (props near terminals).
-3. Meshopt-compress the GLBs and convert props to thin instances.
-4. Bake AO for the non-lab areas, then start the CPU companion in `BotControlSource.ts`.
+0. Root-cause the dev-local prototype grab failure (`TRACE=1 node tools/verify-heist.mjs`; bisect c8d4148 vs ec20d99).
+1. On the 1070: `npm run build`, serve it (`npx vite preview --port 5173` + `node server/index.mjs`), then `node tools/verify-all.mjs "http://localhost:5173/"` at full res, plus a 10-minute co-op playtest and a single-player try. Note FPS per area.
+2. Companion v2: waypoint graph from `heist-layout.json`, go-to-terminal + hack-B on request, auto-rescue when PIX is spotted.
+3. Thin instances for the prop kit; bake AO for non-lab areas.
+4. Pick the review merges: `grok-overnight` → PR into `astra-production-pass` (not main) once you've playtested.
