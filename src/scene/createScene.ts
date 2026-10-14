@@ -40,6 +40,7 @@ export function createScene(engine: Engine): Scene {
   fill.groundColor = new Color3(0.38, 0.33, 0.3);
   fill.specular = new Color3(0.08, 0.08, 0.08);
 
+  scene.skipPointerMovePicking = true; // gameplay never hovers; avoids a per-move ray cast
   const sun = new DirectionalLight('sun', new Vector3(0.38, -1, 0.48), scene);
   sun.intensity = 1.65;
   sun.diffuse = new Color3(1, 0.95, 0.88);

@@ -1,3 +1,4 @@
+import { mergeRigidChildren } from '../scene/mergeChildren.ts';
 import {
   Color3, CreateCylinder, CreateSphere, CreateTorus, PBRMaterial, StandardMaterial, TransformNode,
   type Mesh, type Scene,
@@ -46,6 +47,8 @@ export function dressPrototype(body: Mesh, scene: Scene): void {
   const ringA = pick(CreateTorus('p01-gimbal-a', { diameter: 0.58, thickness: 0.025, tessellation: 40 }, scene));
   const ringB = pick(CreateTorus('p01-gimbal-b', { diameter: 0.5, thickness: 0.025, tessellation: 40 }, scene));
   ringA.material = alu; ringB.material = ceramic;
+  root.computeWorldMatrix(true);
+  mergeRigidChildren(root, [core, halo, ringA, ringB]);
   let t = 0;
   const obs = scene.onBeforeRenderObservable.add(() => {
     const dt = scene.getEngine().getDeltaTime() / 1000; t += dt;

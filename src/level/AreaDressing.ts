@@ -187,6 +187,8 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
     m.receiveShadows = true; m.freezeWorldMatrix(); m.doNotSyncBoundingInfo = true;
     merged.push(m);
   }
+  // Freeze static dressing materials whose properties do not change at runtime.
+  for (const mat of [mustard, teal, pink, yellow, white, cyanLed, amberLed, copper, cable, glow]) mat.freeze();
   return merged;
 }
 

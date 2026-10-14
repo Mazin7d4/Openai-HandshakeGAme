@@ -1,3 +1,4 @@
+import { mergeRigidChildren } from '../scene/mergeChildren.ts';
 import { Color3, CreateBox, CreateCylinder, Mesh, PBRMaterial, Scene, StandardMaterial, TransformNode } from '@babylonjs/core';
 
 /** Heavy Lab Crate: a rugged aluminium/plastic flight case with handles, latches and a hazard label. */
@@ -51,4 +52,6 @@ export function dressLabCrate(body: Mesh, size: number, scene: Scene): void {
   sticker.position.set(s * 0.4, s * 0.47, s * 0.4); sticker.rotation.y = Math.PI / 4;
   const lamp = add(CreateBox('labcrate-led', { width: size * 0.05, height: size * 0.03, depth: size * 0.02 }, scene), led);
   lamp.position.set(s * 0.6, s * 0.15, s * 0.99);
+  root.computeWorldMatrix(true);
+  mergeRigidChildren(root);
 }
