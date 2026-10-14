@@ -1,5 +1,6 @@
 import type { GameMode } from '../app/GameMode.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
+import { getSettings, saveSettings } from './Settings.ts';
 
 export interface GameHudOptions {
   onResume: () => void;
@@ -149,12 +150,45 @@ export class GameHud {
   }
 
   private showSettings(): void {
+    const settings = getSettings();
     this.panel.replaceChildren(this.heading('SETTINGS'));
-    this.panel.append(
-      this.range('MASTER VOLUME', 80),
-      this.range('MUSIC VOLUME', 50, true),
-      this.range('SFX VOLUME', 80),
+
+    const masterVolumeRow = this.rangeRow(
+      'MASTER VOLUME',
+      settings.masterVolume,
+      0,
+      100,
+      1,
+      '%',
+      (val: number) => {
+        saveSettings({ masterVolume: val });
+      },
     );
+
+    const sensitivityRow = this.rangeRow(
+      'LOOK SENSITIVITY',
+      settings.lookSensitivity,
+      0.25,
+      2,
+      0.05,
+      'x',
+      (val: number) => {
+        saveSettings({ lookSensitivity: val });
+      },
+    );
+
+    const shakeRow = document.createElement('label');
+    shakeRow.className = 'settings-row';
+    const shakeLabel = document.createElement('span');
+    shakeLabel.textContent = 'SCREEN SHAKE';
+    const shakeInput = document.createElement('input');
+    shakeInput.type = 'checkbox';
+    shakeInput.checked = settings.screenShake;
+    shakeInput.addEventListener('change', () => {
+      saveSettings({ screenShake: shakeInput.checked });
+    });
+    shakeRow.append(shakeLabel, shakeInput);
+
     const row = document.createElement('label');
     row.className = 'settings-row';
     row.append(document.createTextNode('GRAPHICS QUALITY'));
@@ -170,12 +204,18 @@ export class GameHud {
       this.options.onGraphicsQuality(select.value as 'low' | 'medium' | 'high');
     });
     row.append(select);
-    this.panel.append(row);
-    this.panel.append(this.button('TOGGLE FULLSCREEN', () => {
-      if (document.fullscreenElement) void document.exitFullscreen();
-      else void document.documentElement.requestFullscreen();
-    }));
-    this.panel.append(this.button('BACK', () => this.showPauseHome()));
+
+    this.panel.append(
+      masterVolumeRow,
+      sensitivityRow,
+      shakeRow,
+      row,
+      this.button('TOGGLE FULLSCREEN', () => {
+        if (document.fullscreenElement) void document.exitFullscreen();
+        else void document.documentElement.requestFullscreen();
+      }),
+      this.button('BACK', () => this.showPauseHome()),
+    );
   }
 
   private showControls(): void {
@@ -198,17 +238,27 @@ export class GameHud {
     this.panel.append(list, this.button('BACK', () => this.showPauseHome()));
   }
 
-  private range(label: string, value: number, placeholder = false): HTMLElement {
+  private rangeRow(
+    label: string, value: number, min: number, max: number, step: number, unit: string,
+    onChange: (value: number) => void,
+  ): HTMLElement {
     const row = document.createElement('label');
     row.className = 'settings-row';
-    row.append(document.createTextNode(placeholder ? `${label} (COMING SOON)` : label));
+    const text = document.createElement('span');
+    const format = (v: number) => `${label}  ${unit === '%' ? Math.round(v) : v.toFixed(2)}${unit}`;
+    text.textContent = format(value);
     const input = document.createElement('input');
     input.type = 'range';
-    input.min = '0';
-    input.max = '100';
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
     input.value = String(value);
-    input.disabled = placeholder;
-    row.append(input);
+    input.addEventListener('input', () => {
+      const next = Number(input.value);
+      text.textContent = format(next);
+      onChange(next);
+    });
+    row.append(text, input);
     return row;
   }
 

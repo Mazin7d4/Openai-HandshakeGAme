@@ -1,4 +1,5 @@
 import { FreeCamera, Ray, Vector3, type AbstractMesh, type Scene } from '@babylonjs/core';
+import { getSettings, subscribeSettings } from '../ui/Settings.ts';
 import type { CameraSubject } from './CameraSubject.ts';
 
 export interface CameraContext { alarm: boolean; vaultOpen: boolean; complete: boolean }
@@ -29,6 +30,9 @@ export class CinematicCamera {
   private lookPitch = 0;
   private zoom = 1;
   private releaseTimer = 0;
+  private lookSensitivity = 1;
+  private screenShake = true;
+  private readonly unsubscribeSettings: (() => void) | null = null;
   private readonly touches = new Map<number, { x: number; y: number }>();
   private readonly onPointerDown = (event: PointerEvent) => {
     if (this.scene.activeCamera !== this.camera) return;
@@ -55,8 +59,8 @@ export class CinematicCamera {
       const newDistance = Math.hypot(event.clientX - other.x, event.clientY - other.y);
       this.zoom = clamp(this.zoom + (oldDistance - newDistance) * 0.003, 0.85, 1.16);
     }
-    this.lookYaw = clamp(this.lookYaw + dx * 0.0015, -0.16, 0.16);
-    this.lookPitch = clamp(this.lookPitch - dy * 0.0012, -0.085, 0.085);
+    this.lookYaw = clamp(this.lookYaw + dx * 0.0015 * this.lookSensitivity, -0.16, 0.16);
+    this.lookPitch = clamp(this.lookPitch - dy * 0.0012 * this.lookSensitivity, -0.085, 0.085);
   };
   private readonly onPointerUp = (event: PointerEvent) => {
     this.touches.delete(event.pointerId);
@@ -75,6 +79,16 @@ export class CinematicCamera {
     this.camera = new FreeCamera('cinematic-camera', new Vector3(0, 8, -24), scene);
     this.camera.fov = 0.86; this.camera.minZ = 0.12; this.camera.maxZ = 180;
     this.camera.inertia = 0; this.camera.inputs.clear();
+    const initialSettings = getSettings();
+    this.lookSensitivity = initialSettings.lookSensitivity;
+    this.screenShake = initialSettings.screenShake;
+    this.unsubscribeSettings = subscribeSettings((settings) => {
+      this.lookSensitivity = settings.lookSensitivity;
+      this.screenShake = settings.screenShake;
+      if (!this.screenShake) {
+        this.shakeAmount = 0;
+      }
+    });
     this.canvas?.addEventListener('pointerdown', this.onPointerDown);
     this.canvas?.addEventListener('pointermove', this.onPointerMove);
     this.canvas?.addEventListener('pointerup', this.onPointerUp);
@@ -85,6 +99,7 @@ export class CinematicCamera {
 
   getPlanarBasis(): { forward: Vector3; right: Vector3 } { return { forward: this.forward, right: this.right }; }
   dispose(): void {
+    this.unsubscribeSettings?.();
     this.canvas?.removeEventListener('pointerdown', this.onPointerDown);
     this.canvas?.removeEventListener('pointermove', this.onPointerMove);
     this.canvas?.removeEventListener('pointerup', this.onPointerUp);
@@ -101,7 +116,10 @@ export class CinematicCamera {
   private beatTarget: Vector3 | null = null;
   private beatRemaining = 0;
   /** Trauma-style shake (0..1). Summed, decays quickly. Presentation only. */
-  addShake(amount: number): void { this.shakeAmount = Math.min(1, this.shakeAmount + amount); }
+  addShake(amount: number): void {
+    if (!this.screenShake) return;
+    this.shakeAmount = Math.min(1, this.shakeAmount + amount);
+  }
   /** Brief FOV punch for boosts/slingshots (radians). */
   kickFov(amount: number): void { this.fovKick = Math.max(this.fovKick, amount); }
   /** Blend the look target toward a point for a duration. Presentation only. */
@@ -177,7 +195,7 @@ export class CinematicCamera {
       Vector3.LerpToRef(this.position, targetPosition, 1 - Math.exp(-response * safeDt), this.position);
     }
     this.camera.position.copyFrom(this.position);
-    if (this.shakeAmount > 0.001 && safeDt > 0) {
+    if (this.screenShake && this.shakeAmount > 0.001 && safeDt > 0) {
       this.shakeTime += safeDt;
       const trauma = this.shakeAmount * this.shakeAmount * 0.32;
       const t = this.shakeTime * 38;
@@ -186,6 +204,8 @@ export class CinematicCamera {
         (Math.cos(t * 1.7) + Math.sin(t * 2.9) * 0.4) * trauma,
         Math.sin(t * 1.3 + 1.7) * trauma * 0.6);
       this.shakeAmount = Math.max(0, this.shakeAmount - safeDt * 2.2);
+    } else if (!this.screenShake) {
+      this.shakeAmount = 0;
     }
     if (safeDt > 0) {
       this.camera.fov += this.fovKick;

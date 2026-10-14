@@ -1,11 +1,54 @@
+import { getSettings, subscribeSettings } from '../ui/Settings.ts';
+
 /** Tiny synthesized sound palette. It avoids asset loading while keeping actions readable. */
 export class GameAudio {
   private context: AudioContext | null = null;
+  private masterGain: GainNode | null = null;
+  private masterVolume = 0.8;
+  private readonly unsubscribeSettings: (() => void) | null = null;
   private alarmTimer: number | null = null;
   private noise: AudioBuffer | null = null;
   private lastImpact = 0;
   private creak: { osc: OscillatorNode; lfo: OscillatorNode; gain: GainNode } | null = null;
   private creakLevel = 0;
+
+  constructor() {
+    const settings = getSettings();
+    this.masterVolume = Math.max(0, Math.min(1, settings.masterVolume / 100));
+    this.unsubscribeSettings = subscribeSettings((next) => {
+      this.setMasterVolume(next.masterVolume / 100);
+    });
+  }
+
+  setMasterVolume(v: number): void {
+    this.masterVolume = Math.max(0, Math.min(1, v));
+    if (this.masterGain && this.context) {
+      try {
+        this.masterGain.gain.setValueAtTime(this.masterVolume, this.context.currentTime);
+      } catch {
+        this.masterGain.gain.value = this.masterVolume;
+      }
+    }
+  }
+
+  private ensureContext(): AudioContext | null {
+    try {
+      if (!this.context) {
+        this.context = new AudioContext();
+        this.masterGain = this.context.createGain();
+        this.masterGain.gain.setValueAtTime(this.masterVolume, this.context.currentTime);
+        this.masterGain.connect(this.context.destination);
+      }
+      return this.context;
+    } catch {
+      return null;
+    }
+  }
+
+  private get destinationNode(): AudioNode | null {
+    if (!this.ensureContext()) return null;
+    return this.masterGain ?? this.context?.destination ?? null;
+  }
 
   /** Elastic twang: quick up-then-down sweep. */
   yank(strength = 0.6): void {
@@ -58,7 +101,8 @@ export class GameAudio {
     this.creakLevel = target;
     try {
       const ctx = this.context;
-      if (!ctx) return; // Never create audio from the frame loop; wait for an SFX to unlock it.
+      const dest = this.masterGain;
+      if (!ctx || !dest) return; // Never create audio from the frame loop; wait for an SFX to unlock it.
       if (!this.creak) {
         const osc = ctx.createOscillator();
         const lfo = ctx.createOscillator();
@@ -73,7 +117,7 @@ export class GameAudio {
         const filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
         filter.frequency.value = 520;
-        osc.connect(filter).connect(gain).connect(ctx.destination);
+        osc.connect(filter).connect(gain).connect(dest);
         osc.start();
         lfo.start();
         this.creak = { osc, lfo, gain };
@@ -133,9 +177,11 @@ export class GameAudio {
   }
 
   dispose(): void {
+    this.unsubscribeSettings?.();
     this.stopAlarm();
     try { this.creak?.osc.stop(); this.creak?.lfo.stop(); } catch { /* already stopped */ }
     this.creak = null;
+    this.masterGain = null;
     void this.context?.close();
     this.context = null;
   }
@@ -148,8 +194,9 @@ export class GameAudio {
 
   private sweep(from: number, peak: number, to: number, duration: number, volume: number, type: OscillatorType): void {
     try {
-      this.context ??= new AudioContext();
-      const ctx = this.context;
+      const ctx = this.ensureContext();
+      const dest = this.destinationNode;
+      if (!ctx || !dest) return;
       const t = ctx.currentTime;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -160,7 +207,7 @@ export class GameAudio {
       gain.gain.setValueAtTime(0.0001, t);
       gain.gain.exponentialRampToValueAtTime(Math.min(0.06, volume), t + 0.012);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
-      osc.connect(gain).connect(ctx.destination);
+      osc.connect(gain).connect(dest);
       osc.start(t);
       osc.stop(t + duration + 0.02);
     } catch {
@@ -182,8 +229,9 @@ export class GameAudio {
 
   private noiseBurst(duration: number, frequency: number, volume: number, type: BiquadFilterType): void {
     try {
-      this.context ??= new AudioContext();
-      const ctx = this.context;
+      const ctx = this.ensureContext();
+      const dest = this.destinationNode;
+      if (!ctx || !dest) return;
       const t = ctx.currentTime;
       const source = this.noiseSource(ctx);
       const filter = ctx.createBiquadFilter();
@@ -192,7 +240,7 @@ export class GameAudio {
       const gain = ctx.createGain();
       gain.gain.setValueAtTime(Math.min(0.06, volume), t);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
-      source.connect(filter).connect(gain).connect(ctx.destination);
+      source.connect(filter).connect(gain).connect(dest);
       source.start(t);
       source.stop(t + duration + 0.02);
     } catch {
@@ -202,8 +250,9 @@ export class GameAudio {
 
   private noiseSweep(duration: number, from: number, to: number, volume: number): void {
     try {
-      this.context ??= new AudioContext();
-      const ctx = this.context;
+      const ctx = this.ensureContext();
+      const dest = this.destinationNode;
+      if (!ctx || !dest) return;
       const t = ctx.currentTime;
       const source = this.noiseSource(ctx);
       const filter = ctx.createBiquadFilter();
@@ -215,7 +264,7 @@ export class GameAudio {
       gain.gain.setValueAtTime(0.0001, t);
       gain.gain.exponentialRampToValueAtTime(Math.min(0.06, volume), t + duration * 0.4);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
-      source.connect(filter).connect(gain).connect(ctx.destination);
+      source.connect(filter).connect(gain).connect(dest);
       source.start(t);
       source.stop(t + duration + 0.02);
     } catch {
@@ -230,16 +279,18 @@ export class GameAudio {
     type: OscillatorType,
   ): void {
     try {
-      this.context ??= new AudioContext();
-      const oscillator = this.context.createOscillator();
-      const gain = this.context.createGain();
+      const ctx = this.ensureContext();
+      const dest = this.destinationNode;
+      if (!ctx || !dest) return;
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
       oscillator.type = type;
       oscillator.frequency.value = frequency;
-      gain.gain.setValueAtTime(volume, this.context.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.0001, this.context.currentTime + duration);
-      oscillator.connect(gain).connect(this.context.destination);
+      gain.gain.setValueAtTime(volume, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+      oscillator.connect(gain).connect(dest);
       oscillator.start();
-      oscillator.stop(this.context.currentTime + duration);
+      oscillator.stop(ctx.currentTime + duration);
     } catch {
       // Browsers may defer audio until user activation; game feedback remains visual.
     }
