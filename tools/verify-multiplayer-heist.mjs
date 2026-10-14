@@ -53,7 +53,7 @@ async function moveToward(page, playerId, target, timeout = 25_000, tolerance = 
     const p = { x: target.x, y: target.y ?? 2.2, z: target.z, tol: tolerance, hold };
     await page.evaluate(({ role, p }) => window.__autotest.goto(role, p.x, p.y, p.z, p.tol, p.hold), { role, p });
     const ok = await page.waitForFunction((role) => window.__autotest.arrived(role)
-      || document.querySelector('[data-testid="mission-complete"]'), role, { timeout: Math.max(timeout, 150_000), polling: 250 })
+      || document.querySelector('[data-testid="mission-complete"].visible'), role, { timeout: Math.max(timeout, 150_000), polling: 250 })
       .then(() => true, () => false);
     const at = await page.evaluate((role) => window.__autotest.position(role), role);
     if (process.env.TRACE) {
