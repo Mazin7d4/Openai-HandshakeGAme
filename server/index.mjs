@@ -240,6 +240,7 @@ class HandshakeRoom extends Room {
       return;
     }
     if (object.id === 'prototype' && !this.state.hack.doorOpen) return;
+    if (object.heldBy && object.heldBy !== player.role) return;
     for (const other of this.state.objects.values()) {
       if (other.id !== object.id && other.heldBy === player.role) {
         return;

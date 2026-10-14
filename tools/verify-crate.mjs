@@ -65,7 +65,8 @@ try {
     await pilot(['nee'], point);
     if (point.z === 3) step('vent cleared');
   }
-  await page.getByTestId('mission-complete').waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByTestId('mission-complete').waitFor({ state: 'visible', timeout: 15_000 })
+    .catch(async () => { throw new Error(`No mission-complete at extraction:\n${await readout()}`); });
   await shot('s7-crate-extraction', 700);
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(JSON.stringify({ escapeStage: true, crateMoved: +moved.toFixed(2), ventCleared: true, extraction: true }));

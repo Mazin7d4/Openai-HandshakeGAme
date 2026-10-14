@@ -71,6 +71,8 @@ export class GrabSystem {
     let nearest: Grabbable | null = null;
     let nearestDistance = Number.POSITIVE_INFINITY;
     for (const object of this.objects) {
+      // Never snatch what the partner is carrying (it made [E] near the carrier steal the prototype).
+      if (object.heldBy) continue;
       const distance = object.distanceTo(drone.position);
       if (distance <= object.grabRadius && distance < nearestDistance) {
         nearest = object;
