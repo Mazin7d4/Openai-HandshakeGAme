@@ -6,7 +6,7 @@ import {
   type Scene,
 } from '@babylonjs/core';
 
-export type SparkStyle = 'impact' | 'zap' | 'yank' | 'pix' | 'nee';
+export type SparkStyle = 'impact' | 'zap' | 'yank' | 'pix' | 'nee' | 'confetti';
 
 const STYLES: Record<SparkStyle, { c1: Color4; c2: Color4; speed: number; size: number; life: number }> = {
   impact: { c1: new Color4(1, 0.93, 0.75, 1), c2: new Color4(1, 0.62, 0.3, 1), speed: 4.5, size: 0.14, life: 0.32 },
@@ -14,6 +14,7 @@ const STYLES: Record<SparkStyle, { c1: Color4; c2: Color4; speed: number; size: 
   yank: { c1: new Color4(1, 1, 1, 0.9), c2: new Color4(1, 0.86, 0.45, 0.9), speed: 3.2, size: 0.12, life: 0.3 },
   pix: { c1: new Color4(0.3, 0.85, 1, 1), c2: new Color4(0.75, 0.97, 1, 1), speed: 5, size: 0.16, life: 0.55 },
   nee: { c1: new Color4(1, 0.42, 0.6, 1), c2: new Color4(1, 0.8, 0.6, 1), speed: 5, size: 0.16, life: 0.55 },
+  confetti: { c1: new Color4(1, 0.85, 0.3, 1), c2: new Color4(1, 0.55, 0.6, 1), speed: 6, size: 0.18, life: 1.6 },
 };
 
 /**
@@ -36,7 +37,8 @@ export class Juice {
     this.texture.hasAlpha = true;
     this.texture.update();
     for (const [style, cfg] of Object.entries(STYLES) as [SparkStyle, (typeof STYLES)[SparkStyle]][]) {
-      const ps = new ParticleSystem(`juice-${style}`, 160, scene);
+      const capacity = style === 'confetti' ? 400 : 160;
+      const ps = new ParticleSystem(`juice-${style}`, capacity, scene);
       ps.particleTexture = this.texture;
       ps.emitter = new Vector3();
       ps.minEmitBox = new Vector3(-0.08, -0.08, -0.08);
@@ -50,9 +52,15 @@ export class Juice {
       ps.maxLifeTime = cfg.life;
       ps.minEmitPower = cfg.speed * 0.4;
       ps.maxEmitPower = cfg.speed;
-      ps.direction1 = new Vector3(-1, -0.4, -1);
-      ps.direction2 = new Vector3(1, 1.2, 1);
-      ps.gravity = new Vector3(0, -9, 0);
+      if (style === 'confetti') {
+        ps.direction1 = new Vector3(-1, 1, -1);
+        ps.direction2 = new Vector3(1, 3, 1);
+        ps.gravity = new Vector3(0, -3, 0);
+      } else {
+        ps.direction1 = new Vector3(-1, -0.4, -1);
+        ps.direction2 = new Vector3(1, 1.2, 1);
+        ps.gravity = new Vector3(0, -9, 0);
+      }
       ps.blendMode = ParticleSystem.BLENDMODE_ADD;
       ps.emitRate = 0;
       ps.manualEmitCount = 0;

@@ -49,7 +49,7 @@ export function dressPrototype(body: Mesh, scene: Scene): void {
   let t = 0;
   const obs = scene.onBeforeRenderObservable.add(() => {
     const dt = scene.getEngine().getDeltaTime() / 1000; t += dt;
-    const excited = (body.metadata as { p01Excited?: number } | undefined)?.p01Excited ?? 0;
+    const excited = (scene.metadata as { p01Excited?: number } | undefined)?.p01Excited ?? 0;
     const speed = 0.6 + excited * 3;
     ringA.rotation.x += dt * speed; ringB.rotation.z += dt * speed * 1.3;
     const pulse = 0.85 + 0.15 * Math.sin(t * (2 + excited * 6));

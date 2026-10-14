@@ -73,6 +73,7 @@ export class GameApp {
   private readonly unsubscribers: (() => void)[] = [];
   private hintTimer = 0;
   private yankRequested = false;
+  private disposed = false;
   private activeDevRole: DroneRole = 'pix';
   private readonly onResize = () => {
     this.engine.resize();
@@ -170,6 +171,46 @@ export class GameApp {
         this.cameraRig.addShake(0.45);
         for (const drone of this.drones) drone.react('proud', 1.2);
         this.hud?.toast('CLOTHESLINED!', 'good');
+      }),
+      gameEvents.on('heist', (e) => {
+        const pos = e.position;
+        switch (e.beat) {
+          case 'vault':
+            this.juice.burst('zap', pos, 40);
+            audio.success();
+            this.cameraRig.beat(pos, 2.4);
+            this.cameraRig.addShake(0.12);
+            for (const drone of this.drones) drone.react('happy', 2);
+            this.hud?.toast('VAULT OPEN · MEET P01', 'good');
+            break;
+          case 'pickup':
+            this.juice.burst('zap', pos, 60);
+            this.juice.burst('pix', pos, 25);
+            this.juice.burst('nee', pos, 25);
+            this.cameraRig.addShake(0.6);
+            this.cameraRig.kickFov(0.08);
+            this.cameraRig.beat(pos, 1.4);
+            for (const p of this.players) {
+              if (e.role != null && p.role === e.role) {
+                p.drone.react('proud', 2.5);
+              } else {
+                p.drone.react('panic', 2);
+              }
+            }
+            this.hud?.toast('WE GOT IT!', 'good');
+            setTimeout(() => { if (!this.disposed) this.hud?.toast('ALARM! SECURITY DRONES ONLINE', 'good'); }, 900);
+            break;
+          case 'extract':
+            this.juice.burst('confetti', pos, 120);
+            setTimeout(() => { if (!this.disposed) this.juice.burst('confetti', pos.add(new Vector3(0, 2, 0)), 120); }, 250);
+            setTimeout(() => { if (!this.disposed) this.juice.burst('confetti', pos.add(new Vector3(0, 4, 0)), 120); }, 500);
+            this.juice.burst('pix', pos, 40);
+            this.juice.burst('nee', pos, 40);
+            for (const drone of this.drones) drone.react('proud', 6);
+            this.cameraRig.addShake(0.3);
+            this.hud?.toast('HOME FREE!', 'good');
+            break;
+        }
       }),
     );
     if (multiplayer) {
@@ -300,6 +341,7 @@ export class GameApp {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.engine.stopRenderLoop();
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('keydown', this.onKeyDown);

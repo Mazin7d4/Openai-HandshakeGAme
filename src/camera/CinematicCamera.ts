@@ -98,10 +98,17 @@ export class CinematicCamera {
   private shakeTime = 0;
   private fovKick = 0;
   private baseFov: number | undefined;
+  private beatTarget: Vector3 | null = null;
+  private beatRemaining = 0;
   /** Trauma-style shake (0..1). Summed, decays quickly. Presentation only. */
   addShake(amount: number): void { this.shakeAmount = Math.min(1, this.shakeAmount + amount); }
   /** Brief FOV punch for boosts/slingshots (radians). */
   kickFov(amount: number): void { this.fovKick = Math.max(this.fovKick, amount); }
+  /** Blend the look target toward a point for a duration. Presentation only. */
+  beat(point: Vector3, seconds: number): void {
+    this.beatTarget = point.clone();
+    this.beatRemaining = seconds;
+  }
   snap(subjects: readonly CameraSubject[]): void { this.placed = false; this.update(0, subjects); }
 
   update(dt: number, subjects: readonly CameraSubject[], context: CameraContext = QUIET): void {
@@ -151,6 +158,14 @@ export class CinematicCamera {
       required = Math.max(required,
         (Math.abs(Vector3.Dot(delta, viewRight)) + 1.6) / tanX - depth,
         (Math.abs(Vector3.Dot(delta, up)) + 1.4) / tanY - depth);
+    }
+    if (this.beatTarget && this.beatRemaining > 0 && safeDt > 0) {
+      this.beatRemaining = Math.max(0, this.beatRemaining - safeDt);
+      const easeOut = this.beatRemaining < 0.6 ? this.beatRemaining / 0.6 : 1;
+      const weight = 0.55 * easeOut;
+      Vector3.LerpToRef(targetLook, this.beatTarget, weight, targetLook);
+      required += 3 * easeOut;
+      if (this.beatRemaining <= 0) this.beatTarget = null;
     }
     this.distance = this.placed ? smooth(this.distance, required, required > this.distance ? 5 : 1.5, safeDt) : required;
     const targetPosition = targetLook.subtract(view.scale(this.distance * this.zoom));

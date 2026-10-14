@@ -1,6 +1,8 @@
 import {
-  Color3, CreateBox, CreatePlane, CreatePolyhedron, CreateTorus, DynamicTexture, ImportMeshAsync,
-  PBRMaterial, StandardMaterial, Vector3, type HavokPlugin, type Material, type Mesh, type Scene,
+  Color3, Color4, CreateBox, CreateCylinder, CreatePlane, CreatePolyhedron, CreateTorus,
+  DirectionalLight, DynamicTexture, HemisphericLight, ImportMeshAsync, PBRMaterial, Scalar,
+  SpotLight, StandardMaterial, Vector3,
+  type HavokPlugin, type Material, type Mesh, type Scene,
 } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import '../assets/meshopt.ts';
@@ -12,7 +14,7 @@ import { loadPropKit } from './PropKit.ts';
 import layout from './heist-layout.json';
 
 export interface HeistPresentation {
-  alarm: boolean; complete: boolean; officeOpen: boolean;
+  alarm: boolean; complete: boolean; officeOpen: boolean; vaultOpen?: boolean;
   /** Optional presentation-only hints for objective beacons. */
   stage?: string; hacked?: Record<string, boolean>; prototypeHeld?: boolean;
 }
@@ -126,6 +128,50 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   sign('vault-title', 'M O R R O W', 'P 0 1     /     ADAPTIVE COMPANION CORE', 0, 8.7, 25.9, 11);
   const halo = CreateTorus('vault-halo', { diameter: 7.7, thickness: 0.08, tessellation: 80 }, scene);
   halo.position.set(0, 6.2, 25.9); halo.rotation.x = Math.PI / 2; halo.material = p.light; halo.isPickable = false;
+  // ── Vault bell jar: decorative frosted glass cylinder with aluminium cap ──
+  const protoX = layout.objects.prototype.x;
+  const protoZ = layout.objects.prototype.z;
+  const bellJarGlass = new PBRMaterial('vault-belljar-glass', scene);
+  bellJarGlass.albedoColor = Color3.FromHexString('#D8EDE8'); bellJarGlass.metallic = 0;
+  bellJarGlass.roughness = 0.28; bellJarGlass.alpha = 0.3; bellJarGlass.backFaceCulling = false;
+  bellJarGlass.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+  const bellJar = CreateCylinder('vault-belljar', { diameter: 2.3, height: 2.2, tessellation: 40 }, scene);
+  bellJar.position.set(protoX, 4.65 + 1.1, protoZ); bellJar.material = bellJarGlass; bellJar.isPickable = false;
+  const capMat = new PBRMaterial('vault-belljar-cap', scene);
+  capMat.albedoColor = Color3.FromHexString('#C0C8CC'); capMat.metallic = 0.88; capMat.roughness = 0.28;
+  const bellCap = CreateCylinder('vault-belljar-cap', { diameter: 2.35, height: 0.08, tessellation: 40 }, scene);
+  bellCap.position.set(protoX, 4.65 + 2.2 + 0.04, protoZ); bellCap.material = capMat; bellCap.isPickable = false;
+  const bellJarBaseY = 4.65 + 1.1;
+  const bellCapBaseY = 4.65 + 2.2 + 0.04;
+  const bellJarOpenY = 11 + 1.1;
+  const bellCapOpenY = 11 + 2.2 + 0.04;
+  // ── Warm vault SpotLight ──
+  const vaultSpot = new SpotLight('vault-spot', new Vector3(protoX, 13, protoZ), new Vector3(0, -1, 0), 0.6, 2, scene);
+  vaultSpot.diffuse = Color3.FromHexString('#FFE2B0'); vaultSpot.intensity = 0;
+  // ── Emissive plinth ring ──
+  const plinthRingMat = new StandardMaterial('plinth-ring-mat', scene);
+  plinthRingMat.disableLighting = true; plinthRingMat.emissiveColor = Color3.FromHexString('#FFE2B0');
+  const plinthRing = CreateTorus('plinth-ring', { diameter: 3.6, thickness: 0.05, tessellation: 60 }, scene);
+  plinthRing.position.set(protoX, 4.62, protoZ); plinthRing.material = plinthRingMat; plinthRing.isPickable = false;
+  plinthRing.visibility = 0.1;
+  // ── Alarm beacon lamps (6 small red rotating beacons) ──
+  const beaconRedMat = new StandardMaterial('alarm-beacon-red', scene);
+  beaconRedMat.disableLighting = true; beaconRedMat.emissiveColor = new Color3(1, 0.1, 0.05);
+  beaconRedMat.diffuseColor = Color3.Black();
+  const alarmBeacons: { root: Mesh; beam: Mesh }[] = [];
+  const beaconPositions: [number, number, number][] = [
+    [-18.5, 11, -50], [-18.5, 11, -30], [-18.5, 11, -10],
+    [-18.5, 11, 5], [14, 11, 10], [-5, 11, 18],
+  ];
+  for (const [bx, by, bz] of beaconPositions) {
+    const lamp = CreateCylinder(`alarm-beacon-lamp`, { diameter: 0.4, height: 0.5, tessellation: 12 }, scene);
+    lamp.position.set(bx, by, bz); lamp.material = beaconRedMat; lamp.isPickable = false;
+    const beam = CreatePlane('alarm-beacon-beam', { width: 2.5, height: 0.12 }, scene);
+    beam.position.set(bx, by, bz); beam.material = beaconRedMat; beam.isPickable = false;
+    beam.rotation.x = Math.PI / 2;
+    lamp.setEnabled(false); beam.setEnabled(false);
+    alarmBeacons.push({ root: lamp, beam });
+  }
   // Lighting fixtures share one diffuse emitter material; no per-prop realtime lights.
   for (const [x, z] of [[-6, 8], [9, 12], [0, 20]] as const) {
     box('pendant-shell', x, 11.7, z, 7, 0.3, 1.2, p.metal, false);
@@ -173,6 +219,14 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     pickup: makeBeacon('pickup', layout.extraction.x, 1.2, layout.extraction.z),
   };
   let elapsed = 0;
+  let vaultProgress = 0; // 0 = closed, 1 = fully open
+  let prevVaultOpen = false;
+  // Alarm transformation: store originals once on first alarm tick.
+  let origFillDiffuse: Color3 | null = null;
+  let origSunIntensity: number | null = null;
+  let origClearColor: Color4 | null = null;
+  let alarmBlend = 0; // 0 = normal, 1 = full alarm tint
+  let completeTintTimer = 0;
   levels.set(scene, { update(dt, state) {
     elapsed += dt;
     officeDoor.setOpen(state.officeOpen); officeDoor.update(dt);
@@ -181,6 +235,81 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     strips.forEach((mesh, i) => { mesh.visibility = state.alarm ? 0.65 + 0.35 * Math.sin(elapsed * 5 + i * 0.8) : 0.18; });
     exitSign.scaling.setAll(state.alarm ? 1.04 : 1);
     halo.material = state.alarm ? p.coral : p.light;
+
+    // ── Vault reveal ──
+    const wantOpen = !!state.vaultOpen;
+    if (wantOpen !== prevVaultOpen) prevVaultOpen = wantOpen;
+    const vaultTarget = wantOpen ? 1 : 0;
+    if (vaultProgress !== vaultTarget) {
+      const speed = 1 / 2.5; // ~2.5s full travel
+      if (vaultTarget > vaultProgress) {
+        vaultProgress = Math.min(vaultTarget, vaultProgress + dt * speed);
+      } else {
+        vaultProgress = Math.max(vaultTarget, vaultProgress - dt * speed);
+      }
+    }
+    // Ease-out curve for smooth deceleration
+    const eased = 1 - (1 - vaultProgress) * (1 - vaultProgress);
+    bellJar.position.y = Scalar.Lerp(bellJarBaseY, bellJarOpenY, eased);
+    bellCap.position.y = Scalar.Lerp(bellCapBaseY, bellCapOpenY, eased);
+    vaultSpot.intensity = Scalar.Lerp(0, 2.2, eased);
+    plinthRing.visibility = Scalar.Lerp(0.1, 1, eased);
+    // Brief halo pulse when vault first opens
+    if (wantOpen && vaultProgress < 0.5) {
+      halo.visibility = 0.6 + 0.4 * Math.sin(elapsed * 8);
+    } else {
+      halo.visibility = 1;
+    }
+
+    // ── Alarm transformation ──
+    const fillLight = scene.getLightByName('fill') as HemisphericLight | null;
+    const sunLight = scene.getLightByName('sun') as DirectionalLight | null;
+    // Store originals on first encounter
+    if (fillLight && origFillDiffuse === null) origFillDiffuse = fillLight.diffuse.clone();
+    if (sunLight && origSunIntensity === null) origSunIntensity = sunLight.intensity;
+    if (origClearColor === null) origClearColor = scene.clearColor.clone();
+    const alarmActive = state.alarm && !state.complete;
+    const alarmTarget = alarmActive ? 1 : 0;
+    alarmBlend = Scalar.Lerp(alarmBlend, alarmTarget, 1 - Math.exp(-dt * 3));
+    if (Math.abs(alarmBlend - alarmTarget) < 0.001) alarmBlend = alarmTarget;
+    if (alarmBlend > 0) {
+      const pulse12 = 0.5 + 0.5 * Math.sin(elapsed * 1.2 * 2 * Math.PI); // 1.2 Hz
+      const blendedPulse = alarmBlend * pulse12;
+      if (fillLight && origFillDiffuse) {
+        Color3.LerpToRef(origFillDiffuse, new Color3(1, 0.35, 0.3), blendedPulse * 0.7, fillLight.diffuse);
+      }
+      if (sunLight && origSunIntensity !== null) {
+        sunLight.intensity = Scalar.Lerp(origSunIntensity, origSunIntensity * 0.55, alarmBlend);
+      }
+      if (origClearColor) {
+        const alarmClear = new Color4(0.32, 0.16, 0.16, origClearColor.a);
+        Color4.LerpToRef(origClearColor, alarmClear, alarmBlend * 0.8, scene.clearColor);
+      }
+    } else if (origFillDiffuse && origSunIntensity !== null && origClearColor) {
+      // Restore originals when not alarmed
+      if (fillLight) fillLight.diffuse.copyFrom(origFillDiffuse);
+      if (sunLight) sunLight.intensity = origSunIntensity;
+      scene.clearColor.copyFrom(origClearColor);
+    }
+    // Warm gold tint on complete
+    if (!state.complete) completeTintTimer = 0;
+    if (state.complete && completeTintTimer < 2) {
+      completeTintTimer += dt;
+      const gold = Math.max(0, 1 - completeTintTimer / 2);
+      if (fillLight) {
+        fillLight.diffuse.r = Math.min(1, fillLight.diffuse.r + gold * 0.15);
+        fillLight.diffuse.g = Math.min(1, fillLight.diffuse.g + gold * 0.1);
+      }
+    }
+    // Alarm beacon lamps
+    for (const ab of alarmBeacons) {
+      ab.root.setEnabled(alarmActive); ab.beam.setEnabled(alarmActive);
+      if (alarmActive) ab.beam.rotation.y = elapsed * 4; // rotate beam around Y
+    }
+
+    // ── scene.metadata for PrototypeVisual p01Excited ──
+    scene.metadata = { ...(scene.metadata ?? {}), p01Excited: state.alarm ? 1 : state.vaultOpen ? 0.4 : 0 };
+
     if (state.stage) {
       const h = state.hacked ?? {};
       const show: Record<keyof typeof beacons, boolean> = {
