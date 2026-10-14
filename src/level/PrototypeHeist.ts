@@ -35,6 +35,9 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     if (solid) addStaticBody(mesh, scene);
     return mesh;
   };
+  const signGlow = new StandardMaterial('sign-lip-glow', scene);
+  signGlow.diffuseColor = new Color3(1, 0.86, 0.62); signGlow.emissiveColor = new Color3(1, 0.8, 0.52);
+  signGlow.specularColor = Color3.Black();
   const sign = (name: string, title: string, sub: string, x: number, y: number, z: number, width = 7) => {
     const t = new DynamicTexture(`${name}-type`, { width: 1024, height: 256 }, scene, true);
     const c = t.getContext(); c.fillStyle = '#203c39'; c.fillRect(0, 0, 1024, 256);
@@ -44,6 +47,19 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     m.emissiveColor = new Color3(0.2, 0.2, 0.2); m.specularColor = Color3.Black();
     const mesh = CreatePlane(name, { width, height: width / 4 }, scene);
     mesh.position.set(x, y, z); mesh.material = m; mesh.isPickable = false;
+    // Contextual mounting instead of a floating card: aluminium frame, ceiling hangers, warm lip light.
+    const h = width / 4;
+    const frame = CreateBox(`${name}-frame`, { width: width + 0.28, height: h + 0.28, depth: 0.12 }, scene);
+    frame.parent = mesh; frame.position.z = 0.08; frame.material = p.metal; frame.isPickable = false;
+    const lip = CreateBox(`${name}-lip`, { width: width * 0.92, height: 0.07, depth: 0.16 }, scene);
+    lip.parent = mesh; lip.position.set(0, h / 2 + 0.1, -0.06); lip.material = signGlow; lip.isPickable = false;
+    if (y > 5) {
+      const drop = Math.max(0.4, 14.2 - (y + h / 2));
+      for (const dx of [-width * 0.38, width * 0.38]) {
+        const rod = CreateCylinder(`${name}-hanger`, { diameter: 0.05, height: drop, tessellation: 6 }, scene);
+        rod.parent = mesh; rod.position.set(dx, h / 2 + drop / 2, 0.08); rod.material = p.metal; rod.isPickable = false;
+      }
+    }
     return mesh;
   };
   const desk = (name: string, x: number, z: number, width = 9) => {
