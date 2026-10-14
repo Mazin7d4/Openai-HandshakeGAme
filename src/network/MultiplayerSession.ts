@@ -13,6 +13,8 @@ import type {
 const SEND_INTERVAL_MS = 50;
 
 /** Partner tether move relayed (and validated) by the server. */
+export interface PatrolStunMessage { index: number; by?: string; clotheslines?: number; x: number; y: number; z: number }
+
 export interface TetherYankMessage {
   kind: 'yank' | 'sling' | 'bump';
   rescue: boolean;
@@ -151,6 +153,7 @@ export class MultiplayerSession {
   private readonly room: Room<unknown, SchemaRoomState>;
   private readonly listeners = new Set<StatusListener>();
   private readonly yankListeners = new Set<(message: TetherYankMessage) => void>();
+  private readonly patrolListeners = new Set<(message: PatrolStunMessage) => void>();
   private readonly players = new Map<DroneRole, DroneNetworkState>();
   private readonly objects = new Map<string, GrabbableNetworkState>();
   private status: RoomStatus;
@@ -183,6 +186,9 @@ export class MultiplayerSession {
     });
     room.onMessage('tether-yanked', (message: TetherYankMessage) => {
       for (const listener of this.yankListeners) listener(message);
+    });
+    room.onMessage('patrol-stunned', (message: PatrolStunMessage) => {
+      for (const listener of this.patrolListeners) listener(message);
     });
     room.onReconnect(() => {
       this.networkState = 'connected';
@@ -304,6 +310,16 @@ export class MultiplayerSession {
 
   reportSpotted(): void {
     this.room.send('mission-spotted');
+  }
+
+  /** Ask the server to stun a patrol; it arbitrates and broadcasts 'patrol-stunned' to both clients. */
+  requestPatrolStun(message: PatrolStunMessage): void {
+    this.room.send('patrol-stun', message);
+  }
+
+  onPatrolStunned(listener: (message: PatrolStunMessage) => void): () => void {
+    this.patrolListeners.add(listener);
+    return () => this.patrolListeners.delete(listener);
   }
 
   sendTetherYank(message: TetherYankMessage): void {

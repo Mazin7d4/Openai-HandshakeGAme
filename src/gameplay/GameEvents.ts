@@ -7,6 +7,8 @@ export interface GameEventMap {
   boost: { droneId: string; position: Vector3 };
   clothesline: { position: Vector3 };
   knockback: { droneId: string; position: Vector3 };
+  /** Authored heist beats, fired identically on both clients from replicated mission state. */
+  heist: { beat: 'vault' | 'pickup' | 'extract'; position: Vector3; role?: DroneRole | null };
   yank: { kind: 'yank' | 'sling' | 'bump'; from: DroneRole; strength: number; rescue: boolean; position: Vector3 };
 }
 

@@ -9,7 +9,9 @@ import type { HackSession } from './HackSession.ts';
 import { SecuritySystem } from './SecuritySystem.ts';
 import layout from '../level/heist-layout.json';
 import { updateHeistPresentation } from '../level/PrototypeHeist.ts';
+import { gameEvents } from './GameEvents.ts';
 
+const VAULT = new Vector3(layout.objects.prototype.x, layout.objects.prototype.y, layout.objects.prototype.z);
 const EXTRACTION = new Vector3(layout.extraction.x, layout.extraction.y, layout.extraction.z);
 
 const FRESH_STATE: MissionNetworkState = {
@@ -37,6 +39,8 @@ export class MissionDirector {
   private completedPresented = false;
   private cameraDisabledFor = 0;
   private hacksWereComplete = false;
+  private clotheslines = 0;
+  private readonly unsubscribe: (() => void) | null;
   private readonly scene: Scene;
   private routeHint = 'Enter beneath reception, then rise together through the service vent.';
 
@@ -58,7 +62,16 @@ export class MissionDirector {
     this.security = new SecuritySystem(scene, {
       onSpotted: (role) => this.spotted(role),
       hasFastObjectNear: (point, radius) => grab.nearbyFastObject(point, radius),
+      requestStun: multiplayer
+        ? (index, at) => multiplayer.requestPatrolStun({ index, x: at.x, y: at.y, z: at.z })
+        : undefined,
     }, audio);
+    const offStun = multiplayer?.onPatrolStunned((m) => {
+      this.clotheslines = m.clotheslines ?? this.clotheslines + 1;
+      this.security.remoteStun(m.index, new Vector3(m.x, m.y, m.z));
+    });
+    const offLine = gameEvents.on('clothesline', () => { if (!this.multiplayer) this.clotheslines += 1; });
+    this.unsubscribe = () => { offStun?.(); offLine(); };
 
     if (uiParent) {
       const objective = document.createElement('aside');
@@ -81,7 +94,9 @@ export class MissionDirector {
       completeOverlay.dataset.testid = 'mission-complete';
       const panel = document.createElement('section');
       panel.className = 'mission-complete-panel';
-      panel.innerHTML = '<p class="menu-kicker">PROTOTYPE SECURED</p><h1>MISSION COMPLETE</h1>';
+      panel.innerHTML = '<p class="menu-kicker">PROTOTYPE SECURED</p><h1>MISSION COMPLETE</h1>' +
+        '<div class="mission-crew"><span class="crew-face pix">^ ^</span><span class="mission-rating"></span><span class="crew-face nee">^ ^</span></div>' +
+        '<p class="mission-quip"></p>';
       this.stats = document.createElement('dl');
       this.stats.className = 'mission-stats';
       const retry = document.createElement('button');
@@ -144,7 +159,10 @@ export class MissionDirector {
     this.spotCooldown = Math.max(0, this.spotCooldown - dt);
     this.tetherSaveCooldown = Math.max(0, this.tetherSaveCooldown - dt);
     this.cameraDisabledFor = Math.max(0, this.cameraDisabledFor - dt);
-    if (hack.allComplete() && !this.hacksWereComplete) this.cameraDisabledFor = 18;
+    if (hack.allComplete() && !this.hacksWereComplete) {
+      this.cameraDisabledFor = 18;
+      if (!this.state.alarm) gameEvents.emit('heist', { beat: 'vault', position: VAULT.clone() });
+    }
     this.hacksWereComplete = hack.allComplete();
     if (!this.multiplayer) {
       this.state = { ...this.state, elapsedSeconds: this.localElapsed };
@@ -185,7 +203,8 @@ export class MissionDirector {
         : !hack.isComplete('terminal-c')
           ? 'Server gallery unlocked. Weave around the racks or fly over them; reach the high memory shelf.'
           : 'Vault authorized. Through the central shutter, then climb to the companion core.';
-    this.security.update(dt, drones, this.state.securityActive, this.cameraDisabledFor > 0, tetherStrain);
+    this.security.update(dt, drones, this.state.securityActive, this.cameraDisabledFor > 0, tetherStrain,
+      this.multiplayer ? this.state.elapsedSeconds : undefined);
     this.alarmLight.intensity = this.state.alarm ? 1.6 + Math.sin(this.localElapsed * 9) * 1.2 : 0;
     this.renderObjective(hack.completionCount());
     this.presentStageChange();
@@ -208,6 +227,7 @@ export class MissionDirector {
 
   dispose(): void {
     this.audio.stopAlarm();
+    this.unsubscribe?.();
     this.security.dispose();
     this.alarmLight.dispose();
     this.objective?.remove();
@@ -232,6 +252,7 @@ export class MissionDirector {
   }
 
   private beginAlarm(): void {
+    gameEvents.emit('heist', { beat: 'pickup', position: VAULT.clone(), role: this.state.prototypeHeldBy });
     this.audio.pickup();
     this.audio.startAlarm();
   }
@@ -239,10 +260,12 @@ export class MissionDirector {
   private presentStageChange(): void {
     if (this.lastStage === this.state.stage) return;
     this.lastStage = this.state.stage;
+    if (this.state.stage === 'infiltrate') this.clotheslines = 0;
     if (this.state.stage === 'complete' && !this.completedPresented) {
       this.completedPresented = true;
       this.audio.stopAlarm();
       this.audio.missionComplete();
+      gameEvents.emit('heist', { beat: 'extract', position: EXTRACTION.clone() });
       this.renderStats();
       this.completeOverlay?.classList.add('visible');
     } else if (this.state.stage !== 'complete') {
@@ -276,7 +299,21 @@ export class MissionDirector {
       ['TIMES SPOTTED', String(Math.round(this.state.timesSpotted))],
       ['OBJECTS THROWN', String(Math.round(this.state.objectsThrown))],
       ['TETHER SAVES', String(Math.round(this.state.tetherSaves))],
+      ['CLOTHESLINES', String(this.clotheslines)],
     ];
+    const spotted = Math.round(this.state.timesSpotted);
+    const stars = 1 + (spotted <= 1 ? 1 : 0) + (this.state.elapsedSeconds < 420 || this.state.tetherSaves + this.clotheslines >= 2 ? 1 : 0);
+    const rating = this.completeOverlay?.querySelector('.mission-rating');
+    if (rating) {
+      rating.textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
+      rating.setAttribute('aria-label', `${stars} of 3 stars`);
+    }
+    const quip = this.completeOverlay?.querySelector('.mission-quip');
+    if (quip) quip.textContent = spotted === 0
+      ? 'PIX: “Ghosts. We were ghosts.”   NEE: “I was SO nervous.”'
+      : this.state.tetherSaves > 0
+        ? 'NEE: “You yanked me out of there!”   PIX: “That’s what the cord is for.”'
+        : 'PIX: “Nobody saw a thing.”   NEE: “Everybody saw everything.”';
     for (const [label, value] of values) {
       const dt = document.createElement('dt');
       dt.textContent = label;
@@ -288,6 +325,7 @@ export class MissionDirector {
 
   private resetLocal(): void {
     this.state = { ...FRESH_STATE };
+    this.clotheslines = 0;
     this.localElapsed = 0;
     this.completedPresented = false;
     this.lastStage = 'infiltrate';

@@ -2,6 +2,7 @@ import {
   Color3,
   CreateCylinder,
   CreateSphere,
+  CreateTorus,
   StandardMaterial,
   Vector3,
   type Mesh,
@@ -18,6 +19,8 @@ const CAMERA_HALF_ANGLE = Math.PI / 5;
 
 interface SecurityCallbacks {
   onSpotted: (role: DroneRole) => void;
+  /** Multiplayer: route a clothesline through the server instead of stunning locally. */
+  requestStun?: (index: number, position: Vector3) => void;
   hasFastObjectNear: (point: Vector3, radius: number) => boolean;
 }
 
@@ -98,16 +101,37 @@ class PatrolDrone {
   private stunnedFor = 0;
   private shoveCooldown = 0;
   private phase: number;
+  private readonly index: number;
+  private requested = 0;
 
   constructor(scene: Scene, index: number) {
     this.phase = index * Math.PI;
+    this.index = index;
+    // Morrow building-security unit: squat aluminium pod, rotor guard ring, red sensor bar.
     this.mesh = CreateSphere(`security-drone-${index}`, { diameter: 1.35, segments: 14 }, scene);
+    this.mesh.scaling.y = 0.62;
+    const shell = new StandardMaterial(`security-drone-${index}-shell`, scene);
+    shell.diffuseColor = new Color3(0.72, 0.74, 0.76); shell.specularColor = new Color3(0.5, 0.5, 0.5);
+    const guard = CreateTorus(`security-drone-${index}-guard`, { diameter: 1.9, thickness: 0.12, tessellation: 32 }, scene);
+    guard.parent = this.mesh; guard.material = shell; guard.isPickable = false;
+    const cap = CreateCylinder(`security-drone-${index}-cap`, { height: 0.3, diameterTop: 0.7, diameterBottom: 1.05, tessellation: 24 }, scene);
+    cap.parent = this.mesh; cap.position.y = 0.62; cap.material = shell; cap.isPickable = false;
     this.mesh.position.set(index === 0 ? -4 : 4, 2.2, 10 + index * 3);
     this.material = new StandardMaterial(`security-drone-${index}-material`, scene);
     this.material.diffuseColor = new Color3(0.16, 0.19, 0.21);
     this.material.emissiveColor = new Color3(0.5, 0.08, 0.04);
     this.mesh.material = this.material;
+    const eye = CreateCylinder(`security-drone-${index}-eye`, { height: 0.5, diameter: 0.16, tessellation: 12 }, scene);
+    eye.parent = this.mesh; eye.rotation.z = Math.PI / 2; eye.position.set(0, 0, 0.66); eye.material = this.material;
+    eye.isPickable = false;
     this.mesh.setEnabled(false);
+  }
+
+  /** Authoritative stun (server broadcast in multiplayer, or local in solo). */
+  stun(at?: Vector3): void {
+    this.stunnedFor = 3.4;
+    if (at) this.mesh.position.copyFrom(at);
+    gameEvents.emit('clothesline', { position: this.mesh.position.clone() });
   }
 
   update(
@@ -156,12 +180,14 @@ class PatrolDrone {
         hit = distanceToSegment(this.mesh.position, pix.position, nee.position) < 0.85;
       }
       if (hit) {
-        this.stunnedFor = 3.4;
         const away = this.mesh.position.subtract(pix.position.add(nee.position).scale(0.5));
         away.y = 0;
         if (away.lengthSquared() > 0.01) this.mesh.position.addInPlace(away.normalize().scale(1.2));
         this.mesh.position.y = Math.max(0.8, this.mesh.position.y - 0.6);
-        gameEvents.emit('clothesline', { position: this.mesh.position.clone() });
+        if (callbacks.requestStun) {
+          // Wait for the server's verdict; avoid spamming while the cord stays across us.
+          if (Math.abs(elapsed - this.requested) > 0.6) { this.requested = elapsed; callbacks.requestStun(this.index, this.mesh.position.clone()); }
+        } else this.stun();
         return;
       }
     }
@@ -200,14 +226,18 @@ export class SecuritySystem {
     this.patrols = [new PatrolDrone(scene, 0), new PatrolDrone(scene, 1)];
   }
 
+  remoteStun(index: number, at: Vector3): void { this.patrols[index]?.stun(at); }
+
   update(
     dt: number,
     drones: ReadonlyMap<DroneRole, Drone>,
     securityActive: boolean,
     cameraDisabled: boolean,
     tetherStrain: number,
+    sharedClock?: number,
   ): void {
-    this.elapsed += dt;
+    // Multiplayer: patrol routes follow the server's mission clock so both clients agree.
+    this.elapsed = sharedClock ?? this.elapsed + dt;
     this.warningCooldown = Math.max(0, this.warningCooldown - dt);
     this.camera.setDisabled(cameraDisabled);
     this.detection = this.camera.update(dt, drones, this.callbacks.onSpotted);

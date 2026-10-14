@@ -169,6 +169,7 @@ class HandshakeRoom extends Room {
     this.onMessage('mission-tether-save', (client) => this.reportTetherSave(client.sessionId));
     this.onMessage('mission-retry', () => this.resetMission());
     this.onMessage('tether-yank', (client, message) => this.relayTetherYank(client, message));
+    this.onMessage('patrol-stun', (client, message) => this.stunPatrol(client, message));
     this.setSimulationInterval(() => {
       this.updateHack();
       this.updateMission();
@@ -417,6 +418,23 @@ class HandshakeRoom extends Room {
     });
   }
 
+  /** Server-arbitrated clothesline: one stun per patrol, broadcast to both clients so they agree. */
+  stunPatrol(client, message) {
+    if (!this.state.players.has(client.sessionId) || !message || typeof message !== 'object') return;
+    if (!this.state.mission.securityActive) return;
+    const index = Math.round(finite(message.index, -1));
+    if (index !== 0 && index !== 1) return;
+    const now = Date.now();
+    this.patrolStunUntil ??= [0, 0];
+    if (now < this.patrolStunUntil[index]) return;
+    this.patrolStunUntil[index] = now + 3400;
+    this.clotheslines = (this.clotheslines ?? 0) + 1;
+    this.broadcast('patrol-stunned', {
+      index, by: this.state.players.get(client.sessionId).role, clotheslines: this.clotheslines,
+      x: finite(message.x), y: Math.max(0.8, finite(message.y, 2)), z: finite(message.z),
+    });
+  }
+
   reportTetherSave(sessionId) {
     if (this.state.players.has(sessionId) && this.state.mission.securityActive) {
       this.state.mission.tetherSaves += 1;
@@ -424,6 +442,8 @@ class HandshakeRoom extends Room {
   }
 
   resetMission() {
+    this.patrolStunUntil = [0, 0];
+    this.clotheslines = 0;
     this.state.hack.stationAOwner = '';
     this.state.hack.stationBOwner = '';
     this.state.hack.stationCOwner = '';
