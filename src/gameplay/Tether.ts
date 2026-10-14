@@ -17,6 +17,13 @@ const COLLAR_LENGTH = 0.14;
 const COLLAR_DIAMETER = 0.15;
 const MAX_VELOCITY_DELTA_PER_FRAME = 4;
 
+/** Shared, read-only cord snapshot for hazards (clothesline) and hints. Updated each frame. */
+export const cordState: { path: readonly Vector3[]; strain: number; sweep: number } = {
+  path: [],
+  strain: 0,
+  sweep: 0,
+};
+
 export interface TetherTuning {
   /** Rope hangs slack below this distance. */
   restLength: number;
@@ -181,6 +188,16 @@ export class Tether {
   /** Call after physics so the rope matches the resolved positions. */
   updateVisual(): void {
     this.writePath();
+    cordState.path = this.path;
+    cordState.strain = this.strain;
+    cordState.sweep = (this.a.velocity.length() + this.b.velocity.length()) * 0.5;
+    // Tense cord warms toward a warning coral just before the hard stop.
+    const warn = Math.max(0, (this.strain - 0.7) / 0.3);
+    this.material.albedoColor.set(
+      CORD_COLOR.r + warn * 0.55,
+      CORD_COLOR.g + warn * 0.12,
+      CORD_COLOR.b + warn * 0.1,
+    );
     // An elastic cord thins as it stretches.
     const radius = this.tuning.radius * (1 - this.strain * 0.35);
     CreateTube('tether', { path: this.path, radius, instance: this.mesh });

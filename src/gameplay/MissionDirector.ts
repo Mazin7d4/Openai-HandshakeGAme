@@ -201,6 +201,11 @@ export class MissionDirector {
     return { alarm: this.state.alarm, vaultOpen: this.hacksWereComplete, complete: this.state.extracted };
   }
 
+  /** A rescue yank. Multiplayer: the server counts it when it relays the yank. */
+  recordTetherSave(): void {
+    if (!this.multiplayer) this.state = { ...this.state, tetherSaves: this.state.tetherSaves + 1 };
+  }
+
   dispose(): void {
     this.audio.stopAlarm();
     this.security.dispose();

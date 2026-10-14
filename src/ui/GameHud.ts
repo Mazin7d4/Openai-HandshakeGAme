@@ -8,6 +8,7 @@ export interface GameHudOptions {
   onInteract: () => void;
   onGrabDrop: () => void;
   onThrow: () => void;
+  onYank?: () => void;
 }
 
 /** Lightweight contextual HUD and pause/settings/controls navigation. */
@@ -18,6 +19,7 @@ export class GameHud {
   private readonly panel: HTMLElement;
   private readonly options: GameHudOptions;
   private readonly controlsCard: HTMLDivElement;
+  private readonly toastLayer: HTMLDivElement;
   private controlsTimer = 0;
   private paused = false;
   private promptKey = '';
@@ -56,7 +58,7 @@ export class GameHud {
     const list = document.createElement('dl');
     for (const [key, action] of [
       ['WASD', 'Fly'], ['SPACE / CTRL', 'Up / down'], ['SHIFT', 'Boost'], ['F', 'Hack / interact'],
-      ['E', 'Grab · Q throw'], ['ESC', 'Pause & all controls'],
+      ['E', 'Grab · Q throw'], ['R', 'Yank partner · slingshot'], ['ESC', 'Pause & all controls'],
     ]) {
       const dt = document.createElement('dt'); dt.textContent = key;
       const dd = document.createElement('dd'); dd.textContent = action;
@@ -65,7 +67,10 @@ export class GameHud {
     const tip = document.createElement('p');
     tip.textContent = 'You are tethered — stay together. Follow the glowing beacon to the next objective. [H] hides this.';
     this.controlsCard.append(title, list, tip);
-    parent.append(this.prompt, this.activeDrone, this.pauseOverlay, this.controlsCard);
+    this.toastLayer = document.createElement('div');
+    this.toastLayer.className = 'juice-toasts';
+    this.toastLayer.dataset.testid = 'juice-toasts';
+    parent.append(this.prompt, this.activeDrone, this.pauseOverlay, this.controlsCard, this.toastLayer);
     const seen = (() => { try { return localStorage.getItem('handshake.controlsSeen') === '1'; } catch { return false; } })();
     this.setControlsCard(true, seen ? 6000 : 16000);
     try { localStorage.setItem('handshake.controlsSeen', '1'); } catch { /* private mode */ }
@@ -83,7 +88,8 @@ export class GameHud {
         item.textContent = text;
         item.addEventListener('click', text.startsWith('[F]')
           ? this.options.onInteract
-          : text.startsWith('[Q]') ? this.options.onThrow : this.options.onGrabDrop);
+          : text.startsWith('[Q]') ? this.options.onThrow
+          : text.startsWith('[R]') ? () => this.options.onYank?.() : this.options.onGrabDrop);
         return item;
       }));
     }
@@ -95,6 +101,17 @@ export class GameHud {
       this.activeDroneText = activeDroneText;
       this.activeDrone.textContent = activeDroneText;
     }
+  }
+
+  /** Punchy, short-lived callout for tether moves (SLINGSHOT!, RESCUE!, CLOTHESLINED!). */
+  toast(text: string, tone: 'pix' | 'nee' | 'good' = 'good'): void {
+    if (this.toastLayer.lastElementChild?.textContent === text) return;
+    const item = document.createElement('div');
+    item.className = `juice-toast ${tone}`;
+    item.textContent = text;
+    this.toastLayer.append(item);
+    while (this.toastLayer.childElementCount > 3) this.toastLayer.firstElementChild?.remove();
+    window.setTimeout(() => item.remove(), 1500);
   }
 
   private setControlsCard(visible: boolean, autoHideMs = 0): void {
@@ -117,6 +134,7 @@ export class GameHud {
     this.pauseOverlay.remove();
     window.clearTimeout(this.controlsTimer);
     this.controlsCard.remove();
+    this.toastLayer.remove();
   }
 
   private showPauseHome(): void {

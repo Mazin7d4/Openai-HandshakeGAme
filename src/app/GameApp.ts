@@ -11,6 +11,9 @@ import { DevReadout } from '../dev/DevReadout.ts';
 import { reportStabilityIssue, StabilityDiagnostics } from '../dev/StabilityDiagnostics.ts';
 import { TETHER_TUNING, Tether } from '../gameplay/Tether.ts';
 import { GameplayWorld } from '../gameplay/GameplayWorld.ts';
+import { gameEvents } from '../gameplay/GameEvents.ts';
+import { Juice } from '../gameplay/Juice.ts';
+import { TetherMoves, type YankKind } from '../gameplay/TetherMoves.ts';
 import { zeroFlightAxes } from '../input/FlightAxes.ts';
 import { PLAYER_ONE_KEYS } from '../input/KeyboardInput.ts';
 import { MultiplayerSession } from '../network/MultiplayerSession.ts';
@@ -65,6 +68,11 @@ export class GameApp {
   /** TEST-ONLY (?autotest): position-targeted steering for deterministic verifiers. */
   private readonly autopilot = Autopilot.enabled ? new Autopilot() : null;
   private paused = false;
+  private readonly juice: Juice;
+  private readonly moves: TetherMoves;
+  private readonly unsubscribers: (() => void)[] = [];
+  private hintTimer = 0;
+  private yankRequested = false;
   private activeDevRole: DroneRole = 'pix';
   private readonly onResize = () => {
     this.engine.resize();
@@ -121,8 +129,56 @@ export class GameApp {
           onInteract: () => this.triggerHudAction('interact'),
           onGrabDrop: () => this.triggerHudAction('grabDrop'),
           onThrow: () => this.triggerHudAction('throwObject'),
+          onYank: () => { this.yankRequested = true; },
         })
       : null;
+    this.juice = new Juice(scene);
+    const audio = gameplay.sfx;
+    this.moves = new TetherMoves(
+      audio,
+      cameraRig,
+      this.juice,
+      multiplayer,
+      (text, tone) => this.hud?.toast(text, tone),
+      () => gameplay.recordTetherSave(),
+    );
+    const isLocalDrone = (id: string) => {
+      const role = this.hudRole();
+      return this.players.find((p) => p.role === role)?.drone.id === id;
+    };
+    this.unsubscribers.push(
+      gameEvents.on('impact', (e) => {
+        this.juice.burst('impact', e.position, 6 + Math.min(16, e.strength * 1.4));
+        audio.impact(Math.min(1, e.strength / 12));
+        if (isLocalDrone(e.droneId)) this.cameraRig.addShake(Math.min(0.4, e.strength * 0.03));
+      }),
+      gameEvents.on('boost', (e) => {
+        if (!isLocalDrone(e.droneId)) return;
+        audio.boostStart();
+        this.cameraRig.kickFov(0.045);
+      }),
+      gameEvents.on('knockback', (e) => {
+        this.juice.burst('impact', e.position, 12);
+        if (isLocalDrone(e.droneId)) {
+          this.cameraRig.addShake(0.35);
+          this.hud?.toast('YANK [R] TO RESCUE!', 'good');
+        }
+      }),
+      gameEvents.on('clothesline', (e) => {
+        this.juice.burst('zap', e.position, 34);
+        audio.clothesline();
+        this.cameraRig.addShake(0.45);
+        for (const drone of this.drones) drone.react('proud', 1.2);
+        this.hud?.toast('CLOTHESLINED!', 'good');
+      }),
+    );
+    if (multiplayer) {
+      this.unsubscribers.push(multiplayer.onTetherYanked((message) => {
+        const role = multiplayer.currentStatus.localRole;
+        const local = this.players.find((p) => p.role === role)?.drone;
+        if (local) this.moves.receive(message, local, true);
+      }));
+    }
     this.removeNetworkStatus = multiplayer
       ? multiplayer.onStatus((status) => {
           for (const player of this.players) {
@@ -251,6 +307,8 @@ export class GameApp {
       player.control.dispose();
     }
     this.removeNetworkStatus?.();
+    for (const unsubscribe of this.unsubscribers) unsubscribe();
+    this.juice.dispose();
     void this.multiplayer?.dispose();
     this.devReadout?.dispose();
     this.devOrbit?.dispose();
@@ -296,10 +354,15 @@ export class GameApp {
           ? this.autopilot.interactions(player.role, control.interactions)
           : control.interactions;
         this.gameplay.handle(player.role, player.drone, interactions);
+        const wantsYank = interactions.yank || (this.yankRequested && player.role === this.hudRole());
+        if (wantsYank && !this.gameplay.isRoleHacking(player.role)) this.yank(player);
         if (interactions.pause) this.setPaused(true);
         switchDrone ||= control.interactions.switchDrone;
       }
     }
+    this.yankRequested = false;
+    this.moves.update(dt);
+    this.gameplay.sfx.cordTension(this.tether.currentStrain);
     if (switchDrone && this.mode === 'dev-local') this.switchDevDrone();
     this.gameplay.update(dt, droneByRole, this.tether.currentStrain);
     this.tether.apply(dt, (drone) => {
@@ -353,8 +416,56 @@ export class GameApp {
       : this.multiplayer?.currentStatus.localRole ?? 'pix';
     const hudPlayer = this.players.find((player) => player.role === hudRole);
     if (hudPlayer) {
-      this.hud?.update(this.gameplay.promptsFor(hudRole, hudPlayer.drone), this.mode, hudRole);
+      this.hud?.update(
+        [...this.gameplay.promptsFor(hudRole, hudPlayer.drone), ...this.tetherPrompts(hudPlayer, dt)],
+        this.mode,
+        hudRole,
+      );
     }
+  }
+
+  private hudRole(): DroneRole {
+    return this.mode === 'dev-local'
+      ? this.activeDevRole
+      : this.multiplayer?.currentStatus.localRole ?? 'pix';
+  }
+
+  private partnerOf(player: LocalPlayer): LocalPlayer | undefined {
+    return this.players.find((candidate) => candidate !== player);
+  }
+
+  private partnerAnchored(partner: LocalPlayer): boolean {
+    return partner.drone.speed < 2.5 || this.gameplay.isRoleHacking(partner.role);
+  }
+
+  private yank(player: LocalPlayer): void {
+    const partner = this.partnerOf(player);
+    if (!partner) return;
+    this.moves.tryYank(
+      player.role,
+      player.drone,
+      partner.drone,
+      partner.control.kind !== 'remote',
+      this.tether.currentStrain,
+      this.partnerAnchored(partner),
+    );
+  }
+
+  /** Contextual tether-move prompts. Only shown when the move is meaningful right now. */
+  private tetherPrompts(player: LocalPlayer, dt: number): string[] {
+    const partner = this.partnerOf(player);
+    if (!partner || this.gameplay.isRoleHacking(player.role)) return [];
+    const name = partner.role.toUpperCase();
+    if (this.moves.cooldown(player.role) > 0) return [];
+    if (partner.drone.inTrouble) return [`[R] YANK ${name} TO SAFETY`];
+    const strain = this.tether.currentStrain;
+    const kind: YankKind | null = this.moves.preview(player.drone, partner.drone, strain, this.partnerAnchored(partner));
+    if (kind === 'sling' && strain > 0.55) return [`[R] SLINGSHOT PAST ${name}`];
+    if (kind === 'yank' && strain > 0.6) {
+      this.hintTimer += dt;
+      return this.hintTimer < 9 ? [`[R] YANK ${name}`] : [];
+    }
+    return [];
   }
 
   private setPaused(paused: boolean): void {
@@ -384,6 +495,7 @@ export class GameApp {
       interact: action === 'interact',
       pause: false,
       switchDrone: false,
+      yank: false,
     });
   }
 }

@@ -12,6 +12,14 @@ import type {
 
 const SEND_INTERVAL_MS = 50;
 
+/** Partner tether move relayed (and validated) by the server. */
+export interface TetherYankMessage {
+  kind: 'yank' | 'sling' | 'bump';
+  rescue: boolean;
+  strength: number;
+  impulse: { x: number; y: number; z: number };
+}
+
 type StatusListener = (status: RoomStatus) => void;
 
 interface SchemaPlayer {
@@ -142,6 +150,7 @@ export class MultiplayerSession {
 
   private readonly room: Room<unknown, SchemaRoomState>;
   private readonly listeners = new Set<StatusListener>();
+  private readonly yankListeners = new Set<(message: TetherYankMessage) => void>();
   private readonly players = new Map<DroneRole, DroneNetworkState>();
   private readonly objects = new Map<string, GrabbableNetworkState>();
   private status: RoomStatus;
@@ -171,6 +180,9 @@ export class MultiplayerSession {
       } catch (error) {
         reportStabilityIssue('network', 'Failed to apply a Colyseus state update.', error);
       }
+    });
+    room.onMessage('tether-yanked', (message: TetherYankMessage) => {
+      for (const listener of this.yankListeners) listener(message);
     });
     room.onReconnect(() => {
       this.networkState = 'connected';
@@ -292,6 +304,15 @@ export class MultiplayerSession {
 
   reportSpotted(): void {
     this.room.send('mission-spotted');
+  }
+
+  sendTetherYank(message: TetherYankMessage): void {
+    this.room.send('tether-yank', message);
+  }
+
+  onTetherYanked(listener: (message: TetherYankMessage) => void): () => void {
+    this.yankListeners.add(listener);
+    return () => this.yankListeners.delete(listener);
   }
 
   reportTetherSave(): void {

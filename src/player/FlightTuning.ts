@@ -3,7 +3,9 @@ export const FLIGHT_TUNING = {
   boostMultiplier: 1.85,
   verticalSpeed: 6.5,
   acceleration: 34,
-  deceleration: 13,
+  deceleration: 16,
+  /** Multiplier on acceleration while steering against current velocity. */
+  counterSteerBoost: 1.6,
   maxBankRoll: 0.48,
   maxBankPitch: 0.26,
   bankResponse: 8,

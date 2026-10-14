@@ -502,3 +502,28 @@ input {
 .controls-card dt { font-weight: 700; color: #9fe6d8; }
 .controls-card dd { margin: 0; }
 .controls-card p { margin: 10px 0 0; opacity: 0.8; font-size: 11px; }
+
+/* Tether-move callouts */
+.juice-toasts {
+  position: absolute; left: 50%; top: 24%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  pointer-events: none; z-index: 30;
+}
+.juice-toast {
+  font: 800 30px/1 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  letter-spacing: 0.06em; color: #fff;
+  padding: 8px 18px; border-radius: 999px;
+  background: rgba(20, 26, 36, 0.55);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+  animation: juice-pop 1.5s cubic-bezier(.2, 1.4, .4, 1) forwards;
+}
+.juice-toast.pix { box-shadow: 0 0 0 3px #3bd6ff inset; color: #c9f4ff; }
+.juice-toast.nee { box-shadow: 0 0 0 3px #ff5c8a inset; color: #ffd4e1; }
+.juice-toast.good { box-shadow: 0 0 0 3px #ffd36b inset; color: #fff3c9; }
+@keyframes juice-pop {
+  0% { transform: scale(0.4) rotate(-4deg); opacity: 0; }
+  14% { transform: scale(1.15) rotate(2deg); opacity: 1; }
+  24% { transform: scale(1) rotate(0); }
+  78% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-18px); }
+}

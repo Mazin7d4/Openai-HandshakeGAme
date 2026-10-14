@@ -94,6 +94,14 @@ export class CinematicCamera {
     this.touches.clear();
     this.camera.dispose();
   }
+  private shakeAmount = 0;
+  private shakeTime = 0;
+  private fovKick = 0;
+  private baseFov: number | undefined;
+  /** Trauma-style shake (0..1). Summed, decays quickly. Presentation only. */
+  addShake(amount: number): void { this.shakeAmount = Math.min(1, this.shakeAmount + amount); }
+  /** Brief FOV punch for boosts/slingshots (radians). */
+  kickFov(amount: number): void { this.fovKick = Math.max(this.fovKick, amount); }
   snap(subjects: readonly CameraSubject[]): void { this.placed = false; this.update(0, subjects); }
 
   update(dt: number, subjects: readonly CameraSubject[], context: CameraContext = QUIET): void {
@@ -132,7 +140,8 @@ export class CinematicCamera {
     targetLook.z += this.reveal * 1.25;
     const aspect = Math.max(0.4, this.scene.getEngine().getAspectRatio(this.camera));
     const fovTarget = context.alarm && !context.complete ? 0.94 : 0.86;
-    this.camera.fov = smooth(this.camera.fov, fovTarget, 1.6, safeDt);
+    this.baseFov = smooth(this.baseFov ?? this.camera.fov, fovTarget, 1.6, safeDt);
+    this.camera.fov = this.baseFov;
     const tanY = Math.tan(this.camera.fov / 2) * 0.72;
     const tanX = tanY * aspect;
     let required = extracting ? 15.5 : vent ? 12 : inLab ? 15 + this.reveal * 2 : 13;
@@ -152,7 +161,22 @@ export class CinematicCamera {
       Vector3.LerpToRef(this.look, targetLook, 1 - Math.exp(-response * safeDt), this.look);
       Vector3.LerpToRef(this.position, targetPosition, 1 - Math.exp(-response * safeDt), this.position);
     }
-    this.camera.position.copyFrom(this.position); this.camera.setTarget(this.look);
+    this.camera.position.copyFrom(this.position);
+    if (this.shakeAmount > 0.001 && safeDt > 0) {
+      this.shakeTime += safeDt;
+      const trauma = this.shakeAmount * this.shakeAmount * 0.32;
+      const t = this.shakeTime * 38;
+      this.camera.position.addInPlaceFromFloats(
+        (Math.sin(t * 1.1) + Math.sin(t * 2.3) * 0.5) * trauma,
+        (Math.cos(t * 1.7) + Math.sin(t * 2.9) * 0.4) * trauma,
+        Math.sin(t * 1.3 + 1.7) * trauma * 0.6);
+      this.shakeAmount = Math.max(0, this.shakeAmount - safeDt * 2.2);
+    }
+    if (safeDt > 0) {
+      this.camera.fov += this.fovKick;
+      this.fovKick = Math.max(0, this.fovKick - safeDt * 0.35);
+    }
+    this.camera.setTarget(this.look);
     this.updateOcclusion(positions, safeDt);
   }
 

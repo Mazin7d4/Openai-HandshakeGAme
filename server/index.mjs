@@ -168,6 +168,7 @@ class HandshakeRoom extends Room {
     this.onMessage('mission-spotted', (client) => this.reportSpotted(client.sessionId));
     this.onMessage('mission-tether-save', (client) => this.reportTetherSave(client.sessionId));
     this.onMessage('mission-retry', () => this.resetMission());
+    this.onMessage('tether-yank', (client, message) => this.relayTetherYank(client, message));
     this.setSimulationInterval(() => {
       this.updateHack();
       this.updateMission();
@@ -384,6 +385,36 @@ class HandshakeRoom extends Room {
     if (this.state.players.has(sessionId) && this.state.mission.stage !== 'complete') {
       this.state.mission.timesSpotted += 1;
     }
+  }
+
+  /** Validate a tether move and relay the impulse to the partner, who owns its own drone. */
+  relayTetherYank(client, message) {
+    const sender = this.state.players.get(client.sessionId);
+    if (!sender || !message || typeof message !== 'object') return;
+    const now = Date.now();
+    this.yankTimes ??= new Map();
+    const kind = enumValue(message.kind, ['yank', 'sling', 'bump'], 'yank');
+    const minGap = kind === 'bump' ? 350 : 850;
+    if (now - (this.yankTimes.get(client.sessionId) ?? 0) < minGap) return;
+    const partnerEntry = Array.from(this.state.players.entries()).find(([id]) => id !== client.sessionId);
+    if (!partnerEntry) return;
+    const [partnerId, partner] = partnerEntry;
+    if (!partner.connected || distance(sender.position, partner.position) > 13.5) return;
+    const target = this.clients.find((candidate) => candidate.sessionId === partnerId);
+    if (!target) return;
+    this.yankTimes.set(client.sessionId, now);
+    const impulse = message.impulse ?? {};
+    let x = finite(impulse.x), y = finite(impulse.y), z = finite(impulse.z);
+    const magnitude = Math.hypot(x, y, z);
+    if (magnitude > 16) { x *= 16 / magnitude; y *= 16 / magnitude; z *= 16 / magnitude; }
+    const rescue = kind === 'yank' && message.rescue === true;
+    if (rescue) this.reportTetherSave(client.sessionId);
+    target.send('tether-yanked', {
+      kind,
+      rescue,
+      strength: Math.max(0, Math.min(1, finite(message.strength))),
+      impulse: { x, y, z },
+    });
   }
 
   reportTetherSave(sessionId) {

@@ -4,6 +4,8 @@ export interface InteractionActions {
   interact: boolean;
   pause: boolean;
   switchDrone: boolean;
+  /** Tether yank / slingshot (edge-triggered). */
+  yank: boolean;
 }
 
 export function zeroInteractionActions(): InteractionActions {
@@ -13,5 +15,6 @@ export function zeroInteractionActions(): InteractionActions {
     interact: false,
     pause: false,
     switchDrone: false,
+    yank: false,
   };
 }

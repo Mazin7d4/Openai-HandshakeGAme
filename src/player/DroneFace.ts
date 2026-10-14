@@ -1,6 +1,11 @@
 import { DynamicTexture, Texture, type Color3, type Scene } from '@babylonjs/core';
 
-export type Expression = 'neutral' | 'happy' | 'focused' | 'strained' | 'shocked' | 'stunned';
+export type Expression =
+  | 'neutral' | 'happy' | 'focused' | 'strained' | 'shocked' | 'stunned'
+  | 'yanked' | 'panic' | 'dizzy' | 'proud';
+
+/** Expressions that animate on their own and never blink. */
+const ANIMATED: ReadonlySet<Expression> = new Set(['panic', 'dizzy']);
 
 const WIDTH = 256;
 const HEIGHT = 160;
@@ -30,6 +35,7 @@ export class DroneFace {
   private blinkTimer = 2 + Math.random() * 3;
   private blinkPhase = 0;
   private lastKey = '';
+  private time = 0;
 
   constructor(scene: Scene, name: string, eyeColor: Color3) {
     this.color = eyeColor.clone();
@@ -56,6 +62,7 @@ export class DroneFace {
   }
 
   update(dt: number): void {
+    this.time += dt;
     if (this.override) {
       this.overrideTimer -= dt;
       if (this.overrideTimer <= 0) {
@@ -75,7 +82,7 @@ export class DroneFace {
       open = Math.max(0.1, Math.abs(t * 2 - 1));
     }
     const active = this.override ?? this.expression;
-    if (active === 'stunned') {
+    if (active === 'stunned' || ANIMATED.has(active)) {
       open = 1;
     }
     this.draw(open);
@@ -88,7 +95,8 @@ export class DroneFace {
   private draw(open: number): void {
     const active = this.override ?? this.expression;
     const quantised = Math.round(open * 12);
-    const key = `${active}:${quantised}`;
+    const frame = ANIMATED.has(active) ? Math.floor(this.time * 12) : 0;
+    const key = `${active}:${quantised}:${frame}`;
     if (key === this.lastKey) {
       return;
     }
@@ -127,6 +135,18 @@ export class DroneFace {
           break;
         case 'shocked':
           this.drawShocked(ctx);
+          break;
+        case 'yanked':
+          this.drawYanked(ctx, side);
+          break;
+        case 'panic':
+          this.drawPanic(ctx, side, frame);
+          break;
+        case 'dizzy':
+          this.drawDizzy(ctx, side, frame);
+          break;
+        case 'proud':
+          this.drawProud(ctx, side);
           break;
         default:
           this.drawNeutral(ctx);
@@ -187,5 +207,65 @@ export class DroneFace {
     ctx.beginPath();
     ctx.ellipse(0, 0, 17, 27, 0, 0, Math.PI * 2);
     ctx.stroke();
+  }
+
+  /** Squeezed > < chevrons pointing inward. */
+  private drawYanked(ctx: CanvasRenderingContext2D, side: number): void {
+    ctx.lineWidth = 13;
+    ctx.beginPath();
+    const d = -side;
+    ctx.moveTo(-d * 13, -18);
+    ctx.lineTo(d * 13, 0);
+    ctx.lineTo(-d * 13, 18);
+    ctx.stroke();
+  }
+
+  /** Tall thin jittery ovals. */
+  private drawPanic(ctx: CanvasRenderingContext2D, side: number, frame: number): void {
+    const jitter = Math.sin(frame * 2.7 + side * 1.3) * 3;
+    ctx.translate(jitter, Math.cos(frame * 3.1) * 2);
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 9, 30, side * 0.08, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  /** Two-turn spiral, rotating. */
+  private drawDizzy(ctx: CanvasRenderingContext2D, side: number, frame: number): void {
+    ctx.rotate(frame * 0.5 * side);
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    const turns = 2;
+    const steps = 36;
+    for (let i = 0; i <= steps; i++) {
+      const a = (i / steps) * turns * Math.PI * 2;
+      const r = 2 + (i / steps) * 22;
+      const x = Math.cos(a) * r;
+      const y = Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  /** Closed happy arcs + a sparkle above the right eye. */
+  private drawProud(ctx: CanvasRenderingContext2D, side: number): void {
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    ctx.arc(0, 14, 20, Math.PI * 1.12, Math.PI * 1.88);
+    ctx.stroke();
+    if (side > 0) {
+      ctx.save();
+      ctx.translate(26, -30);
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const r = i % 2 === 0 ? 11 : 3.5;
+        const a = (i / 8) * Math.PI * 2 - Math.PI / 2;
+        if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+        else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
   }
 }

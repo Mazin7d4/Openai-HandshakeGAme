@@ -10,6 +10,8 @@ import {
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
+import { cordState } from './Tether.ts';
+import { gameEvents } from './GameEvents.ts';
 
 const CAMERA_RANGE = 10;
 const CAMERA_HALF_ANGLE = Math.PI / 5;
@@ -141,14 +143,32 @@ class PatrolDrone {
     this.mesh.position.addInPlace(this.velocity.scale(dt));
     const pix = drones.get('pix');
     const nee = drones.get('nee');
-    if (pix && nee && tetherStrain > 0.25 && distanceToSegment(this.mesh.position, pix.position, nee.position) < 0.75) {
-      this.stunnedFor = 2.4;
-      return;
+    // Clothesline: a taut or fast-swept cord crossing the patrol knocks it out.
+    const cordLive = tetherStrain > 0.2 || cordState.sweep > 6;
+    if (pix && nee && cordLive) {
+      const path = cordState.path;
+      let hit = false;
+      if (path.length > 1) {
+        for (let i = 1; i < path.length && !hit; i++) {
+          hit = distanceToSegment(this.mesh.position, path[i - 1], path[i]) < 0.85;
+        }
+      } else {
+        hit = distanceToSegment(this.mesh.position, pix.position, nee.position) < 0.85;
+      }
+      if (hit) {
+        this.stunnedFor = 3.4;
+        const away = this.mesh.position.subtract(pix.position.add(nee.position).scale(0.5));
+        away.y = 0;
+        if (away.lengthSquared() > 0.01) this.mesh.position.addInPlace(away.normalize().scale(1.2));
+        this.mesh.position.y = Math.max(0.8, this.mesh.position.y - 0.6);
+        gameEvents.emit('clothesline', { position: this.mesh.position.clone() });
+        return;
+      }
     }
     if (nearest && this.shoveCooldown <= 0 && Vector3.Distance(nearest[1].position, this.mesh.position) < 1.55) {
       const shove = nearest[1].position.subtract(this.mesh.position).normalize().scaleInPlace(4.2);
       shove.y = 1.2;
-      nearest[1].applyVelocityDelta(shove);
+      nearest[1].knockback(shove);
       this.shoveCooldown = 1.2;
     }
   }

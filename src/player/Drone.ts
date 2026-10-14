@@ -26,6 +26,8 @@ import {
   type PlayerSnapshot,
 } from './PlayerState.ts';
 import { FLIGHT_TUNING } from './FlightTuning.ts';
+import type { Expression } from './DroneFace.ts';
+import { gameEvents } from '../gameplay/GameEvents.ts';
 
 export interface DroneOptions {
   id?: string;
@@ -93,6 +95,10 @@ export class Drone implements CameraSubject {
   private selfPowered = false;
   private tetherPull = 0;
   private yankCooldown = 0;
+  private impactCooldown = 0;
+  private wasBoosting = false;
+  /** Seconds since this drone was last knocked about (patrol shove / hard hit). */
+  private hurtTimer = 0;
 
   constructor(scene: Scene, plugin: HavokPlugin, options: DroneOptions) {
     this.plugin = plugin;
@@ -171,6 +177,10 @@ export class Drone implements CameraSubject {
     this.tetherPull = 0;
     const pose = this.flight.step(input, basis, dt);
     this.inputBoost = input.boost;
+    if (input.boost && !this.wasBoosting && this.selfPowered) {
+      gameEvents.emit('boost', { droneId: this.id, position: this.root.position });
+    }
+    this.wasBoosting = input.boost;
     const node = this.visual.root;
     node.rotation.x = pose.bankPitch;
     node.rotation.z = pose.bankRoll;
@@ -210,6 +220,44 @@ export class Drone implements CameraSubject {
   /** Nudge the steered velocity (tether pull, knockback, pickups). */
   applyVelocityDelta(delta: Vector3): void {
     this.flight.velocity.addInPlace(delta);
+  }
+
+  /** Security shove or similar: counts as "in trouble" so a partner yank can rescue. */
+  knockback(delta: Vector3): void {
+    this.flight.velocity.addInPlace(delta);
+    this.hurtTimer = 1.8;
+    this.visual.react('panic', 1.1);
+    this.visual.impact(6);
+    gameEvents.emit('knockback', { droneId: this.id, position: this.root.position });
+  }
+
+  /** Burst impulse from the partner's yank. Looks and feels different from flying. */
+  yankedBy(delta: Vector3, strength: number): void {
+    this.flight.velocity.addInPlace(delta);
+    this.hurtTimer = 0;
+    this.visual.yanked(strength);
+    this.tetherPull = Math.max(this.tetherPull, 0.9);
+  }
+
+  /** Presentation only: show partner reaction on a remote drone we yanked. */
+  showYanked(strength: number): void {
+    this.visual.yanked(strength);
+  }
+
+  recoil(strength = 0.6): void {
+    this.visual.recoil(strength);
+  }
+
+  react(expression: Expression, seconds: number): void {
+    this.visual.react(expression, seconds);
+  }
+
+  get inTrouble(): boolean {
+    return this.hurtTimer > 0;
+  }
+
+  get speed(): number {
+    return this.flight.velocity.length();
   }
 
   applyTetherVelocityDelta(delta: Vector3, strength: number): void {
@@ -287,8 +335,18 @@ export class Drone implements CameraSubject {
       }
     }
     const impact = Vector3.Distance(this.flight.velocity, this.resolvedVelocity);
+    this.impactCooldown = Math.max(0, this.impactCooldown - dt);
+    this.hurtTimer = Math.max(0, this.hurtTimer - dt);
     if (impact > IMPACT_THRESHOLD) {
       this.visual.impact(impact);
+      if (impact > 9) {
+        this.hurtTimer = Math.max(this.hurtTimer, 1.2);
+        this.visual.react('dizzy', 1.1);
+      }
+      if (this.impactCooldown <= 0) {
+        this.impactCooldown = 0.15;
+        gameEvents.emit('impact', { droneId: this.id, strength: impact, position: this.root.position });
+      }
     }
     this.flight.syncVelocity(this.resolvedVelocity);
     const speed = this.resolvedVelocity.length();

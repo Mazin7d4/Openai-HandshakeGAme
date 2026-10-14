@@ -71,7 +71,12 @@ export class FlightController {
     this.desired.set(wishX * speed, input.lift * vertical, wishZ * speed);
 
     const hasInput = input.thrust !== 0 || input.strafe !== 0 || input.lift !== 0;
-    const rate = hasInput || boosting ? tuning.acceleration : tuning.deceleration;
+    // Counter-steering (stick against current travel) bites harder than plain
+    // acceleration, so turns and stops feel crisp instead of floaty.
+    const against = this.velocity.x * this.desired.x + this.velocity.y * this.desired.y + this.velocity.z * this.desired.z < 0;
+    const rate = hasInput || boosting
+      ? tuning.acceleration * (against ? tuning.counterSteerBoost : 1)
+      : tuning.deceleration;
     moveTowards(this.velocity, this.desired, rate * dt);
 
     const forwardSpeed = this.velocity.x * forward.x + this.velocity.z * forward.z;

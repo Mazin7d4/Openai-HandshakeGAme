@@ -1,0 +1,36 @@
+import type { Vector3 } from '@babylonjs/core';
+import type { DroneRole } from '../network/NetworkTypes.ts';
+
+/** Presentation-level gameplay events (juice, audio, hints). Never authoritative state. */
+export interface GameEventMap {
+  impact: { droneId: string; strength: number; position: Vector3 };
+  boost: { droneId: string; position: Vector3 };
+  clothesline: { position: Vector3 };
+  knockback: { droneId: string; position: Vector3 };
+  yank: { kind: 'yank' | 'sling' | 'bump'; from: DroneRole; strength: number; rescue: boolean; position: Vector3 };
+}
+
+type Handler<K extends keyof GameEventMap> = (event: GameEventMap[K]) => void;
+
+class GameEvents {
+  private readonly handlers = new Map<keyof GameEventMap, Set<Handler<never>>>();
+
+  on<K extends keyof GameEventMap>(name: K, handler: Handler<K>): () => void {
+    let set = this.handlers.get(name);
+    if (!set) this.handlers.set(name, (set = new Set()));
+    set.add(handler as Handler<never>);
+    return () => set?.delete(handler as Handler<never>);
+  }
+
+  emit<K extends keyof GameEventMap>(name: K, event: GameEventMap[K]): void {
+    const set = this.handlers.get(name);
+    if (!set) return;
+    for (const handler of set) {
+      try { (handler as Handler<K>)(event); } catch { /* juice must never break the sim */ }
+    }
+  }
+
+  clear(): void { this.handlers.clear(); }
+}
+
+export const gameEvents = new GameEvents();

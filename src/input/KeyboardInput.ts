@@ -15,6 +15,7 @@ export interface KeyBindings {
   interact: readonly string[];
   pause: readonly string[];
   switchDrone: readonly string[];
+  yank: readonly string[];
 }
 
 export const PLAYER_ONE_KEYS: KeyBindings = {
@@ -30,6 +31,7 @@ export const PLAYER_ONE_KEYS: KeyBindings = {
   interact: ['KeyF'],
   pause: ['Escape'],
   switchDrone: ['Tab'],
+  yank: ['KeyR'],
 };
 
 export const PLAYER_TWO_KEYS: KeyBindings = {
@@ -45,6 +47,7 @@ export const PLAYER_TWO_KEYS: KeyBindings = {
   interact: ['KeyI', 'Numpad3'],
   pause: ['Escape'],
   switchDrone: ['Tab'],
+  yank: ['KeyU', 'Numpad4'],
 };
 
 export class KeyboardInput implements InputSource {

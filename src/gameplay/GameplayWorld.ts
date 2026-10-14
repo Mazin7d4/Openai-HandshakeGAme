@@ -135,6 +135,11 @@ export class GameplayWorld {
 
   get cameraContext() { return this.mission.cameraContext; }
 
+  /** Shared synthesized SFX bank (one AudioContext). */
+  get sfx(): GameAudio { return this.audio; }
+
+  recordTetherSave(): void { this.mission.recordTetherSave(); }
+
   dispose(): void {
     this.grab.dispose();
     this.hack.dispose();

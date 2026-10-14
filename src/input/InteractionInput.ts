@@ -9,6 +9,7 @@ export class InteractionInput {
   private readonly interactKeys: Set<string>;
   private readonly pauseKeys: Set<string>;
   private readonly switchKeys: Set<string>;
+  private readonly yankKeys: Set<string>;
   private readonly pressed = new Set<string>();
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
@@ -18,7 +19,8 @@ export class InteractionInput {
         !this.throwKeys.has(event.code) &&
         !this.interactKeys.has(event.code) &&
         !this.pauseKeys.has(event.code) &&
-        !this.switchKeys.has(event.code))
+        !this.switchKeys.has(event.code) &&
+        !this.yankKeys.has(event.code))
     ) {
       return;
     }
@@ -33,6 +35,7 @@ export class InteractionInput {
     if (this.interactKeys.has(event.code)) this.actions.interact = true;
     if (this.pauseKeys.has(event.code)) this.actions.pause = true;
     if (this.switchKeys.has(event.code)) this.actions.switchDrone = true;
+    if (this.yankKeys.has(event.code)) this.actions.yank = true;
   };
 
   private readonly onKeyUp = (event: KeyboardEvent) => {
@@ -49,6 +52,7 @@ export class InteractionInput {
     this.interactKeys = new Set(keys.interact);
     this.pauseKeys = new Set(keys.pause);
     this.switchKeys = new Set(keys.switchDrone);
+    this.yankKeys = new Set(keys.yank);
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.onBlur);
@@ -61,6 +65,7 @@ export class InteractionInput {
     this.actions.interact = false;
     this.actions.pause = false;
     this.actions.switchDrone = false;
+    this.actions.yank = false;
     return result;
   }
 
@@ -70,6 +75,10 @@ export class InteractionInput {
 
   requestThrow(): void {
     this.actions.throwObject = true;
+  }
+
+  requestYank(): void {
+    this.actions.yank = true;
   }
 
   requestInteract(): void {

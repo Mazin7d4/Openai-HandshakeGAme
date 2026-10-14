@@ -26,6 +26,7 @@ export class HumanControlSource implements DroneControlSource {
     this.frame.interactions.interact = interactions.interact;
     this.frame.interactions.pause = interactions.pause;
     this.frame.interactions.switchDrone = interactions.switchDrone;
+    this.frame.interactions.yank = interactions.yank;
     return this.frame;
   }
 
@@ -39,6 +40,10 @@ export class HumanControlSource implements DroneControlSource {
 
   requestThrow(): void {
     this.interactions.requestThrow();
+  }
+
+  requestYank(): void {
+    this.interactions.requestYank();
   }
 
   dispose(): void {

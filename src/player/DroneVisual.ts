@@ -8,7 +8,7 @@ import {
   type Scene,
 } from '@babylonjs/core';
 import type { LoadedModel } from '../assets/AssetLoader.ts';
-import { DroneFace } from './DroneFace.ts';
+import { DroneFace, type Expression } from './DroneFace.ts';
 import { FLIGHT_TUNING } from './FlightTuning.ts';
 
 export const DRONE_MODEL_URL = `${import.meta.env.BASE_URL}assets/drone/drone.glb`;
@@ -91,6 +91,10 @@ export class DroneVisual {
   private podPitch = 0;
   private podRoll = 0;
   private stunTimer = 0;
+  private squashPulse = 0;
+  private squashVelocity = 0;
+  private drag = 0;
+  private tumble = 0;
 
   constructor(scene: Scene, parent: TransformNode, palette: DronePalette, model: LoadedModel) {
     this.glow = palette.glow.clone();
@@ -157,7 +161,29 @@ export class DroneVisual {
 
   tetherYank(strength: number): void {
     const duration = 0.25 + clamp(strength, 0, 1) * 0.35;
-    this.face.flash('shocked', duration);
+    this.face.flash('yanked', duration);
+    this.squashPulse = Math.max(this.squashPulse, 0.12 * clamp(strength, 0.3, 1));
+  }
+
+  /** Being jerked by the partner's yank: big stretch, antenna whip, squeezed face. */
+  yanked(strength: number): void {
+    const s = clamp(strength, 0.3, 1);
+    this.face.flash('yanked', 0.5 + s * 0.4);
+    this.squashPulse = Math.max(this.squashPulse, 0.22 * s);
+    this.tumble = Math.max(this.tumble, 0.9 * s);
+    this.antennaVX += (Math.random() - 0.5) * 30 * s;
+    this.antennaVZ += (Math.random() < 0.5 ? -1 : 1) * 22 * s;
+  }
+
+  /** Small recoil when this drone does the yanking. */
+  recoil(strength = 0.6): void {
+    this.squashPulse = Math.min(this.squashPulse, -0.1 * clamp(strength, 0.2, 1));
+    this.antennaVX += 14 * strength;
+  }
+
+  /** Temporary face reaction (presentation only). */
+  react(expression: Expression, seconds: number): void {
+    this.face.flash(expression, seconds);
   }
 
   update(state: DroneVisualState): void {
@@ -210,8 +236,17 @@ export class DroneVisual {
       shakeX = Math.sin(this.time * 46) * s;
       shakeZ = Math.cos(this.time * 39) * s;
     }
-    this.lean.rotation.x = this.leanPitch + shakeX;
-    this.lean.rotation.z = this.leanRoll + shakeZ;
+    // Being dragged by the cord looks different from flying: the body goes
+    // limp and tumbles, nose trailing the pull, instead of banking into it.
+    const dragged = !state.selfPowered && (state.tetherPull ?? 0) > 0.22;
+    const dragTarget = dragged ? clamp((state.tetherPull ?? 0) * 1.4, 0, 1) : 0;
+    this.drag = blend(this.drag, dragTarget, dragged ? 10 : 4, dt);
+    this.tumble = Math.max(0, this.tumble - dt * 1.4);
+    const limp = Math.max(this.drag, this.tumble);
+    const flail = Math.sin(this.time * 13) * 0.22 * limp;
+    const trail = clamp(-localForward / FLIGHT_TUNING.cruiseSpeed, -1.4, 1.4) * 0.28 * limp;
+    this.lean.rotation.x = this.leanPitch + shakeX + trail + Math.cos(this.time * 9) * 0.08 * limp;
+    this.lean.rotation.z = this.leanRoll + shakeZ + flail;
 
     // Subtle squash/stretch.
     const lift = clamp(v.y / FLIGHT_TUNING.verticalSpeed, -1, 1);
@@ -221,8 +256,14 @@ export class DroneVisual {
     const dashTarget =
       1 + clamp(planar / (FLIGHT_TUNING.cruiseSpeed * FLIGHT_TUNING.boostMultiplier), 0, 1) * 0.04;
     this.dash = blend(this.dash, dashTarget, 9, dt);
-    const side = 1 / Math.sqrt(this.stretch * this.dash);
-    this.squash.scaling.set(side, this.stretch, this.dash);
+    // Elastic squash pulse (yanks/recoil/landings): a damped spring around zero.
+    this.squashVelocity += (-160 * this.squashPulse - 9 * this.squashVelocity) * dt;
+    this.squashPulse += this.squashVelocity * dt;
+    const squashAmt = clamp(this.squashPulse, -0.3, 0.3);
+    const stretchY = this.stretch * (1 - squashAmt * 0.6);
+    const stretchZ = this.dash * (1 + squashAmt);
+    const side = 1 / Math.sqrt(stretchY * stretchZ);
+    this.squash.scaling.set(side, stretchY, stretchZ);
 
     // Hover pods vector into the direction of travel with a little idle flutter.
     const podTargetPitch = clamp(localForward / FLIGHT_TUNING.cruiseSpeed, -1.2, 1.2) * 0.3;
@@ -268,7 +309,9 @@ export class DroneVisual {
     }
 
     // Face.
-    if ((state.tetherPull ?? 0) > 0.18) {
+    if (limp > 0.35) {
+      this.face.setExpression('yanked');
+    } else if ((state.tetherPull ?? 0) > 0.18) {
       this.face.setExpression('strained');
     } else if (state.focused) {
       this.face.setExpression('focused');
