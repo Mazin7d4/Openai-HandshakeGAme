@@ -20,13 +20,10 @@ export class DevReadout {
     this.readout.id = 'dev-readout';
     this.controls = document.createElement('div');
     this.controls.id = 'dev-controls';
-    this.controls.textContent = mode === 'dev-local'
-      ? 'ACTIVE  WASD move   Space rise   Ctrl/C fall   Shift boost      ' +
-        'E grab/drop   Q throw   F hack   Tab switch drone   Esc pause      ' +
-        'right-drag look  wheel frame  F2 inspect camera'
-      : 'LOCAL  WASD move   Space rise   Ctrl/C fall   LShift boost      ' +
-        'E grab/drop   Q throw   F hack   Esc pause      ' +
-        'right-drag look  wheel frame  F2 inspect camera (drag orbit)';
+    // Player controls live in the HUD quick-controls card ([H]) and pause menu; this line
+    // only lists the dev-only extras so the two never repeat each other.
+    this.controls.textContent = (mode === 'dev-local' ? 'DEV  Tab switch drone   ' : 'DEV  ') +
+      'right-drag look   wheel frame   F2 inspect camera   ·   [H] controls   Esc pause';
     parent.append(this.readout, this.controls);
   }
 
