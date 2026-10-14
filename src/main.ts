@@ -184,9 +184,23 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   canvas.id = 'game-canvas';
   canvas.dataset.testid = 'game-canvas';
   canvas.tabIndex = 0;
-  const boot = element('p', '', 'Loading physics…');
+  const boot = element('div', 'boot-card');
   boot.id = 'boot-status';
+  const bootStep = element('p', 'boot-step', 'Loading physics…');
+  boot.append(
+    element('p', 'boot-title', 'HANDSHAKE'),
+    Object.assign(element('div', 'boot-dots'), { innerHTML: '<span class="pix"></span><span class="nee"></span>' }),
+    Object.assign(element('div', 'boot-bar'), { innerHTML: '<span></span>' }),
+    bootStep,
+  );
   root.replaceChildren(canvas, boot);
+  const bootSteps = ['Loading physics…', 'Building the lab…', 'Waking PIX and NEE…'];
+  let bootIndex = 0;
+  const bootTimer = window.setInterval(() => {
+    bootIndex = Math.min(bootSteps.length - 1, bootIndex + 1);
+    bootStep.textContent = bootSteps[bootIndex];
+    boot.style.setProperty('--boot-progress', `${(bootIndex + 1) / bootSteps.length}`);
+  }, 1400);
 
   let removeStatus: (() => void) | null = null;
   if (session) {
@@ -205,6 +219,44 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
       }
     };
     removeStatus = session.onStatus(updateHud);
+
+    // Partner-left / connection-lost card. Read-only view of existing session state.
+    const overlay = element('div', 'partner-overlay');
+    overlay.dataset.testid = 'partner-overlay';
+    const overlayTitle = element('p', 'partner-title', '');
+    const overlayDetail = element('p', 'partner-detail', '');
+    const menuButtonEl = element('button', 'menu-button', 'RETURN TO MENU');
+    menuButtonEl.type = 'button';
+    menuButtonEl.addEventListener('click', () => window.location.reload());
+    overlay.append(overlayTitle, overlayDetail, menuButtonEl);
+    root.append(overlay);
+    let partnerLostAt: number | null = null;
+    const overlayTimer = window.setInterval(() => {
+      const status = session.currentStatus;
+      const net = session.connectionState;
+      const partner = status.players.get(status.localRole === 'pix' ? 'nee' : 'pix');
+      const lost = net === 'disconnected' || net === 'error';
+      const partnerGone = !lost && (!partner || partner.connected === false);
+      partnerLostAt = partnerGone ? partnerLostAt ?? Date.now() : null;
+      overlay.classList.toggle('visible', lost || partnerGone || net === 'reconnecting');
+      menuButtonEl.hidden = !lost && !(partnerGone && Date.now() - (partnerLostAt ?? 0) > 15_000);
+      if (lost) {
+        overlayTitle.textContent = 'CONNECTION LOST';
+        overlayDetail.textContent = 'The room closed or your connection dropped.';
+      } else if (net === 'reconnecting') {
+        overlayTitle.textContent = 'RECONNECTING…';
+        overlayDetail.textContent = 'Hold tight. Your drone is parked.';
+      } else if (partnerGone) {
+        const left = Math.max(0, 15 - Math.floor((Date.now() - (partnerLostAt ?? Date.now())) / 1000));
+        const name = status.localRole === 'pix' ? 'NEE' : 'PIX';
+        overlayTitle.textContent = `${name} DISCONNECTED`;
+        overlayDetail.textContent = left > 0
+          ? `Waiting for them to reconnect… ${left}s`
+          : 'They did not come back. You can return to the menu.';
+      }
+    }, 500);
+    const previousRemove = removeStatus;
+    removeStatus = () => { previousRemove(); window.clearInterval(overlayTimer); overlay.remove(); };
   }
 
   try {
@@ -225,12 +277,14 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
         showMainMenu();
       },
     });
+    window.clearInterval(bootTimer);
     boot.remove();
     canvas.focus();
     game.start();
   } catch (error) {
     removeStatus?.();
     void session?.dispose();
+    window.clearInterval(bootTimer);
     boot.textContent = errorMessage(error);
     boot.classList.add('error');
   }

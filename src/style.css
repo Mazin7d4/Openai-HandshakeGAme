@@ -534,3 +534,48 @@ input {
 .mission-rating { color: #ffd27a; font-size: 30px; letter-spacing: .12em; text-shadow: 0 0 14px #ffb84d88; }
 .mission-quip { margin: 0 0 18px; color: #bfe6dc; font-size: 14px; font-style: italic; }
 @keyframes crew-bob { 50% { transform: translateY(-4px) rotate(-3deg); } }
+
+/* Loading card (#boot-status) */
+#boot-status.boot-card {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  min-width: 260px;
+  padding: 26px 30px 22px;
+  border-radius: 16px;
+  background: rgba(246, 241, 232, 0.94);
+  border: 1px solid rgba(17, 39, 50, 0.14);
+  box-shadow: 0 18px 50px rgba(15, 30, 38, 0.18);
+  color: #17303b;
+}
+#boot-status.error { color: #922f3d; }
+.boot-title { margin: 0; font-weight: 800; letter-spacing: 0.32em; font-size: 18px; }
+.boot-dots { display: flex; gap: 12px; }
+.boot-dots span { width: 14px; height: 14px; border-radius: 50%; animation: boot-pulse 1s ease-in-out infinite; }
+.boot-dots .pix { background: #2bb7e6; }
+.boot-dots .nee { background: #f2786d; animation-delay: 0.5s; }
+.boot-bar { width: 200px; height: 4px; border-radius: 2px; background: rgba(17, 39, 50, 0.12); overflow: hidden; }
+.boot-bar span { display: block; height: 100%; width: calc(var(--boot-progress, 0.33) * 100%); background: linear-gradient(90deg, #2bb7e6, #f2786d); transition: width 0.6s ease; }
+.boot-step { margin: 0; font-size: 13px; opacity: 0.75; }
+@keyframes boot-pulse { 0%, 100% { transform: scale(0.7); opacity: 0.5; } 50% { transform: scale(1.1); opacity: 1; } }
+
+/* Partner disconnected / connection lost */
+.partner-overlay {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: none;
+  min-width: 300px;
+  padding: 18px 24px;
+  border-radius: 14px;
+  text-align: center;
+  background: rgba(246, 241, 232, 0.95);
+  border: 1px solid rgba(146, 47, 61, 0.3);
+  box-shadow: 0 14px 40px rgba(15, 30, 38, 0.2);
+  color: #17303b;
+}
+.partner-overlay.visible { display: grid; gap: 8px; justify-items: center; }
+.partner-title { margin: 0; font-weight: 800; letter-spacing: 0.14em; color: #922f3d; }
+.partner-detail { margin: 0; font-size: 14px; }
