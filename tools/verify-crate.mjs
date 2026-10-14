@@ -59,7 +59,7 @@ try {
   const final = await cratePosition();
   const moved = Math.hypot(final.x - initial.x, final.z - initial.z);
   step(`crate moved ${moved.toFixed(2)}`);
-  if (moved <= 3) throw new Error(`Crate only moved ${moved.toFixed(2)} units`);
+  if (moved <= 4.5) throw new Error(`Crate only moved ${moved.toFixed(2)} units`);
   for (const point of escape.slice(3)) {
     await pilot(['pix'], point);
     await pilot(['nee'], point);

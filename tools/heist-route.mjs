@@ -36,6 +36,7 @@ export const clearCrate = {
   drag: [
     { x: -15.3, y: 3.2, z: 16, tolerance: 1.0 },
     { x: -15.3, y: 3.2, z: 19.5, tolerance: 1.0 },
+    { x: -15.3, y: 3.2, z: 22, tolerance: 1.0 },
   ],
 };
 

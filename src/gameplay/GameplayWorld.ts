@@ -11,6 +11,7 @@ import { HackSession } from './HackSession.ts';
 import { MissionDirector } from './MissionDirector.ts';
 import layout from '../level/heist-layout.json';
 import { dressPrototype } from '../level/PrototypeVisual.ts';
+import { dressLabCrate } from '../level/LabCrateVisual.ts';
 
 /** Small reusable interaction layer for the dev gameplay room. */
 export class GameplayWorld {
@@ -67,6 +68,7 @@ export class GameplayWorld {
         grabRadius: 3.2,
       }),
     ];
+    dressLabCrate(objects.find((object) => object.id === 'crate-blue')!.mesh, 3.6, scene);
     dressPrototype(objects.find((object) => object.id === 'prototype')!.mesh, scene);
     this.grab = new GrabSystem(
       objects,
