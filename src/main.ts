@@ -120,6 +120,7 @@ function showJoinRoom(): void {
   input.maxLength = 4;
   input.placeholder = 'XXXX';
   input.setAttribute('aria-label', 'Room code');
+  input.addEventListener('input', () => { input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
   const submit = element('button', 'menu-button', 'JOIN');
   submit.dataset.testid = 'join-submit';
   submit.type = 'submit';
@@ -154,11 +155,22 @@ function showLobby(session: MultiplayerSession): void {
   const label = element('p', 'room-label', 'ROOM CODE');
   const code = element('p', 'room-code', session.roomCode);
   code.dataset.testid = 'room-code';
+  const copy = element('button', 'menu-button', 'COPY CODE');
+  copy.dataset.testid = 'copy-code';
+  copy.type = 'button';
+  copy.addEventListener('click', () => {
+    void navigator.clipboard?.writeText(session.roomCode)
+      .then(() => { copy.textContent = 'COPIED!'; window.setTimeout(() => { copy.textContent = 'COPY CODE'; }, 1500); })
+      .catch(() => { copy.textContent = 'SELECT + COPY'; });
+  });
+  const role = element('p', 'room-label', '');
   const status = element('p', 'lobby-status', 'Waiting for partner…');
   status.dataset.testid = 'lobby-status';
-  panel.append(label, code, status);
+  panel.append(label, code, copy, role, status);
 
   const removeStatus = session.onStatus((next) => {
+    const me = next.localRole;
+    role.textContent = me ? `YOU ARE ${me.toUpperCase()} · PARTNER IS ${me === 'pix' ? 'NEE' : 'PIX'}` : '';
     status.textContent = next.started ? 'Partner connected. Starting…' : 'Waiting for partner…';
   });
   void session.waitForStart().then(() => {
