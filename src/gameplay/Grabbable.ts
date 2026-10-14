@@ -41,6 +41,8 @@ export interface GrabbableSpec {
   grabRadius?: number;
   /** Sits locked in a display cradle (can't be bumped off) until the first grab. */
   cradled?: boolean;
+  /** Too heavy for one drone: the carrier crawls unless the partner flies with it. */
+  heavy?: boolean;
 }
 
 /** A small dynamic body that can switch between local physics and a replicated pose. */
@@ -51,6 +53,9 @@ export class Grabbable implements Interactable {
   readonly mesh: Mesh;
   readonly label: string;
   readonly grabRadius: number;
+  readonly heavy: boolean;
+  /** Presentation: whether the partner is currently helping haul a heavy object. */
+  helped = false;
   readonly collisionRadius: number;
 
   private readonly aggregate: PhysicsAggregate;
@@ -76,6 +81,7 @@ export class Grabbable implements Interactable {
     this.id = spec.id;
     this.label = spec.label;
     this.grabRadius = spec.grabRadius ?? 3.2;
+    this.heavy = spec.heavy ?? false;
     this.plugin = plugin;
     const size = spec.size ?? 1.1;
     const shape = spec.shape ?? 'box';

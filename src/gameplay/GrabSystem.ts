@@ -96,12 +96,42 @@ export class GrabSystem {
     for (const object of this.objects) {
       const holder = object.heldBy ? drones.get(object.heldBy) : undefined;
       if (holder) {
+        if (object.heavy) this.applyHeavyDrag(object, holder, drones);
         this.holdTarget.copyFrom(holder.position).addInPlace(HOLD_OFFSET);
         object.update(dt, this.holdTarget, holder.velocity);
       } else {
         object.update(dt);
       }
     }
+  }
+
+  /** Partner helping = within cord range and flying the same way. Shared by drag + prompts. */
+  private partnerHelps(holderRole: DroneRole, holder: Drone, drones: ReadonlyMap<DroneRole, Drone>): boolean {
+    const partner = drones.get(holderRole === 'pix' ? 'nee' : 'pix');
+    if (!partner) return false;
+    if (Vector3.Distance(partner.position, holder.position) > 10.5) return false;
+    const pv = partner.velocity;
+    const hv = holder.velocity;
+    const partnerSpeed = pv.length();
+    if (partnerSpeed < 1.5) return false;
+    const holderSpeed = hv.length();
+    if (holderSpeed < 0.5) return true; // Partner is towing the carrier.
+    return Vector3.Dot(pv, hv) / (partnerSpeed * holderSpeed) > 0.35;
+  }
+
+  private applyHeavyDrag(object: Grabbable, holder: Drone, drones: ReadonlyMap<DroneRole, Drone>): void {
+    const role = object.heldBy;
+    if (!role) return;
+    const helped = this.partnerHelps(role, holder, drones);
+    object.helped = helped;
+    const cap = helped ? 8.5 : 2.4;
+    const v = holder.velocity;
+    const planar = Math.hypot(v.x, v.z);
+    if (planar > cap) {
+      v.x *= cap / planar;
+      v.z *= cap / planar;
+    }
+    if (!helped && v.y > 1.2) v.y = 1.2; // Can barely lift it alone.
   }
 
   publish(): void {
@@ -141,6 +171,9 @@ export class GrabSystem {
 
   promptsFor(role: DroneRole, drone: Drone): string[] {
     const held = this.objects.find((object) => object.heldBy === role);
+    if (held?.heavy && !held.helped) {
+      return [`HEAVY! ${role === 'pix' ? 'NEE' : 'PIX'} MUST FLY WITH YOU (OR TOW YOU)`, `[E] Drop ${held.label}`];
+    }
     if (held) return [`[E] Drop ${held.label}`, `[Q] Throw ${held.label}`];
     let nearest: Grabbable | null = null;
     let nearestDistance = Number.POSITIVE_INFINITY;

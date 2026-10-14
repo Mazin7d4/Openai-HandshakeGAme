@@ -39,7 +39,8 @@ export class GameplayWorld {
       }),
       new Grabbable(scene, plugin, {
         id: 'crate-blue',
-        label: 'Lab Crate',
+        label: 'Heavy Lab Crate',
+        heavy: true,
         position: Vector3.FromArray(Object.values(layout.objects['crate-blue'])),
         color: new Color3(0.32, 0.42, 0.48),
         shape: 'box',

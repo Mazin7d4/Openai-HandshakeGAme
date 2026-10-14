@@ -89,7 +89,8 @@ export class GameHud {
         item.addEventListener('click', text.startsWith('[F]')
           ? this.options.onInteract
           : text.startsWith('[Q]') ? this.options.onThrow
-          : text.startsWith('[R]') ? () => this.options.onYank?.() : this.options.onGrabDrop);
+          : text.startsWith('[R]') ? () => this.options.onYank?.()
+          : text.startsWith('[E]') ? this.options.onGrabDrop : () => undefined);
         return item;
       }));
     }
