@@ -41,7 +41,7 @@ Untouched: flight, tether, hacking, security, server and replication code. No ch
 
 *Frame time under software rendering also includes the full-map shadow pass that Astra's build did not have and is noisy between runs (9.3–15.7 ms tonight; 15.7 ms in the final capture with a dev server and verifier running alongside); it is not a GPU number. Real FPS on the 1070 is **unmeasured**.
 
-## Tests (final code c8d4148, software WebGL, `node tools/verify-all.mjs`)
+## Tests (game code c8d4148, test fixes 644ce94 + 7463564, software WebGL, `node tools/verify-all.mjs`)
 Run 04:34–05:08 AM PT on final code (`dist/` preview + local server).
 
 | Check | Astra 401bcdd | Final c8d4148 |
@@ -50,9 +50,9 @@ Run 04:34–05:08 AM PT on final code (`dist/` preview + local server).
 | verify-multiplayer | pass | **pass** (13 s) |
 | verify-dev-local | fail (old waypoints) | **pass** (156 s) |
 | verify-gameplay | fail (old waypoints) | **pass** on verify-all retry (804 s); first attempt failed: player-2 couldn't catch cargo-core (6.5 m away) |
-| verify-heist | fail (vent stall) | **FAIL tonight, 2/2 runs**: all three hacks done and the vault door opens, but NEE's grab press at the prototype (1.7 m away, inside the 3.2 m grab radius) never picks it up, so the alarm never fires (3–18 FPS). Passed earlier in the night before c8d4148; not root-caused, so I didn't attempt a fix |
-| verify-multiplayer-heist | fail (vent stall) | **pass** (206 s), full mission incl. prototype grab, alarm, escape |
-| verify-singleplayer (new) | n/a | **pass** (22–24 s; tether gap 1.18, NEE moved 13.2 m following PIX) |
+| verify-heist | fail (vent stall) | **pass after test fix (`644ce94`)**: 5/6 runs after the fix; the one failure was earlier in the route (memory-trace hack overlay didn't open within 30 s at ~9 FPS), not the grab. Before the fix: 3/4 passed here, and the failures stopped with NEE 3.3 m from the prototype, just outside the 3.2 m grab radius |
+| verify-multiplayer-heist | fail (vent stall) | **pass** after test fix `7463564` (2/2 runs, ~135 s). Before the fix it failed 3/3 at ~05:25 PT |
+| verify-singleplayer (new) | n/a | **pass** (22–24 s; tether gap 1.18, NEE moved 13.2 m following PIX); re-run 2/2 pass at 7463564 |
 
 
 ## Screenshots (`/workspace/handshake/report/screens/`, fresh before/after pairs from the same cameras)
@@ -65,7 +65,8 @@ Run 04:34–05:08 AM PT on final code (`dist/` preview + local server).
 - `before-gameplay-camera.png` / `after-gameplay-camera.png`: spawn view with the new quick-controls card
 
 ## Remaining problems
-- **verify-heist (single-browser dev-local) fails at the prototype grab on the final code**, while the multiplayer heist passes the same step. Likely suspects: c8d4148 (shadow culling / meshopt import) or the cradle lock in `Grabbable.ts` vs the dev-local grab path. Investigate first.
+- **Fixed (test bugs, not game code):** (1) The verify-heist grab failure was positional. Both drones flew to the same last vault waypoint, so PIX's body shoved NEE about 0.6 m back to roughly 3.3 m from the prototype, outside the 3.2 m grab radius (the earlier "1.7 m" figure was wrong). The grab code, cradle lock, c8d4148 and ec20d99 are not involved, and the grab radius stays matched with the server. The test now holds NEE at 1.6 m before pressing grab. (2) verify-multiplayer-heist's autopilot wait also accepted `[data-testid=mission-complete]`. That overlay is always in the DOM (just hidden), so every wait returned instantly and the run broke in a different place each time. It now requires `.visible`.
+- **Still flaky at software-WebGL FPS (3–18):** occasionally a hack overlay doesn't open within the timeout (1 of the last 6 verify-heist runs). These are timing flakes in the tests, not gameplay bugs. Check them on the 1070.
 - Nothing has been playtested by a human or on a real GPU; all FPS evidence is software rendering.
 - CPU companion is follow-only: no hacking, grabbing, rescuing, or path-finding (it can get snagged on walls/doorframes and relies on the tether to drag it through).
 - verify-* now steer with the test-only autopilot; the old keyboard path is a fallback, so real key-feel at low FPS isn't what's being tested.
@@ -75,7 +76,7 @@ Run 04:34–05:08 AM PT on final code (`dist/` preview + local server).
 - Stress tests (`stress-multiplayer`, `stress-stability`) were not run.
 
 ## Recommended next
-0. Root-cause the dev-local prototype grab failure (`TRACE=1 node tools/verify-heist.mjs`; bisect c8d4148 vs ec20d99).
+0. Run `node tools/verify-all.mjs` on the 1070 at full FPS to confirm the heist tests are stable with real GPU timing.
 1. On the 1070: `npm run build`, serve it (`npx vite preview --port 5173` + `node server/index.mjs`), then `node tools/verify-all.mjs "http://localhost:5173/"` at full res, plus a 10-minute co-op playtest and a single-player try. Note FPS per area.
 2. Companion v2: waypoint graph from `heist-layout.json`, go-to-terminal + hack-B on request, auto-rescue when PIX is spotted.
 3. Thin instances for the prop kit; bake AO for non-lab areas.
