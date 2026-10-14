@@ -17,11 +17,16 @@ export class GameHud {
   private readonly pauseOverlay: HTMLDivElement;
   private readonly panel: HTMLElement;
   private readonly options: GameHudOptions;
+  private readonly controlsCard: HTMLDivElement;
+  private controlsTimer = 0;
   private paused = false;
   private promptKey = '';
   private activeDroneText = '';
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
+    if (event.code === 'KeyH' && !this.paused && !(event.target instanceof HTMLInputElement)) {
+      this.setControlsCard(!this.controlsCard.classList.contains('visible'));
+    }
     if (event.code === 'Escape' && this.paused) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -42,7 +47,28 @@ export class GameHud {
     this.panel = document.createElement('section');
     this.panel.className = 'pause-panel';
     this.pauseOverlay.append(this.panel);
-    parent.append(this.prompt, this.activeDrone, this.pauseOverlay);
+    // First-time-player card: core controls + the co-op goal. Auto-hides; [H] toggles it any time.
+    this.controlsCard = document.createElement('div');
+    this.controlsCard.className = 'controls-card';
+    this.controlsCard.dataset.testid = 'controls-card';
+    const title = document.createElement('strong');
+    title.textContent = 'PIX + NEE · QUICK CONTROLS';
+    const list = document.createElement('dl');
+    for (const [key, action] of [
+      ['WASD', 'Fly'], ['SPACE / CTRL', 'Up / down'], ['SHIFT', 'Boost'], ['F', 'Hack / interact'],
+      ['E', 'Grab · Q throw'], ['ESC', 'Pause & all controls'],
+    ]) {
+      const dt = document.createElement('dt'); dt.textContent = key;
+      const dd = document.createElement('dd'); dd.textContent = action;
+      list.append(dt, dd);
+    }
+    const tip = document.createElement('p');
+    tip.textContent = 'You are tethered — stay together. Follow the glowing beacon to the next objective. [H] hides this.';
+    this.controlsCard.append(title, list, tip);
+    parent.append(this.prompt, this.activeDrone, this.pauseOverlay, this.controlsCard);
+    const seen = (() => { try { return localStorage.getItem('handshake.controlsSeen') === '1'; } catch { return false; } })();
+    this.setControlsCard(true, seen ? 6000 : 16000);
+    try { localStorage.setItem('handshake.controlsSeen', '1'); } catch { /* private mode */ }
     this.showPauseHome();
     window.addEventListener('keydown', this.onKeyDown, true);
   }
@@ -71,6 +97,12 @@ export class GameHud {
     }
   }
 
+  private setControlsCard(visible: boolean, autoHideMs = 0): void {
+    window.clearTimeout(this.controlsTimer);
+    this.controlsCard.classList.toggle('visible', visible);
+    if (visible && autoHideMs) this.controlsTimer = window.setTimeout(() => this.setControlsCard(false), autoHideMs);
+  }
+
   setPaused(paused: boolean): void {
     this.paused = paused;
     this.pauseOverlay.classList.toggle('visible', paused);
@@ -83,6 +115,8 @@ export class GameHud {
     this.prompt.remove();
     this.activeDrone.remove();
     this.pauseOverlay.remove();
+    window.clearTimeout(this.controlsTimer);
+    this.controlsCard.remove();
   }
 
   private showPauseHome(): void {
@@ -132,7 +166,7 @@ export class GameHud {
     for (const [key, action] of [
       ['WASD', 'Move'], ['SPACE', 'Ascend'], ['CTRL / C', 'Descend'], ['SHIFT', 'Boost'],
       ['E', 'Grab / Drop'], ['Q', 'Throw held object'], ['F', 'Interact / Hack'],
-      ['TAB', 'Switch drone (Dev Local)'], ['ESC', 'Pause'],
+      ['TAB', 'Switch drone (Dev Local)'], ['ESC', 'Pause'], ['H', 'Show / hide quick controls'],
       ['RIGHT DRAG / WHEEL', 'Look a little / adjust framing'],
       ['TWO FINGERS', 'Look / pinch on touch screens'], ['F2', 'Inspection camera'],
     ]) {

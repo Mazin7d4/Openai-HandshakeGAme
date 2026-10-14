@@ -487,3 +487,18 @@ input {
   .hack-board-shell { grid-template-columns: 1fr; }
   .memory-node { min-height: 70px; }
 }
+
+/* First-time quick controls card (GameHud). Never blocks clicks or the canvas. */
+.controls-card {
+  position: fixed; left: 18px; bottom: 18px; z-index: 12; width: 270px; padding: 14px 16px;
+  border-radius: 14px; background: rgba(18, 24, 30, 0.72); backdrop-filter: blur(8px);
+  color: #f4efe6; font: 500 12px/1.4 system-ui, sans-serif; pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  opacity: 0; transform: translateY(10px); transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.controls-card.visible { opacity: 1; transform: none; }
+.controls-card strong { display: block; margin-bottom: 8px; letter-spacing: 0.08em; color: #ffd27a; font-size: 11px; }
+.controls-card dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; }
+.controls-card dt { font-weight: 700; color: #9fe6d8; }
+.controls-card dd { margin: 0; }
+.controls-card p { margin: 10px 0 0; opacity: 0.8; font-size: 11px; }
