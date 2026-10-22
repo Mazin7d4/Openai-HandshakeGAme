@@ -171,14 +171,14 @@ export class GameApp {
         this.juice.burst('impact', e.position, 12);
         if (isLocalDrone(e.droneId)) {
           this.cameraRig.addShake(0.35);
-          this.hud?.toast('YANK [R] TO RESCUE!', 'good');
+          this.hud?.toast('Yank [R] to rescue!', 'good');
         }
       }),
       gameEvents.on('toast', (e) => this.hud?.toast(e.text, e.tone)),
       gameEvents.on('camera-blind', (e) => {
         this.juice.burst('impact', e.position, 16);
         audio.bump();
-        this.hud?.toast('CAMERA BLINDED!', 'good');
+        this.hud?.toast('Camera blinded!', 'good');
       }),
       gameEvents.on('capture', (e) => {
         const mine = isLocalDrone(e.droneId);
@@ -186,13 +186,13 @@ export class GameApp {
         if (e.freed) {
           this.juice.burst('yank', e.position, 18);
           audio.bump();
-          this.hud?.toast(mine ? 'FREE!' : `${name} IS FREE!`, 'good');
+          this.hud?.toast(mine ? 'Free!' : `${name} is free!`, 'good');
           for (const drone of this.drones) drone.react('proud', 1);
         } else {
           this.juice.burst('impact', e.position, 12);
           audio.clothesline();
           if (mine) this.cameraRig.addShake(0.3);
-          this.hud?.toast(mine ? 'GRABBED! MASH [SHIFT] OR WAIT FOR A YANK' : `${name} GRABBED! YANK [R]`, 'good');
+          this.hud?.toast(mine ? 'Grabbed! Mash [Shift] or wait for a yank' : `${name} got grabbed! Yank [R]`, 'good');
         }
       }),
       gameEvents.on('warmup', (e) => {
@@ -219,7 +219,7 @@ export class GameApp {
         this.cameraRig.kickFov(0.1);
         this.slowMo = 0.45;
         for (const drone of this.drones) drone.react('proud', 1.6);
-        this.hud?.toast('CLOTHESLINED!', 'good');
+        this.hud?.toast('Clotheslined!', 'good');
       }),
       gameEvents.on('heist', (e) => {
         const pos = e.position;
@@ -230,7 +230,7 @@ export class GameApp {
             this.cameraRig.beat(pos, 2.4);
             this.cameraRig.addShake(0.12);
             for (const drone of this.drones) drone.react('happy', 2);
-            this.hud?.toast('VAULT OPEN · MEET P01', 'good');
+            this.hud?.toast('Vault open. Meet P01', 'good');
             break;
           case 'pickup':
             this.juice.burst('zap', pos, 60);
@@ -246,8 +246,8 @@ export class GameApp {
                 p.drone.react('panic', 2);
               }
             }
-            this.hud?.toast('WE GOT IT!', 'good');
-            setTimeout(() => { if (!this.disposed) this.hud?.toast('ALARM! SECURITY DRONES ONLINE', 'good'); }, 900);
+            this.hud?.toast('We got it!', 'good');
+            setTimeout(() => { if (!this.disposed) this.hud?.toast('Alarm! Security drones online', 'good'); }, 900);
             break;
           case 'extract':
             this.juice.burst('confetti', pos, 120);

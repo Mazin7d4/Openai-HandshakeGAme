@@ -258,7 +258,7 @@ export class GrabSystem {
   promptsFor(role: DroneRole, drone: Drone): string[] {
     const held = this.objects.find((object) => object.heldBy === role);
     if (held?.heavy && !held.helped) {
-      return [`HEAVY! ${role === 'pix' ? 'NEE' : 'PIX'} MUST FLY WITH YOU (OR TOW YOU)`, `[E] Drop ${held.label}`];
+      return [`Too heavy. Fly it with ${role === 'pix' ? 'NEE' : 'PIX'}`, `[E] Drop ${held.label}`];
     }
     if (held) return [`[E] Drop ${held.label}`, `[Q] Throw ${held.label}`];
     let nearest: Grabbable | null = null;

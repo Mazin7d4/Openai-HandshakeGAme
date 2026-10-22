@@ -58,6 +58,9 @@ export class BotControlSource implements DroneControlSource {
   private stretchTime = 0;
   private checkTimer = 0;
   private lastCheck = Number.POSITIVE_INFINITY;
+  /** Recent leader positions: real free space, so a zip can always end somewhere open. */
+  private readonly trail: Vector3[] = [];
+  private trailTimer = 0;
   /** Total zips so far (tests). */
   zips = 0;
   /** Current behaviour, exposed for the HUD/tests. */
@@ -136,6 +139,12 @@ export class BotControlSource implements DroneControlSource {
     const s = this.sensors!;
     if (!s.zip || !s.cordPath) return false;
     const distance = Vector3.Distance(self, leader);
+    this.trailTimer += dt;
+    if (this.trailTimer > 0.2) {
+      this.trailTimer = 0;
+      if (!this.trail.length || Vector3.Distance(this.trail[this.trail.length - 1], leader) > 0.5) this.trail.push(leader.clone());
+      if (this.trail.length > 40) this.trail.shift();
+    }
     this.stretchTime = (s.cordStrain?.() ?? 0) > 0.95 ? this.stretchTime + dt : 0;
     this.checkTimer += dt;
     if (this.checkTimer >= 0.5) {
@@ -157,9 +166,9 @@ export class BotControlSource implements DroneControlSource {
       : [...raw];
     // Glide along the cord, stopping a little short of the leader.
     const points = path.filter((point) => Vector3.Distance(point, leader) > 1.4);
-    if (points.length === 0 || Vector3.Distance(points[points.length - 1], leader) > 2.6) {
-      points.push(leader.add(self.subtract(leader).normalize().scale(1.4)));
-    }
+    // Land on the leader's own recent flight path (known open space) 1.4-4 m behind them.
+    const landing = [...this.trail].reverse().find((p) => { const d = Vector3.Distance(p, leader); return d > 1.4 && d < 4; });
+    points.push(landing ?? leader.add(self.subtract(leader).normalize().scale(1.4)));
     s.zip(points.map((p) => p.clone()));
     this.zips += 1;
     this.resetStuck();

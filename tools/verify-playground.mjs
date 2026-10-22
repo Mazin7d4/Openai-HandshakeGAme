@@ -49,7 +49,7 @@ try {
   text = await objective(page);
   console.log('after yank:', JSON.stringify(text));
   await page.waitForTimeout(300);
-  assert(toasts.some((t) => t.includes('THE CORD IS A TOOL')), 'Yank did not complete the warm-up step.');
+  assert(toasts.some((t) => /the cord is a tool/i.test(t)), 'Yank did not complete the warm-up step.');
   clearInterval(poll);
   assert(!errors.length, `Page errors: ${errors.join('\n')}`);
   console.log('verify-playground: PASS');

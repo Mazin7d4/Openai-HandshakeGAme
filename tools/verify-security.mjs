@@ -62,8 +62,8 @@ try {
   console.log('after yank', JSON.stringify(after), 'toasts', [...toasts]);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/security-freed.png` });
   assert(!after.carrying || after.captive !== captive, 'Partner yank did not free the captive.');
-  assert([...toasts].some((t) => t.includes('GRABBED')), 'No capture toast.');
-  assert([...toasts].some((t) => t.includes('FREE')), 'No freed toast.');
+  assert([...toasts].some((t) => /grabbed/i.test(t)), 'No capture toast.');
+  assert([...toasts].some((t) => /free/i.test(t)), 'No freed toast.');
   assert(!/mission:complete|game over/i.test(readout), 'Unexpected mission end.');
   clearInterval(poll);
   assert(!errors.length, `Page errors: ${errors.join('\n')}`);

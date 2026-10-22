@@ -38,7 +38,7 @@ try {
         await page.waitForFunction(() => window.__autotest.arrived('pix'), null, { timeout: 90_000, polling: 250 });
       }
       // PIX parks at its desk console; NEE should go crack the signal console herself.
-      await page.waitForFunction(() => /CONSOLE CRACKED/.test(document.querySelector('[data-testid="juice-toasts"]')?.textContent ?? ''), null, { timeout: 45_000, polling: 250 });
+      await page.waitForFunction(() => /cracked (her|his) console/i.test(document.querySelector('[data-testid="juice-toasts"]')?.textContent ?? ''), null, { timeout: 45_000, polling: 250 });
       clearInterval(sample);
       if (process.env.SHOTS && run === 1) await page.screenshot({ path: `${process.env.SHOTS}/solo-nee-cracked.png` });
       const zipCount = async () => +((await readout()).match(/bot:\w+\/z(\d+)/)?.[1] ?? 0);

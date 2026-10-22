@@ -200,14 +200,14 @@ export class CordPlayground {
       if (!this.state.hoop) { this.state.hoop = true; this.progress('hoop'); }
     } else if (!this.state.hoop && this.hintCooldown <= 0) {
       this.hintCooldown = 6;
-      gameEvents.emit('toast', { text: 'TOO SLOW! FLY AWAY TILL THE CORD IS TIGHT, THEN [R]', tone: 'good' });
+      gameEvents.emit('toast', { text: 'Too slow. Pull the cord tight, then [R]', tone: 'good' });
     }
   }
 
   private progress(step: 'topple' | 'hoop' | 'yank'): void {
-    const text = step === 'topple' ? 'OOPS. NOBODY SAW THAT.' : step === 'hoop' ? 'SLINGSHOT! NOTHING BUT HOOP' : 'YANK! THE CORD IS A TOOL';
+    const text = step === 'topple' ? 'Oops. Nobody saw that.' : step === 'hoop' ? 'Slingshot! Nothing but hoop' : 'Yank! The cord is a tool';
     gameEvents.emit('toast', { text, tone: 'good' });
-    if (this.done) setTimeout(() => gameEvents.emit('toast', { text: 'WARM-UP DONE. GO STEAL SOMETHING', tone: 'good' }), 1400);
+    if (this.done) setTimeout(() => gameEvents.emit('toast', { text: 'Warm-up done. Go steal something', tone: 'good' }), 1400);
   }
 }
 

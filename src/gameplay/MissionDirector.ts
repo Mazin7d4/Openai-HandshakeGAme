@@ -343,14 +343,14 @@ export class MissionDirector {
     if (!this.objectiveTitle || !this.objectiveDetail || !this.detectionFill) return;
     const warm = this.state.stage === 'infiltrate' ? this.warmup() : null;
     const [title, detail] = this.state.stage === 'infiltrate'
-      ? warm ? ['WARM UP ON THE APRON', `${warm} · then fly in under reception`] : ['A SMALL DELIVERY', this.routeHint]
+      ? warm ? ['Warm up on the apron', `${warm} · then fly in under reception`] : ['Sneak in under reception', this.routeHint]
       : this.state.stage === 'hack-security'
-        ? ['INSIDE MORROW', `${hackCount} / 3 access keys · ${this.routeHint}`]
+        ? ['Crack the office consoles', `${hackCount} / 3 access keys · ${this.routeHint}`]
         : this.state.stage === 'steal-prototype'
-          ? ['MEET THE PROTOTYPE', 'The vault is open. Rise to the display cradle; [E] to carry the core.']
+          ? ['Grab the prototype', 'The vault is open. Rise to the display cradle; [E] to carry the core.']
           : this.state.stage === 'escape'
-            ? ['EVERYBODY OUT!', 'Main shutter sealed! West relief vent is open. Heavy Lab Crate is jamming the relief vent - haul it clear together. Follow green floor lights; throw loose objects at patrols. Both drones must reach PICKUP / 01.']
-            : ['PROTOTYPE SECURED', 'Extraction complete'];
+            ? ['Get out through the west vent', 'Main shutter sealed! West relief vent is open. Heavy Lab Crate is jamming the relief vent - haul it clear together. Follow green floor lights; throw loose objects at patrols. Both drones must reach Pickup / 01.']
+            : ['Prototype secured', 'Extraction complete'];
     this.objectiveTitle.textContent = title;
     this.objectiveDetail.textContent = detail;
     this.detectionFill.style.width = `${Math.round(this.security.detection * 100)}%`;
