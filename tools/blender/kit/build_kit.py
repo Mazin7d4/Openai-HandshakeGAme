@@ -304,6 +304,8 @@ def assign_uv_cell(obj, cell):
     for loop in uv_layer.data:
         loop.uv = (u_center, v_center)
 
+ROOM_SEG = False
+
 def box(name_part, center, size, swatch, bevel=0.01, seg=2):
     """Create a box part, apply bevel and weighted normals, and assign swatch."""
     bpy.ops.mesh.primitive_cube_add(size=1.0, location=center)
@@ -312,6 +314,8 @@ def box(name_part, center, size, swatch, bevel=0.01, seg=2):
     obj.dimensions = size
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
+    if ROOM_SEG:
+        seg = 1
     if bevel and bevel > 0.0001:
         max_b = min(size) * 0.45
         b_width = min(bevel, max_b)
@@ -329,6 +333,15 @@ def box(name_part, center, size, swatch, bevel=0.01, seg=2):
     mat, cell = resolve_swatch(swatch)
     obj.data.materials.append(mat)
     assign_uv_cell(obj, cell)
+    if name_part == 'HackTerminal_Screen':
+        # Planar-map the front onto the plug-icon region of kit_atlas_emit (px 192-256, py 0-64).
+        uv = obj.data.uv_layers.active
+        xs = [v.co.x for v in obj.data.vertices]; zs = [v.co.z for v in obj.data.vertices]
+        x0, x1, z0, z1 = min(xs), max(xs), min(zs), max(zs)
+        for poly in obj.data.polygons:
+            for li in poly.loop_indices:
+                co = obj.data.vertices[obj.data.loops[li].vertex_index].co
+                uv.data[li].uv = (0.75 + 0.25 * (co.x - x0) / max(x1 - x0, 1e-6), 0.25 * (co.z - z0) / max(z1 - z0, 1e-6))
     for f in obj.data.polygons:
         f.use_smooth = True
 
@@ -485,6 +498,8 @@ def commit(name, category, custom_footprint=None):
 # Room Kit (category 'room')
 # ---------------------------------------------------------------------------
 def build_room_kit():
+    global ROOM_SEG
+    ROOM_SEG = True
     # 1. WallStraight (1 m long, 3.0 m tall, 0.12 m thick)
     box('Wall_Skirting', (0.0, 0.0, 0.075), (1.0, 0.124, 0.15), 'oak', bevel=0.005)
     box('Wall_Body', (0.0, 0.0, 1.575), (1.0, 0.12, 2.85), 'porcelain', bevel=0.008)
@@ -609,20 +624,23 @@ def build_room_kit():
 
 # ===== PROPS (chunk B) =====
 def build_props():
-    """Builds props kit assets (hook for chunk B)."""
-    # 15. Desk (1.6x0.8x0.75 m oak top 3 cm, alu legs)
+    global ROOM_SEG
+    ROOM_SEG = False
+    """Builds props kit assets: Desk here, the rest in kit_props_a.py / kit_props_b.py."""
+    import sys, importlib
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
     box('Desk_Top', (0.0, 0.0, 0.735), (1.6, 0.8, 0.03), 'oak', bevel=0.005)
-    # Underframe rails
-    box('Desk_Rail_F', (0.0, -0.34, 0.70), (1.44, 0.03, 0.04), 'alu', bevel=0.003)
-    box('Desk_Rail_B', (0.0, 0.34, 0.70), (1.44, 0.03, 0.04), 'alu', bevel=0.003)
-    box('Desk_Rail_L', (-0.72, 0.0, 0.70), (0.03, 0.65, 0.04), 'alu', bevel=0.003)
-    box('Desk_Rail_R', (0.72, 0.0, 0.70), (0.03, 0.65, 0.04), 'alu', bevel=0.003)
-    # 4 Legs
+    box('Desk_Frame', (0.0, 0.0, 0.70), (1.44, 0.68, 0.04), 'alu', bevel=0.003)
     for lx in (-0.72, 0.72):
         for ly in (-0.34, 0.34):
-            box('Desk_Leg', (lx, ly, 0.355), (0.04, 0.04, 0.69), 'alu', bevel=0.003)
-            box('Desk_Foot', (lx, ly, 0.005), (0.044, 0.044, 0.01), 'rubber', bevel=0.002)
+            box('Desk_Leg', (lx, ly, 0.355), (0.04, 0.04, 0.69), 'alu', bevel=0.003, seg=1)
     commit('Desk', 'prop', custom_footprint=(1.6, 0.8))
+    for mod_name in ('kit_props_a', 'kit_props_b'):
+        try:
+            mod = importlib.import_module(mod_name)
+        except ModuleNotFoundError:
+            print(f'WARNING: {mod_name}.py missing, skipped'); continue
+        mod.build(box=box, cyl=cyl, tube=tube_along_curve, commit=commit)
 
 # ---------------------------------------------------------------------------
 # Vault Kit (category 'vault')
@@ -836,26 +854,21 @@ if args.sheet:
     vault_assets = [a for a in manifest_assets if a['category'] == 'vault']
 
     grid_layout = []
-    # Row 0: first 8 room pieces
-    # Row 1: next 6 room pieces
-    # Row 2: props
-    # Row 3: vault pieces
-    for idx, a in enumerate(room_assets[:8]):
-        grid_layout.append((a['name'], idx, 0))
-    for idx, a in enumerate(room_assets[8:]):
-        grid_layout.append((a['name'], idx, 1))
-    for idx, a in enumerate(prop_assets):
-        grid_layout.append((a['name'], idx, 2))
-    for idx, a in enumerate(vault_assets):
-        grid_layout.append((a['name'], idx, 3))
+    COLS = 10
+    row = 0
+    for group in (room_assets, prop_assets, vault_assets):
+        for idx, a in enumerate(group):
+            grid_layout.append((a['name'], idx % COLS, row + idx // COLS))
+        row += (len(group) + COLS - 1) // COLS
+    n_rows = row
 
-    step_x = 3.2
-    step_y = 3.2
+    step_x = 2.6
+    step_y = 2.8
 
     for name, col_idx, row_idx in grid_layout:
         root = bpy.data.objects.get('Kit_' + name)
         if root:
-            x_pos = (col_idx - 3.5) * step_x
+            x_pos = (col_idx - 4.5) * step_x
             y_pos = -row_idx * step_y
             root.location = (x_pos, y_pos, 0.0)
 
@@ -869,11 +882,15 @@ if args.sheet:
             txt_obj.data.align_y = 'TOP'
 
             # Assign graphite material to label
-            txt_obj.data.materials.append(mat_atlas)
-            assign_uv_cell(txt_obj, ATLAS_CELLS['graphite'][:2])
+            label_mat = bpy.data.materials.get('SheetLabel')
+            if label_mat is None:
+                label_mat = bpy.data.materials.new('SheetLabel'); label_mat.use_nodes = True
+                label_mat.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (0.02, 0.03, 0.03, 1)
+                label_mat.diffuse_color = (0.02, 0.03, 0.03, 1)
+            txt_obj.data.materials.append(label_mat)
 
     # Large resin floor plane
-    bpy.ops.mesh.primitive_plane_add(size=80.0, location=(0.0, -4.8, -0.001))
+    bpy.ops.mesh.primitive_plane_add(size=120.0, location=(0.0, -10.0, -0.001))
     floor_obj = bpy.context.object
     floor_obj.name = 'ContactFloor'
     floor_obj.data.materials.append(mat_atlas)
@@ -902,13 +919,14 @@ if args.sheet:
     # Orthographic camera looking down at ~55 deg from the front fitting the whole grid
     cam_data = bpy.data.cameras.new('ContactCam')
     cam_data.type = 'ORTHO'
-    cam_data.ortho_scale = 28.5
+    cam_data.ortho_scale = 28.0
     cam_obj = bpy.data.objects.new('ContactCam', cam_data)
     bpy.context.collection.objects.link(cam_obj)
     bpy.context.scene.camera = cam_obj
     # Center camera over grid
-    cam_obj.location = (0.0, -18.0, 16.0)
-    cam_obj.rotation_euler = (math.radians(55.0), 0.0, 0.0)
+    cy = -(n_rows - 1) * step_y / 2.0
+    cam_obj.location = (0.0, cy - 30.0 * math.sin(math.radians(38.0)) - 0.6, 30.0 * math.cos(math.radians(38.0)))
+    cam_obj.rotation_euler = (math.radians(38.0), 0.0, 0.0)
 
     # Render settings
     scene = bpy.context.scene

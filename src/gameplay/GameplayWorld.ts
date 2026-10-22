@@ -13,6 +13,7 @@ import { Grabbable } from './Grabbable.ts';
 import { HackSession } from './HackSession.ts';
 import { MissionDirector } from './MissionDirector.ts';
 import layout from '../level/heist-layout.json';
+import { dressRunLayout } from '../level/kit/KitDressing.ts';
 import { dressPrototype } from '../level/PrototypeVisual.ts';
 import { dressLabCrate } from '../level/LabCrateVisual.ts';
 import { dressCargoCore, dressCoolantCell } from '../level/GrabbableVisuals.ts';
@@ -37,6 +38,8 @@ export class GameplayWorld {
   private readonly mission: MissionDirector;
   private readonly audio = new GameAudio();
   private readonly objects: Grabbable[];
+  private readonly scene: Scene;
+  private kitDressing: { dispose(): void } | null = null;
   private runLayout: RunLayout | null;
   private readonly playground: CordPlayground;
 
@@ -49,6 +52,7 @@ export class GameplayWorld {
     onLeave?: () => void,
     runLayout?: RunLayout | null,
   ) {
+    this.scene = scene;
     this.runLayout = runLayout ?? null;
     const loot = runLayout?.loot ?? layout.objects.prototype;
     const objects = [
@@ -145,6 +149,8 @@ export class GameplayWorld {
         this.objects.find((o) => o.id === 'prototype')?.relocateCradle(vec(run.loot));
         this.hack.applyRunLayout(run);
         this.mission.applyRunLayout(run);
+        this.kitDressing?.dispose();
+        void dressRunLayout(this.scene, run).then((h) => { this.kitDressing = h; }).catch((e) => console.warn('[kit] dressing failed', e));
       },
     });
   }
