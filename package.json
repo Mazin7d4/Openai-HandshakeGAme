@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "build:kit": "bash tools/blender/kit/build-kit.sh",
     "dev": "node tools/dev.mjs",
     "dev:client": "vite",
     "server": "node --experimental-strip-types server/index.mjs",
