@@ -10,9 +10,13 @@ mkdirSync(SHOTS, { recursive: true });
 /** Software-GL flags (no GPU on the box), same as verify-companion / probe-fps. */
 export const GL_ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'];
 
+/** WS server for co-op/join tests. Passed as ?server= (future override, see WIN_STRATEGY); the
+ * current client ignores it and uses VITE_COLYSEUS_URL baked in at vite start (qa:servers sets it). */
+export const SERVER_URL = process.env.QA_SERVER_URL ?? 'ws://127.0.0.1:2583';
 export function url(extra = {}) {
   const u = new URL(BASE_URL);
   u.searchParams.set('debug', '1');
+  u.searchParams.set('server', SERVER_URL);
   for (const [k, v] of Object.entries(extra)) u.searchParams.set(k, v);
   return u.toString();
 }
