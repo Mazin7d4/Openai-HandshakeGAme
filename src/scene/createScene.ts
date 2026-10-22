@@ -1,4 +1,3 @@
-import type { AbstractMesh } from '@babylonjs/core';
 import {
   Color3,
   Color4,
@@ -8,9 +7,11 @@ import {
   GlowLayer,
   HemisphericLight,
   ImageProcessingConfiguration,
+  Mesh,
   Scene,
   ShadowGenerator,
   Vector3,
+  type AbstractMesh,
 } from '@babylonjs/core';
 import { createStudioEnvironment } from './studioEnvironment.ts';
 
@@ -18,6 +19,26 @@ import { createStudioEnvironment } from './studioEnvironment.ts';
 const params = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
 export const renderScale = Math.min(6, Math.max(1, Number(params.get('scale')) || 1));
 export const lowFx = params.has('lowfx');
+
+/** Bloom only meshes whose emissive is strong enough to read at the layer intensity. */
+export function limitGlowToStrongEmitters(scene: Scene, minEmissiveSum = 0.35): number {
+  const glow = scene.getGlowLayerByName('glow');
+  if (!glow) return 0;
+  let n = 0;
+  for (const mesh of scene.meshes) {
+    if (!(mesh instanceof Mesh)) continue;
+    // Include disabled meshes too (alarm beacons turn on later). Thin-instance hosts glow once.
+    const mat = mesh.material;
+    if (!mat || !('emissiveColor' in mat)) continue;
+    const e = (mat as { emissiveColor?: { r: number; g: number; b: number }; emissiveTexture?: unknown }).emissiveColor;
+    const hasTex = !!(mat as { emissiveTexture?: unknown }).emissiveTexture;
+    const sum = e ? e.r + e.g + e.b : 0;
+    if (sum < minEmissiveSum && !hasTex) continue;
+    glow.addIncludedOnlyMesh(mesh);
+    n++;
+  }
+  return n;
+}
 
 export function createEngine(canvas: HTMLCanvasElement): Engine {
   const engine = new Engine(canvas, !lowFx, {
@@ -91,6 +112,10 @@ export function createScene(engine: Engine): Scene {
   if (!lowFx) {
     const glow = new GlowLayer('glow', scene, { blurKernelSize: 32 });
     glow.intensity = 0.22;
+    // Faint emissives (sign ink ~0.2, escape strips ~0.06, dim screens) still shade in the
+    // main pass but contribute almost nothing to bloom at intensity 0.22 — exclude them so the
+    // glow map only draws strong emitters (lips, LEDs, drone glow, beacons, washers).
+    scene.onAfterRenderObservable.addOnce(() => limitGlowToStrongEmitters(scene));
   }
 
   // Shared soft daylight reflections on painted surfaces, glass, metal and drones.

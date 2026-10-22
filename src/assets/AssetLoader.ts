@@ -5,7 +5,7 @@ import {
   type AnimationGroup,
   type Scene,
 } from '@babylonjs/core';
-import '@babylonjs/loaders/glTF';
+import './registerGltf.ts';
 import './meshopt.ts';
 
 export interface LoadedModel {

@@ -1,13 +1,14 @@
 import {
   Color3, Color4, CreateBox, CreateCylinder, CreatePlane, CreatePolyhedron, CreateTorus,
   DirectionalLight, DynamicTexture, HemisphericLight, ImportMeshAsync, PBRMaterial, Scalar,
-  SpotLight, StandardMaterial, Vector3,
-  type HavokPlugin, type Material, type Mesh, type Scene,
+  Mesh, SpotLight, StandardMaterial, Vector3,
+  type HavokPlugin, type Material, type Scene,
 } from '@babylonjs/core';
-import '@babylonjs/loaders/glTF';
+import '../assets/registerGltf.ts';
 import '../assets/meshopt.ts';
 import { addStaticBody } from '../physics/staticBody.ts';
 import { Door } from '../gameplay/Door.ts';
+import { mergeStaticByMaterial, isDynamicOrInteractive } from '../scene/mergeStatic.ts';
 import { createLabPalette } from './LabPalette.ts';
 import { dressMissionAreas, mergeDecorative } from './AreaDressing.ts';
 import { loadPropKit } from './PropKit.ts';
@@ -385,8 +386,32 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   }
   for (const name of ['rack-upright', 'rack-tray', 'rack-status']) for (const m of scene.meshes.filter(m => m.name === name)) m.dispose();
   dressMissionAreas(scene, p, kit);
+  kit.commit();
   // Batch Astra's repeated physics-free trim (rack trays/LEDs, battens, fixtures) into one mesh per material.
   mergeDecorative(scene, ['rack-upright', 'rack-tray', 'rack-status', 'oak-batten', 'pendant-shell',
     'pendant-diffuser', 'pendant-wire', 'vault-mullion', 'extraction-lamp']);
+  // Collapse remaining static non-occluder decoration (desks, signs, floors, glass) per material.
+  mergeStaticByMaterial(scene, {
+    namePrefix: 'batch',
+    include: (mesh) => !isDynamicOrInteractive(mesh)
+      && !mesh.name.startsWith('dressing-')
+      && !mesh.name.startsWith('merged-')
+      && !mesh.name.startsWith('batch-')
+      && !mesh.name.startsWith('static-'),
+  });
+  // Freeze world matrices on leftover static visuals (occluders kept separate for camera fade).
+  for (const mesh of scene.meshes) {
+    if (!(mesh instanceof Mesh) || !mesh.isVisible) continue;
+    if (isDynamicOrInteractive(mesh) || (mesh.thinInstanceCount ?? 0) > 0) continue;
+    if (mesh.physicsBody && mesh.metadata?.cameraOccluder) continue;
+    mesh.isPickable = false;
+    mesh.computeWorldMatrix(true);
+    mesh.freezeWorldMatrix();
+  }
+  // Freeze static palette materials. p.escape emissive pulses on alarm — leave it live.
+  for (const [key, mat] of Object.entries(p)) {
+    if (key === 'escape') continue;
+    try { mat.freeze(); } catch { /* ok */ }
+  }
   return new Vector3(layout.spawn.x, layout.spawn.y, layout.spawn.z);
 }

@@ -22,7 +22,7 @@ import { Drone, DRONE_PALETTES } from '../player/Drone.ts';
 import { DRONE_MODEL_URL } from '../player/DroneVisual.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import { enableHavok } from '../physics/enableHavok.ts';
-import { createEngine, createScene } from '../scene/createScene.ts';
+import { createEngine, createScene, limitGlowToStrongEmitters } from '../scene/createScene.ts';
 import { GameHud } from '../ui/GameHud.ts';
 import type { GameMode } from './GameMode.ts';
 
@@ -318,6 +318,8 @@ export class GameApp {
     cameraRig.snap(drones);
     Object.assign(live, { drones, camera: cameraRig, gameplay });
     scene.activeCamera = cameraRig.camera;
+    // Level + drones are loaded; restrict the glow pass to strong emitters before the first frame.
+    limitGlowToStrongEmitters(scene);
     const devReadout = options.devParent ? new DevReadout(options.devParent, mode) : null;
     const devOrbit = options.devParent ? new DevOrbitCamera(scene, options.canvas) : null;
 
