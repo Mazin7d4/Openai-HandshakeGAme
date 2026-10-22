@@ -1,6 +1,7 @@
 import type { GameMode } from '../app/GameMode.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
-import { getSettings, saveSettings, type GraphicsQualitySetting } from './Settings.ts';
+import type { GraphicsQualitySetting } from './Settings.ts';
+import { SettingsMenu } from './SettingsMenu.ts';
 
 export interface GameHudOptions {
   onResume: () => void;
@@ -57,6 +58,7 @@ export class GameHud {
   private paused = false;
   private promptKey = '';
   private activeDroneText = '';
+  private settingsMenu: SettingsMenu | null = null;
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (event.code === 'KeyH' && !this.paused && !(event.target instanceof HTMLInputElement)) {
@@ -68,6 +70,13 @@ export class GameHud {
       return;
     }
     if (event.code === 'Escape' && this.paused) {
+      if (this.settingsMenu) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        this.closeSettings();
+        this.showPauseHome();
+        return;
+      }
       event.preventDefault();
       event.stopImmediatePropagation();
       this.options.onResume();
@@ -81,6 +90,7 @@ export class GameHud {
     this.prompt.dataset.testid = 'interaction-prompt';
     this.activeDrone = document.createElement('div');
     this.activeDrone.className = 'active-drone-hud';
+    this.activeDrone.dataset.testid = 'active-drone-hud';
     this.pauseOverlay = document.createElement('div');
     this.pauseOverlay.className = 'overlay pause-overlay';
     this.pauseOverlay.dataset.testid = 'pause-menu';
@@ -148,7 +158,12 @@ export class GameHud {
       : activeRole.toUpperCase();
     if (activeDroneText !== this.activeDroneText) {
       this.activeDroneText = activeDroneText;
-      this.activeDrone.textContent = activeDroneText;
+      this.activeDrone.dataset.role = activeRole;
+      this.activeDrone.replaceChildren();
+      const mark = document.createElement('span');
+      mark.className = `role-mark role-mark--${activeRole}`;
+      mark.setAttribute('aria-hidden', 'true');
+      this.activeDrone.append(mark, document.createTextNode(activeDroneText));
     }
   }
 
@@ -174,6 +189,7 @@ export class GameHud {
     this.pauseOverlay.classList.toggle('visible', paused);
     this.prompt.classList.toggle('visible', !paused && this.prompt.childElementCount > 0);
     if (paused) this.showPauseHome();
+    else this.closeSettings();
   }
 
   /** Keyboard players land on the first action of each pause screen. */
@@ -183,6 +199,7 @@ export class GameHud {
 
   dispose(): void {
     window.removeEventListener('keydown', this.onKeyDown, true);
+    this.closeSettings();
     this.prompt.remove();
     this.activeDrone.remove();
     this.pauseOverlay.remove();
@@ -192,10 +209,11 @@ export class GameHud {
   }
 
   private showPauseHome(): void {
+    this.closeSettings();
     this.panel.replaceChildren(this.heading('Paused'));
     this.panel.append(
       this.button('Resume', this.options.onResume, 'btn--primary'),
-      this.button('Settings', () => this.showSettings()),
+      this.button('Settings', () => this.showSettings(), '', 'pause-settings'),
       this.button('Controls', () => this.showControls()),
       this.button('Leave game', this.options.onLeave, 'btn--danger danger'),
     );
@@ -203,76 +221,22 @@ export class GameHud {
   }
 
   private showSettings(): void {
-    const settings = getSettings();
-    this.panel.replaceChildren(this.heading('Settings'));
-
-    const masterVolumeRow = this.rangeRow(
-      'Master volume',
-      settings.masterVolume,
-      0,
-      100,
-      1,
-      '%',
-      (val: number) => {
-        saveSettings({ masterVolume: val });
-      },
-    );
-
-    const sensitivityRow = this.rangeRow(
-      'Look sensitivity',
-      settings.lookSensitivity,
-      0.25,
-      2,
-      0.05,
-      'x',
-      (val: number) => {
-        saveSettings({ lookSensitivity: val });
-      },
-    );
-
-    const shakeRow = document.createElement('label');
-    shakeRow.className = 'settings-row';
-    const shakeLabel = document.createElement('span');
-    shakeLabel.textContent = 'Screen shake';
-    const shakeInput = document.createElement('input');
-    shakeInput.type = 'checkbox';
-    shakeInput.checked = settings.screenShake;
-    shakeInput.addEventListener('change', () => {
-      saveSettings({ screenShake: shakeInput.checked });
+    this.closeSettings();
+    this.panel.replaceChildren();
+    this.settingsMenu = new SettingsMenu(this.panel, {
+      embedded: true,
+      onClose: () => this.showPauseHome(),
+      onGraphicsQuality: this.options.onGraphicsQuality,
     });
-    shakeRow.append(shakeLabel, shakeInput);
+  }
 
-    const row = document.createElement('label');
-    row.className = 'settings-row';
-    row.append(document.createTextNode('Graphics quality'));
-    const select = document.createElement('select');
-    for (const value of ['auto', 'low', 'medium', 'high'] as const) {
-      const option = document.createElement('option');
-      option.value = value;
-      option.textContent = value[0].toUpperCase() + value.slice(1);
-      option.selected = value === settings.graphicsQuality;
-      select.append(option);
-    }
-    select.addEventListener('change', () => {
-      this.options.onGraphicsQuality(select.value as GraphicsQualitySetting);
-    });
-    row.append(select);
-
-    this.panel.append(
-      masterVolumeRow,
-      sensitivityRow,
-      shakeRow,
-      row,
-      this.button('Fullscreen', () => {
-        if (document.fullscreenElement) void document.exitFullscreen();
-        else void document.documentElement.requestFullscreen();
-      }),
-      this.button('Back', () => this.showPauseHome(), 'btn--quiet'),
-    );
-    this.focusFirst();
+  private closeSettings(): void {
+    this.settingsMenu?.dispose();
+    this.settingsMenu = null;
   }
 
   private showControls(): void {
+    this.closeSettings();
     this.panel.replaceChildren(this.heading('Controls'));
     const list = document.createElement('dl');
     list.className = 'controls-list';
@@ -293,41 +257,18 @@ export class GameHud {
     this.focusFirst();
   }
 
-  private rangeRow(
-    label: string, value: number, min: number, max: number, step: number, unit: string,
-    onChange: (value: number) => void,
-  ): HTMLElement {
-    const row = document.createElement('label');
-    row.className = 'settings-row';
-    const text = document.createElement('span');
-    const format = (v: number) => `${label}  ${unit === '%' ? Math.round(v) : v.toFixed(2)}${unit}`;
-    text.textContent = format(value);
-    const input = document.createElement('input');
-    input.type = 'range';
-    input.min = String(min);
-    input.max = String(max);
-    input.step = String(step);
-    input.value = String(value);
-    input.addEventListener('input', () => {
-      const next = Number(input.value);
-      text.textContent = format(next);
-      onChange(next);
-    });
-    row.append(text, input);
-    return row;
-  }
-
   private heading(text: string): HTMLHeadingElement {
     const heading = document.createElement('h2');
     heading.textContent = text;
     return heading;
   }
 
-  private button(label: string, action: () => void, className = ''): HTMLButtonElement {
+  private button(label: string, action: () => void, className = '', testId = ''): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `btn pause-button ${className}`.trim();
     button.textContent = label;
+    if (testId) button.dataset.testid = testId;
     button.addEventListener('click', action);
     return button;
   }

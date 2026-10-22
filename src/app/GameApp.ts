@@ -24,6 +24,7 @@ import { DRONE_MODEL_URL } from '../player/DroneVisual.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import { enableHavok } from '../physics/enableHavok.ts';
 import { createEngine, createScene } from '../scene/createScene.ts';
+import { AccessibilityFeedback } from '../ui/AccessibilityFeedback.ts';
 import { GameHud } from '../ui/GameHud.ts';
 import { saveSettings } from '../ui/Settings.ts';
 import type { GameMode } from './GameMode.ts';
@@ -65,6 +66,7 @@ export class GameApp {
   private readonly removeNetworkStatus: (() => void) | null;
   private readonly snapshots: PlayerSnapshot[] = [];
   private readonly hud: GameHud | null;
+  private readonly a11y: AccessibilityFeedback | null;
   private readonly diagnostics = new StabilityDiagnostics();
   private readonly idleAxes = zeroFlightAxes();
   /** TEST-ONLY (?autotest): position-targeted steering for deterministic verifiers. */
@@ -132,6 +134,7 @@ export class GameApp {
           onYank: () => { this.yankRequested = true; },
         })
       : null;
+    this.a11y = hudParent ? new AccessibilityFeedback(hudParent) : null;
     this.juice = new Juice(scene);
     const audio = gameplay.sfx;
     this.moves = new TetherMoves(
@@ -390,6 +393,7 @@ export class GameApp {
     this.cameraRig.dispose();
     this.gameplay.dispose();
     this.hud?.dispose();
+    this.a11y?.dispose();
     this.diagnostics.dispose();
     this.scene.dispose();
     this.engine.dispose();
