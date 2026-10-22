@@ -9,7 +9,14 @@ import { MultiplayerSession } from './network/MultiplayerSession.ts';
 import type { RoomStatus } from './network/NetworkTypes.ts';
 import { RECONNECT_GRACE_SECONDS } from './network/ReconnectionToken.ts';
 import { pingServer, wakeServer } from './network/ServerEndpoint.ts';
-import { getRunSeed } from './seed/index.ts';
+import {
+  clearRunIntent,
+  dailySeed,
+  formatBeatMs,
+  getRunInfo,
+  prepareChallengeRun,
+  prepareDailyRun,
+} from './net/runInfo.ts';
 import './style.css';
 import { audio } from './audio/AudioManager.ts';
 
@@ -111,9 +118,11 @@ function errorMessage(error: unknown): string {
 }
 
 function showMainMenu(): void {
-  const beat = new URLSearchParams(window.location.search).get('beat');
-  const blurb = beat && /^\d+:\d{2}$/.test(beat)
-    ? `A friend finished in ${beat}. Can you beat it?`
+  const params = new URLSearchParams(window.location.search);
+  const beatRaw = params.get('beat');
+  const beatMs = beatRaw != null && /^\d+$/.test(beatRaw) ? Number(beatRaw) : NaN;
+  const blurb = Number.isFinite(beatMs)
+    ? `A friend finished in ${formatBeatMs(beatMs)}. Can you beat it?`
     : 'Fly a pair of tethered drones through a sleepy office and lift the core from the vault.';
   const shell = menuShell();
   shell.classList.add('menu-shell--title');
@@ -123,8 +132,17 @@ function showMainMenu(): void {
   const play = menuButton('', 'singleplayer', showSinglePlayer, 'btn--primary');
   play.classList.add('btn--hero');
   play.append(element('span', 'btn__label', 'Play now'), element('span', 'btn__hint', 'Solo · you fly PIX'));
+  const daily = menuButton('Daily Heist', 'daily-heist', () => {
+    prepareDailyRun(new Date());
+    void startGame('night-shift');
+  });
+  daily.title = `Night Shift seeded from today's UTC date (${dailySeed(new Date())})`;
   const actions = element('div', 'menu-actions');
-  actions.append(play, menuButton('Play with a friend', 'multiplayer', showMultiplayerMenu));
+  actions.append(
+    play,
+    daily,
+    menuButton('Play with a friend', 'multiplayer', showMultiplayerMenu),
+  );
   if (devMenuAllowed) {
     actions.append(menuButton('Dev local', 'dev-local', () => {
       void startGame('dev-local');
@@ -143,6 +161,7 @@ function showSinglePlayer(): void {
     void startGame('singleplayer');
   }, 'btn--primary');
   const night = menuButton('Night Shift', 'night-shift', () => {
+    clearRunIntent();
     void startGame('night-shift');
   });
   night.title = 'Endless floors from one seed. Stubbed until Netcode owns captures.';
@@ -320,15 +339,15 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   const boot = element('div', 'boot-card');
   boot.id = 'boot-status';
   const bootStep = element('p', 'boot-step', 'Loading physics…');
-  const runSeed = mode === 'night-shift' ? getRunSeed() : undefined;
+  const runInfo = mode === 'night-shift' ? getRunInfo() : undefined;
   boot.append(
     element('p', 'boot-title', 'PIX & NEE'),
     Object.assign(element('div', 'boot-dots'), { innerHTML: '<span class="pix"></span><span class="nee"></span>' }),
     Object.assign(element('div', 'boot-bar'), { innerHTML: '<span></span>' }),
     bootStep,
   );
-  if (runSeed) {
-    boot.append(element('p', 'boot-seed', `Seed ${runSeed.seed} · Floor ${runSeed.floor}`));
+  if (runInfo) {
+    boot.append(element('p', 'boot-seed', `Seed ${runInfo.seed} · Floor ${runInfo.floor + 1}`));
   }
   root.replaceChildren(canvas, boot);
   const bootSteps = ['Loading physics…', 'Building the lab…', 'Waking PIX and NEE…'];
@@ -414,7 +433,7 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
         : undefined,
       mode,
       multiplayer: session,
-      runSeed,
+      runSeed: runInfo ? { seed: runInfo.seed, floor: runInfo.floor } : undefined,
       onLeaveGame: () => {
         removeStatus?.();
         game?.dispose();
@@ -501,14 +520,36 @@ async function bootFromInviteLink(): Promise<boolean> {
   return true;
 }
 
+function challengeSeedFromUrl(): number | null {
+  const raw = new URLSearchParams(window.location.search).get('seed')?.trim() ?? '';
+  if (!/^\d+$/.test(raw)) return null;
+  return Number(raw) >>> 0;
+}
+
+function challengeBeatMsFromUrl(): number | undefined {
+  const raw = new URLSearchParams(window.location.search).get('beat')?.trim() ?? '';
+  if (!/^\d+$/.test(raw)) return undefined;
+  const ms = Number(raw);
+  return Number.isFinite(ms) ? Math.max(0, ms) : undefined;
+}
+
 const bootParams = new URLSearchParams(window.location.search);
+const challengeSeed = challengeSeedFromUrl();
 if (bootParams.has('report')) {
   void showHeistReportDemo();
 } else if (roomCodeFromUrl()) {
   void bootFromInviteLink();
   setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+} else if (challengeSeed != null) {
+  prepareChallengeRun(challengeSeed, challengeBeatMsFromUrl());
+  void startGame('night-shift');
+  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
 } else if (bootParams.get('play') === 'solo') {
   void startGame('singleplayer');
+  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+} else if (bootParams.get('play') === 'daily') {
+  prepareDailyRun(new Date());
+  void startGame('night-shift');
   setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
 } else {
   showMainMenu();

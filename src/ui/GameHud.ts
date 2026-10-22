@@ -10,6 +10,8 @@ export interface GameHudOptions {
   onGrabDrop: () => void;
   onThrow: () => void;
   onYank?: () => void;
+  /** Night Shift: seed shown small on the pause home screen. */
+  runSeed?: number | null;
 }
 
 // One drawn icon style for every control glyph: 24px grid, 2px graphite stroke, round caps, no fills.
@@ -53,6 +55,7 @@ export class GameHud {
   private readonly options: GameHudOptions;
   private readonly controlsCard: HTMLDivElement;
   private readonly toastLayer: HTMLDivElement;
+  private readonly runSeed: number | null;
   private controlsTimer = 0;
   private paused = false;
   private promptKey = '';
@@ -76,6 +79,7 @@ export class GameHud {
 
   constructor(parent: HTMLElement, options: GameHudOptions) {
     this.options = options;
+    this.runSeed = options.runSeed ?? null;
     this.prompt = document.createElement('div');
     this.prompt.className = 'interaction-prompt';
     this.prompt.dataset.testid = 'interaction-prompt';
@@ -193,6 +197,13 @@ export class GameHud {
 
   private showPauseHome(): void {
     this.panel.replaceChildren(this.heading('Paused'));
+    if (this.runSeed != null) {
+      const seed = document.createElement('p');
+      seed.className = 'pause-seed';
+      seed.dataset.testid = 'pause-seed';
+      seed.textContent = `Seed ${this.runSeed}`;
+      this.panel.append(seed);
+    }
     this.panel.append(
       this.button('Resume', this.options.onResume, 'btn--primary'),
       this.button('Settings', () => this.showSettings()),

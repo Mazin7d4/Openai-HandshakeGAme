@@ -26,7 +26,8 @@ import { enableHavok } from '../physics/enableHavok.ts';
 import { createEngine, createScene } from '../scene/createScene.ts';
 import { GameHud } from '../ui/GameHud.ts';
 import { saveSettings } from '../ui/Settings.ts';
-import { generateRun, getRunSeed, type RunLayout } from '../seed/index.ts';
+import { generateRun, type RunLayout } from '../seed/index.ts';
+import { getRunInfo } from '../net/runInfo.ts';
 import type { GameMode } from './GameMode.ts';
 
 export interface GameAppOptions {
@@ -37,7 +38,7 @@ export interface GameAppOptions {
   mode?: GameMode;
   multiplayer?: MultiplayerSession;
   onLeaveGame?: () => void;
-  /** Optional override; default is getRunSeed() stub (Netcode swaps the getter later). */
+  /** Optional override; default is getRunInfo() → getRunSeed() stub (Netcode swaps later). */
   runSeed?: { seed: number; floor: number };
 }
 
@@ -136,6 +137,7 @@ export class GameApp {
           onGrabDrop: () => this.triggerHudAction('grabDrop'),
           onThrow: () => this.triggerHudAction('throwObject'),
           onYank: () => { this.yankRequested = true; },
+          runSeed: runLayout?.seed ?? null,
         })
       : null;
     this.juice = new Juice(scene);
@@ -248,7 +250,8 @@ export class GameApp {
     const multiplayer = options.multiplayer ?? null;
     // Solo + Night Shift share generateRun; multiplayer waits on server applySeedFloor (prod-net sync).
     // Story/solo/co-op keep the handcrafted level; only Night Shift remixes (until Netcode syncs room seeds).
-    const runSeed = mode === 'night-shift' ? options.runSeed ?? getRunSeed() : null;
+    // UI reads seed/floor through getRunInfo() so Netcode can swap the source without HUD changes.
+    const runSeed = mode === 'night-shift' ? options.runSeed ?? getRunInfo() : null;
     const runLayout = runSeed ? generateRun(runSeed.seed, runSeed.floor) : null;
     // TEST-ONLY: ?autotest&stage=escape starts local modes in the alarm escape, beside the heavy crate.
     const escapeStage = Autopilot.enabled && mode !== 'multiplayer'

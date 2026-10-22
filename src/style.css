@@ -168,13 +168,39 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 
 /* ---------- HUD ---------- */
 .network-hud, .active-drone-hud {
-  position: absolute; top: 16px; z-index: 5; padding: 6px 12px;
+  position: absolute; top: max(16px, env(safe-area-inset-top, 0px)); z-index: 5; padding: 6px 12px;
   border: var(--rim); border-radius: var(--r-control); background: var(--paper); box-shadow: var(--lip);
   color: var(--graphite); font: 700 16px/1.2 var(--font-body); pointer-events: none;
 }
-.network-hud { left: 16px; z-index: 3; }
+.network-hud { left: max(16px, env(safe-area-inset-left, 0px)); z-index: 3; }
 .network-hud.partner-disconnected { color: var(--security-ink); border-color: var(--security); }
-.active-drone-hud { right: 16px; }
+.active-drone-hud { right: max(16px, env(safe-area-inset-right, 0px)); }
+/* Night Shift floor + beat chips: left stack inside safe areas, clear of right-side touch / active-drone. */
+.run-hud {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top, 0px));
+  left: max(16px, env(safe-area-inset-left, 0px));
+  z-index: 5;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  max-width: min(200px, calc(100% - 168px));
+  pointer-events: none;
+}
+.floor-chip, .beat-chip {
+  padding: 6px 12px;
+  border: var(--rim); border-radius: var(--r-control);
+  background: var(--paper); box-shadow: var(--lip);
+  color: var(--graphite);
+  font: 800 18px/1 var(--font-screen); font-variant-numeric: tabular-nums;
+  font-variation-settings: 'ROND' 100; letter-spacing: 0.02em;
+}
+.beat-chip {
+  color: var(--pix); background: var(--screen); border-color: var(--graphite);
+  box-shadow: 0 3px 0 #000;
+}
+.pause-seed {
+  margin: 0 0 4px; color: var(--pencil);
+  font: 700 14px/1.2 var(--font-screen); font-variant-numeric: tabular-nums;
+}
 .interaction-prompt {
   position: absolute; left: 50%; bottom: 72px; z-index: 5; display: flex; gap: 8px; padding: 8px;
   border: var(--rim); border-radius: var(--r-panel); background: var(--warm-screen); box-shadow: var(--lip), var(--float-shadow);
@@ -195,7 +221,10 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 .mission-objective::before { content: ''; position: absolute; left: 50%; bottom: 100%; width: var(--cord); height: 16px; background: var(--graphite); transform: translateX(-50%); }
 .mission-objective h2 { margin: 4px 0 2px; font-size: 20px; }
 .mission-objective p { margin-bottom: 8px; color: var(--pencil); font-size: 16px; line-height: 1.35; }
-.mission-seed { display: block; margin: 0 0 8px; color: var(--graphite); font: 700 13px/1.2 var(--font-screen); font-variant-numeric: tabular-nums; }
+.heist-report__seed {
+  margin: 0 0 8px; color: var(--pencil);
+  font: 700 16px/1.2 var(--font-screen); font-variant-numeric: tabular-nums;
+}
 .mission-objective.alarm { border-color: var(--security); box-shadow: 0 3px 0 var(--security-ink), var(--float-shadow); animation: alarm-border 520ms ease-in-out infinite alternate; }
 .mission-objective.alarm > span { color: var(--security-ink); }
 @keyframes alarm-border { to { border-color: var(--alarm); } }
@@ -495,12 +524,25 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 
 @media (max-width: 760px) {
   .mission-objective { top: 54px; width: calc(100% - 24px); }
+  .run-hud { top: max(12px, env(safe-area-inset-top, 0px)); }
+  .floor-chip, .beat-chip { font-size: 16px; padding: 5px 10px; }
   .hack-board-shell { grid-template-columns: 1fr; }
   .memory-node { min-height: 70px; }
   .menu-panel { padding: 24px; }
   .menu-panel h1 { font-size: 28px; }
   .wordmark { font-size: 52px; }
   .glyph-list { grid-template-columns: repeat(3, auto); }
+}
+/* Short landscape (844×390): keep floor/beat left and under the top safe inset; never spill into right touch lane. */
+@media (max-height: 420px) and (min-width: 700px) {
+  .run-hud {
+    top: max(8px, env(safe-area-inset-top, 0px));
+    left: max(8px, env(safe-area-inset-left, 0px));
+    max-width: min(180px, calc(100% - 200px));
+    gap: 4px;
+  }
+  .floor-chip, .beat-chip { font-size: 16px; padding: 4px 10px; }
+  .mission-objective { top: max(8px, env(safe-area-inset-top, 0px)); width: min(320px, calc(100% - 360px)); }
 }
 /* Phone portrait: drones in the top band, the device key below them. */
 @media (max-width: 600px) and (orientation: portrait) {

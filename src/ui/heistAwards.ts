@@ -19,6 +19,8 @@ export interface RunStats {
   /** Who initiated the most yanks. */
   yankBy: ReadonlyArray<DroneRole>;
   outcome: 'win' | 'fail';
+  /** Night Shift run seed (shown on the report + used for challenge links). */
+  seed?: number;
 }
 
 export interface HeistAward {
