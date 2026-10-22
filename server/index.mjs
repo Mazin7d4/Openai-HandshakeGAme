@@ -1,9 +1,29 @@
-import { CloseCode, Room, Server, WebSocketTransport } from 'colyseus';
+import { CloseCode, Room, Server, WebSocketTransport, matchMaker } from 'colyseus';
 import { schema, t } from '@colyseus/schema';
+import { createRequire } from 'node:module';
 import layout from '../src/level/heist-layout.json' with { type: 'json' };
 import { Security, createSecurityState, SecuritySim } from './security.mjs';
 
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json');
+
 const PORT = Number.parseInt(process.env.PORT ?? '2567', 10);
+const EMPTY_ROOM_SECONDS = Number.parseInt(process.env.EMPTY_ROOM_SECONDS ?? '60', 10);
+const LONELY_ROOM_SECONDS = Number.parseInt(process.env.LONELY_ROOM_SECONDS ?? '900', 10);
+
+// --- CORS allow-list -----------------------------------------------------------
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+const permissive = ALLOWED_ORIGINS.length === 0;
+
+function isOriginAllowed(origin) {
+  return permissive || !origin || ALLOWED_ORIGINS.includes(origin);
+}
+
+// --- Live-room tracking --------------------------------------------------------
+const liveRooms = new Set();
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const RECONNECT_SECONDS = 15;
 const MAX_WORLD_COORDINATE = 200;
@@ -152,11 +172,29 @@ class HandshakeRoom extends Room {
   doorOpenedAt = 0;
   spotCooldownUntil = 0;
   clotheslines = 0;
+  createdAt = Date.now();
+  disposeReason = 'disposed';
 
   onCreate() {
+    liveRooms.add(this);
+
+    // Empty-room timeout: disconnect if nobody joins within EMPTY_ROOM_SECONDS
+    this._emptyTimeout = this.clock.setTimeout(() => {
+      this.disposeReason = 'empty-timeout';
+      this.disconnect();
+    }, EMPTY_ROOM_SECONDS * 1000);
+
+    // Lonely-room timeout: host waiting alone, never started
+    this._lonelyTimeout = this.clock.setTimeout(() => {
+      if (this.state.players.size < 2) {
+        this.disposeReason = 'lonely-timeout';
+        this.disconnect();
+      }
+    }, LONELY_ROOM_SECONDS * 1000);
     this.maxClients = 2;
     this.roomId = roomCode();
     this.setMetadata({ code: this.roomId });
+    console.log(`[handshake] room ${this.roomId} created`);
     this.state.security = createSecurityState();
     this.securitySim = new SecuritySim(this.state.security);
     for (const [id, position] of Object.entries(layout.objects)) {
@@ -194,6 +232,11 @@ class HandshakeRoom extends Room {
   }
 
   onJoin(client) {
+    // Clear empty-room timeout on first join
+    if (this._emptyTimeout) {
+      this._emptyTimeout.clear();
+      this._emptyTimeout = null;
+    }
     const roles = new Set(Array.from(this.state.players.values()).map((player) => player.role));
     const role = roles.has('pix') ? 'nee' : 'pix';
     const player = new Player();
@@ -205,6 +248,10 @@ class HandshakeRoom extends Room {
     player.position.z = layout.spawn.z;
     this.state.players.set(client.sessionId, player);
     this.state.started = this.state.players.size === 2;
+    if (this.state.started && this._lonelyTimeout) {
+      this._lonelyTimeout.clear();
+      this._lonelyTimeout = null;
+    }
   }
 
   async onLeave(client, code) {
@@ -225,6 +272,17 @@ class HandshakeRoom extends Room {
       this.state.players.delete(client.sessionId);
       this.state.started = false;
     }
+  }
+
+  onDispose() {
+    if (this._emptyTimeout) this._emptyTimeout.clear();
+    if (this._lonelyTimeout) this._lonelyTimeout.clear();
+    liveRooms.delete(this);
+    const s = Math.round((Date.now() - this.createdAt) / 1000);
+    const n = this.state.players.size;
+    const stage = this.state.mission.stage;
+    const reason = this.disposeReason;
+    console.log(`[handshake] room ${this.roomId} closed after ${s}s (players=${n}, stage=${stage}, reason=${reason})`);
   }
 
   applySnapshot(sessionId, message) {
@@ -571,10 +629,87 @@ class HandshakeRoom extends Room {
   }
 }
 
+// --- CORS override for matchmake routes ----------------------------------------
+if (!permissive) {
+  matchMaker.controller.getCorsHeaders = (headers) => {
+    const origin = headers.get('origin');
+    if (origin && ALLOWED_ORIGINS.includes(origin)) {
+      return { 'Access-Control-Allow-Origin': origin, 'Vary': 'Origin' };
+    }
+    return { 'Vary': 'Origin' };
+  };
+}
+
+// --- Transport & server --------------------------------------------------------
+const transportOptions = {};
+if (!permissive) {
+  transportOptions.verifyClient = (info, cb) => {
+    const origin = info.origin;
+    cb(isOriginAllowed(origin));
+  };
+}
+
 const gameServer = new Server({
-  transport: new WebSocketTransport(),
+  transport: new WebSocketTransport(transportOptions),
   greet: false,
 });
 gameServer.define('handshake', HandshakeRoom);
 await gameServer.listen(PORT, '0.0.0.0');
-console.log(`Handshake multiplayer server listening on ws://0.0.0.0:${PORT}`);
+
+// --- /health endpoint (installed after listen so Colyseus listeners exist) -----
+const httpServer = gameServer.transport.server;
+const originalListeners = httpServer.listeners('request').slice();
+httpServer.removeAllListeners('request');
+
+function corsHeaders(req) {
+  const origin = req.headers['origin'];
+  const headers = { 'Cache-Control': 'no-store' };
+  if (permissive) {
+    headers['Access-Control-Allow-Origin'] = origin || '*';
+  } else if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin;
+    headers['Vary'] = 'Origin';
+  } else {
+    headers['Vary'] = 'Origin';
+  }
+  return headers;
+}
+
+httpServer.on('request', (req, res) => {
+  const path = (req.url ?? '/').split('?')[0];
+  if (path === '/health') {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, corsHeaders(req));
+      res.end();
+      return;
+    }
+    let totalClients = 0;
+    for (const room of liveRooms) {
+      totalClients += room.clients.length;
+    }
+    const body = JSON.stringify({
+      ok: true,
+      uptime: Math.floor(process.uptime()),
+      rooms: liveRooms.size,
+      clients: totalClients,
+      version: pkg.version || 'dev',
+    });
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      ...corsHeaders(req),
+    });
+    res.end(body);
+    return;
+  }
+  for (const listener of originalListeners) {
+    listener.call(httpServer, req, res);
+  }
+});
+
+// --- Startup log ---------------------------------------------------------------
+if (permissive) {
+  console.log('[handshake] CORS: permissive');
+} else {
+  console.log(`[handshake] CORS allow-list: ${ALLOWED_ORIGINS.join(', ')}`);
+}
+console.log(`[handshake] listening on port ${PORT}`);
