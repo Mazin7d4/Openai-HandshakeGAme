@@ -175,6 +175,12 @@ export class DroneVisual {
     this.antennaVZ += (Math.random() < 0.5 ? -1 : 1) * 22 * s;
   }
 
+  /** Boost dash: quick forward stretch and antenna flick. */
+  boostDash(): void {
+    this.squashPulse = Math.max(this.squashPulse, 0.16);
+    this.antennaVX -= 18;
+  }
+
   /** Small recoil when this drone does the yanking. */
   recoil(strength = 0.6): void {
     this.squashPulse = Math.min(this.squashPulse, -0.1 * clamp(strength, 0.2, 1));

@@ -74,6 +74,9 @@ function shortestAngle(from: number, to: number): number {
  * Frame order: steer() for every drone, then any constraints (tether),
  * then commit() for every drone, then scene.render(), then postPhysics().
  */
+/** Companion zip-along-cord glide speed (m/s). */
+const ZIP_SPEED = 16;
+
 export class Drone implements CameraSubject {
   readonly id: string;
   readonly role: 'pix' | 'nee';
@@ -88,6 +91,7 @@ export class Drone implements CameraSubject {
   private readonly resolvedVelocity = new Vector3();
   private readonly remoteVelocity = new Vector3();
   private readonly zero = new Vector3();
+  private readonly bounceDelta = new Vector3();
   private readonly lastSafePosition = new Vector3();
   private readonly snapshot: PlayerSnapshot;
   private boost: BoostState = 'off';
@@ -104,6 +108,16 @@ export class Drone implements CameraSubject {
   private lastChirpTime = -1000;
   private showingExpression: Expression | null = null;
   private showingUntil = 0;
+  /** Companion recovery: remaining waypoints of a zip along the cord (empty = not zipping). */
+  private zipPath: Vector3[] = [];
+  private zipFor = 0;
+  /** Security capture: velocity a patrol pod is hauling this drone with (null = free). */
+  private readonly capturePull = new Vector3();
+  private captured = false;
+  /** Boost presses while captured (struggle); read and reset by the captor. */
+  struggles = 0;
+  /** Set when a partner yank lands; the captor reads it to let go. */
+  yankedRecently = 0;
 
   constructor(scene: Scene, plugin: HavokPlugin, options: DroneOptions) {
     this.plugin = plugin;
@@ -182,10 +196,19 @@ export class Drone implements CameraSubject {
       input.thrust !== 0 || input.strafe !== 0 || input.lift !== 0 || input.boost;
     this.tetherPull = 0;
     const pose = this.flight.step(input, basis, dt);
+    this.yankedRecently = Math.max(0, this.yankedRecently - dt);
+    if (this.captured) {
+      // Hauled by a security pod: mostly its pull, a little wriggle from the stick.
+      if (input.boost && !this.wasBoosting) this.struggles += 1;
+      this.flight.velocity.scaleInPlace(0.25).addInPlace(this.capturePull.scale(0.75));
+      this.hurtTimer = Math.max(this.hurtTimer, 0.5);
+    }
+    if (this.steerZip(dt)) this.selfPowered = true;
     this.inputBoost = input.boost;
     if (input.boost && !this.wasBoosting && this.selfPowered) {
       gameEvents.emit('boost', { droneId: this.id, position: this.root.position });
     }
+    if (this.flight.burstFired) this.visual.boostDash();
     this.wasBoosting = input.boost;
     const node = this.visual.root;
     node.rotation.x = pose.bankPitch;
@@ -237,10 +260,70 @@ export class Drone implements CameraSubject {
     gameEvents.emit('knockback', { droneId: this.id, position: this.root.position });
   }
 
+  /**
+   * Zip along the cord to the partner: a quick ghosted glide through the cord's own
+   * (collision-free) path, used by the CPU companion so it can never strand the player.
+   */
+  startZip(path: readonly Vector3[]): void {
+    if (path.length === 0) return;
+    this.zipPath = path.map((point) => point.clone());
+    this.zipFor = 0;
+    this.aggregate.shape.filterCollideMask = 0;
+    this.visual.react('sheepish', 1.6);
+  }
+
+  get isZipping(): boolean {
+    return this.zipPath.length > 0;
+  }
+
+  private endZip(): void {
+    this.zipPath = [];
+    this.aggregate.shape.filterCollideMask = COLLISION_GROUP.all;
+    this.flight.velocity.scaleInPlace(0.2);
+  }
+
+  /** Returns true while zipping (steer is fully overridden). */
+  private steerZip(dt: number): boolean {
+    if (this.zipPath.length === 0) return false;
+    this.zipFor += dt;
+    while (this.zipPath.length > 0 && Vector3.Distance(this.zipPath[0], this.root.position) < 0.7) this.zipPath.shift();
+    if (this.zipPath.length === 0 || this.zipFor > 3) {
+      this.endZip();
+      return true;
+    }
+    // Kinematic glide (teleport-stepped body), so nothing — furniture or cord — can pin it.
+    const to = this.zipPath[0].subtract(this.root.position);
+    const step = Math.min(ZIP_SPEED * dt, to.length());
+    this.root.position.addInPlace(to.normalize().scaleInPlace(step));
+    this.flight.velocity.setAll(0);
+    this.lockUpright();
+    return true;
+  }
+
+  /** Security pod grabbed (pull set) or released (null) this drone. */
+  setCaptured(pull: Vector3 | null): void {
+    if (pull) {
+      if (!this.captured) {
+        this.struggles = 0;
+        this.visual.react('panic', 30);
+      }
+      this.captured = true;
+      this.capturePull.copyFrom(pull);
+    } else if (this.captured) {
+      this.captured = false;
+      this.visual.react('shocked', 0.6);
+    }
+  }
+
+  get isCaptured(): boolean {
+    return this.captured;
+  }
+
   /** Burst impulse from the partner's yank. Looks and feels different from flying. */
   yankedBy(delta: Vector3, strength: number): void {
     this.flight.velocity.addInPlace(delta);
     this.hurtTimer = 0;
+    this.yankedRecently = 0.4;
     this.visual.yanked(strength);
     this.tetherPull = Math.max(this.tetherPull, 0.9);
   }
@@ -259,7 +342,7 @@ export class Drone implements CameraSubject {
     const now = performance.now();
     if ((this.showingExpression !== expression || now >= this.showingUntil) && now - this.lastChirpTime >= 350) {
       this.lastChirpTime = now;
-      audio.play('chirp', { role: this.role, mood: expression, position: this.position });
+      audio.play('chirp', { role: this.role, mood: expression === 'sheepish' ? 'neutral' : expression, position: this.position });
     }
     this.showingExpression = expression;
     this.showingUntil = now + seconds * 1000;
@@ -357,6 +440,15 @@ export class Drone implements CameraSubject {
       }
     }
     const impact = Vector3.Distance(this.flight.velocity, this.resolvedVelocity);
+    if (impact > IMPACT_THRESHOLD - 1) {
+      // Springy bounce: hand back part of the velocity the wall ate, pointing away from it.
+      // Forgiving (never stronger than maxBounce) and it never pushes into geometry.
+      this.bounceDelta.copyFrom(this.flight.velocity).subtractInPlace(this.resolvedVelocity).scaleInPlace(-FLIGHT_TUNING.bounce);
+      clampMagnitude(this.bounceDelta, FLIGHT_TUNING.maxBounce);
+      this.resolvedVelocity.addInPlace(this.bounceDelta);
+      this.aggregate.body.setLinearVelocity(this.resolvedVelocity);
+      if (impact > 6 && impact <= 9) this.visual.react('shocked', 0.6);
+    }
     this.impactCooldown = Math.max(0, this.impactCooldown - dt);
     this.hurtTimer = Math.max(0, this.hurtTimer - dt);
     if (impact > IMPACT_THRESHOLD) {
