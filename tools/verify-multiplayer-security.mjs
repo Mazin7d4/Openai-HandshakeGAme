@@ -94,18 +94,19 @@ try {
   assert(!hb.server.patrols.some((p) => p.stunned) && !gb.server.patrols.some((p) => p.stunned) && hb.clotheslines === 0,
     'Server accepted a stun claim with no cord near the patrol');
 
-  // 3. Camera detection: both drones fly into the security camera cone; the server spots and counts once.
+  // 3. Camera detection: both drones fly into the security camera cone; each drone is spotted on its own
+  //    cooldown, so the server reports both roles, and both clients agree on every event.
   const place = () => Promise.all([
     host.evaluate(() => window.__autotest.teleport('pix', -1.2, 3.4, 4.2)),
     guest.evaluate(() => window.__autotest.teleport('nee', 1.2, 3.4, 4.6)),
   ]);
   await place(); await host.waitForTimeout(250); await place();
-  await host.waitForFunction(() => window.__autotest.security().timesSpotted >= 1, null, { timeout: 15_000 })
+  await host.waitForFunction(() => ['pix', 'nee'].every((r) => window.__autotest.security().spotted.includes(r)), null, { timeout: 15_000 })
     .catch(async () => { throw new Error(`Never spotted: ${JSON.stringify(await sec(host))}`); });
   await host.waitForTimeout(400);
   const [hs, gs] = await Promise.all([sec(host), sec(guest)]);
   assert(hs.timesSpotted === gs.timesSpotted, `timesSpotted disagree ${hs.timesSpotted} vs ${gs.timesSpotted}`);
-  assert(hs.spotted.length >= 1 && hs.spotted.join() === gs.spotted.join(), `spotted events disagree ${hs.spotted} vs ${gs.spotted}`);
+  assert(hs.timesSpotted >= 2 && hs.spotted.length >= 2 && hs.spotted.join() === gs.spotted.join(), `spotted events disagree ${hs.spotted} vs ${gs.spotted}`);
   assert(Math.abs(hs.detection - gs.detection) < 0.1, `detection meter disagrees ${hs.detection} vs ${gs.detection}`);
   Object.assign(result, { timesSpotted: hs.timesSpotted, spottedEvents: hs.spotted, detection: [+hs.detection.toFixed(2), +gs.detection.toFixed(2)] });
 

@@ -8,6 +8,12 @@ const require = createRequire(import.meta.url);
 const pkg = require('../package.json');
 
 const PORT = Number.parseInt(process.env.PORT ?? '2567', 10);
+// Test-only room messages. `npm run dev` (tools/dev.mjs) turns them on; deployments use `npm start`
+// and must never enable them, so they are refused outright on Render.
+const TEST_HOOKS = process.env.HANDSHAKE_TEST_HOOKS === '1' && !process.env.RENDER;
+if (process.env.HANDSHAKE_TEST_HOOKS === '1' && process.env.RENDER) {
+  console.warn('[handshake] HANDSHAKE_TEST_HOOKS ignored on Render');
+}
 const EMPTY_ROOM_SECONDS = Number.parseInt(process.env.EMPTY_ROOM_SECONDS ?? '60', 10);
 const LONELY_ROOM_SECONDS = Number.parseInt(process.env.LONELY_ROOM_SECONDS ?? '900', 10);
 
@@ -170,7 +176,7 @@ class HandshakeRoom extends Room {
   state = new HandshakeState();
   missionStartedAt = Date.now();
   doorOpenedAt = 0;
-  spotCooldownUntil = 0;
+  spotCooldownUntil = { pix: 0, nee: 0 };
   clotheslines = 0;
   createdAt = Date.now();
   disposeReason = 'disposed';
@@ -214,7 +220,7 @@ class HandshakeRoom extends Room {
     this.onMessage('mission-retry', () => this.resetMission());
     this.onMessage('tether-yank', (client, message) => this.relayTetherYank(client, message));
     this.onMessage('patrol-stun', (client, message) => this.stunPatrol(client, message));
-    if (process.env.HANDSHAKE_TEST_HOOKS === '1') {
+    if (TEST_HOOKS) {
       console.log('[handshake] TEST HOOKS enabled');
       this.onMessage('debug-stage', (client, m) => {
         if (m?.stage === 'escape') {
@@ -478,15 +484,25 @@ class HandshakeRoom extends Room {
       players,
       objects: this.state.objects.values(),
     });
+    // Each drone has its own spotted cooldown, so both can be spotted in the same window.
     for (const role of result.spotted) {
-      if (this.spotCooldownUntil <= now && this.state.mission.stage !== 'complete') {
+      if (!(role in this.spotCooldownUntil)) continue;
+      if (this.spotCooldownUntil[role] <= now && this.state.mission.stage !== 'complete') {
         this.state.mission.timesSpotted += 1;
-        this.spotCooldownUntil = now + 2800;
+        this.spotCooldownUntil[role] = now + 2800;
         this.broadcast('security-spotted', { role });
       }
     }
-    // Broadcast so the partner also shows the shoved drone "in trouble"; only the owner applies the impulse.
-    for (const shove of result.shoves) this.broadcast('patrol-shove', shove);
+    // A shove goes only to the client that owns the shoved drone; it applies the impulse locally.
+    for (const shove of result.shoves) this.clientForRole(shove.role)?.send('patrol-shove', shove);
+  }
+
+  clientForRole(role) {
+    for (const client of this.clients) {
+      const player = this.state.players.get(client.sessionId);
+      if (player?.role === role && player.connected) return client;
+    }
+    return undefined;
   }
 
   /** Validate a tether move and relay the impulse to the partner, who owns its own drone. */
@@ -571,7 +587,7 @@ class HandshakeRoom extends Room {
   resetMission() {
     this.securitySim.reset();
     this.doorOpenedAt = 0;
-    this.spotCooldownUntil = 0;
+    this.spotCooldownUntil = { pix: 0, nee: 0 };
     this.clotheslines = 0;
     this.state.hack.stationAOwner = '';
     this.state.hack.stationBOwner = '';
