@@ -111,7 +111,7 @@ function showMultiplayerMenu(): void {
     menuButton('CREATE ROOM', 'create-room', () => {
       void createRoom();
     }),
-    menuButton('JOIN ROOM', 'join-room', showJoinRoom),
+    menuButton('JOIN ROOM', 'join-room', () => showJoinRoom()),
     menuButton('BACK', 'back', showMainMenu),
   );
   panel.append(actions);
@@ -180,6 +180,8 @@ async function createRoom(): Promise<void> {
 }
 
 function showJoinRoom(prefill?: string): void {
+  // menuButton passes the click event when used directly as the action; only strings count.
+  const initial = typeof prefill === 'string' ? prefill.trim().toUpperCase() : '';
   const panel = menuPanel('Join Room', 'Enter the four-character room code.');
   const form = element('form', 'join-form');
   const input = element('input', 'room-code-input');
@@ -190,7 +192,7 @@ function showJoinRoom(prefill?: string): void {
   input.placeholder = 'XXXX';
   input.setAttribute('aria-label', 'Room code');
   input.addEventListener('input', () => { input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
-  if (prefill) input.value = prefill.trim().toUpperCase();
+  if (initial) input.value = initial;
   const submit = element('button', 'menu-button', 'JOIN');
   submit.dataset.testid = 'join-submit';
   submit.type = 'submit';
@@ -226,8 +228,8 @@ function showJoinRoom(prefill?: string): void {
   });
   panel.append(form, status, back);
   input.focus();
-  if (prefill && prefill.trim().length === 4) {
-    void doJoin(prefill.trim().toUpperCase());
+  if (initial.length === 4) {
+    void doJoin(initial);
   }
 }
 

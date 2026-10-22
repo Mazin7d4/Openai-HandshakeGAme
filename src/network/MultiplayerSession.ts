@@ -401,9 +401,9 @@ export class MultiplayerSession {
     this.reconnectDeadlineMs ??= Date.now() + RECONNECT_GRACE_SECONDS * 1000;
     this.networkState = 'reconnecting';
     this.emit();
-    // 1001 GOING_AWAY is treated as an unexpected drop by both the SDK and the server,
-    // so automatic reconnection runs inside the grace window.
-    this.room.connection.close(1001, 'autotest-drop');
+    // 4010 MAY_TRY_RECONNECT is an allowed browser close code that the SDK retries on,
+    // and the server treats as an unexpected drop (seat held via allowReconnection).
+    this.room.connection.close(CloseCode.MAY_TRY_RECONNECT, 'autotest-drop');
   }
 
   private bindRoom(room: Room<unknown, SchemaRoomState>): void {
