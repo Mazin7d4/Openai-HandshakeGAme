@@ -30,10 +30,12 @@ for (const [name, page] of [['host', host], ['guest', guest]]) {
 
 const result = {};
 try {
+  await host.addInitScript(() => localStorage.setItem('handshake.onboardingDone', '1'));
   await host.goto(APP_URL);
   await host.getByTestId('multiplayer').click();
   await host.getByTestId('create-room').click();
   const code = (await host.getByTestId('room-code').innerText()).trim();
+  await guest.addInitScript(() => localStorage.setItem('handshake.onboardingDone', '1'));
   await guest.goto(APP_URL);
   await guest.getByTestId('multiplayer').click();
   await guest.getByTestId('join-room').click();
