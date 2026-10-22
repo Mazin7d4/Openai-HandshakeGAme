@@ -128,6 +128,7 @@ const shot = async (name, delay = 0) => {
   await page.screenshot({ path: `${process.env.SHOTS}/${name}.png` });
 };
 try {
+  await page.addInitScript(() => localStorage.setItem('handshake.onboardingDone', '1'));
   await page.goto(APP_URL);
   await page.getByTestId('dev-local').click();
   await page.locator('#boot-status').waitFor({ state: 'detached', timeout: 30_000 });
