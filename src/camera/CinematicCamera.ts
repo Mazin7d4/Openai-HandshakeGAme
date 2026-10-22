@@ -1,4 +1,8 @@
 import { FreeCamera, Ray, Vector3, type AbstractMesh, type Scene } from '@babylonjs/core';
+import {
+  getCameraTouchSettings,
+  subscribeCameraTouchSettings,
+} from '../ui/CameraTouchSettings.ts';
 import { getSettings, subscribeSettings } from '../ui/Settings.ts';
 import type { CameraSubject } from './CameraSubject.ts';
 
@@ -6,8 +10,11 @@ export interface CameraContext { alarm: boolean; vaultOpen: boolean; complete: b
 const QUIET: CameraContext = { alarm: false, vaultOpen: false, complete: false };
 const smooth = (a: number, b: number, speed: number, dt: number) => a + (b - a) * (1 - Math.exp(-speed * dt));
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const TOUCH_RELEASE_S = 2;
+const ZOOM_MIN = 0.85;
+const ZOOM_MAX = 1.16;
 
-/** Authored dolly with a fixed compass heading. No camera input or axis reversals. */
+/** Authored dolly with a fixed compass heading. Mouse right-drag + touch look pad. */
 export class CinematicCamera {
   readonly camera: FreeCamera;
   private readonly scene: Scene;
@@ -31,16 +38,26 @@ export class CinematicCamera {
   private zoom = 1;
   private releaseTimer = 0;
   private lookSensitivity = 1;
+  private touchSensitivity = 1;
+  /** Touch invert (CameraTouchSettings). */
+  private touchInvertY = false;
+  /** Mouse invert (GameSettings.invertY). */
+  private mouseInvertY = false;
   private screenShake = true;
+  private reducedMotion = false;
+  private fovScale = 1;
+  private distanceScale = 1;
   private readonly unsubscribeSettings: (() => void) | null = null;
+  private readonly unsubscribeTouch: (() => void) | null = null;
   private readonly touches = new Map<number, { x: number; y: number }>();
   private readonly onPointerDown = (event: PointerEvent) => {
     if (this.scene.activeCamera !== this.camera) return;
     if (event.pointerType === 'touch') {
+      // Single-finger look is owned by TouchControls; canvas keeps two-finger pinch/look.
       this.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
       if (this.touches.size < 2) return;
     } else if (event.button !== 2) return;
-    this.looking = true; this.releaseTimer = 1.8;
+    this.looking = true; this.releaseTimer = TOUCH_RELEASE_S;
     this.canvas?.setPointerCapture(event.pointerId);
     event.preventDefault();
   };
@@ -57,10 +74,9 @@ export class CinematicCamera {
       dy = (event.clientY - before.y) * 0.5;
       this.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
       const newDistance = Math.hypot(event.clientX - other.x, event.clientY - other.y);
-      this.zoom = clamp(this.zoom + (oldDistance - newDistance) * 0.003, 0.85, 1.16);
+      this.zoom = clamp(this.zoom + (oldDistance - newDistance) * 0.003, ZOOM_MIN, ZOOM_MAX);
     }
-    this.lookYaw = clamp(this.lookYaw + dx * 0.0015 * this.lookSensitivity, -0.16, 0.16);
-    this.lookPitch = clamp(this.lookPitch - dy * 0.0012 * this.lookSensitivity, -0.085, 0.085);
+    this.applyLookDelta(dx, dy, this.lookSensitivity, this.mouseInvertY);
   };
   private readonly onPointerUp = (event: PointerEvent) => {
     this.touches.delete(event.pointerId);
@@ -68,7 +84,7 @@ export class CinematicCamera {
   };
   private readonly onWheel = (event: WheelEvent) => {
     if (this.scene.activeCamera !== this.camera) return;
-    this.zoom = clamp(this.zoom + Math.sign(event.deltaY) * 0.05, 0.85, 1.16);
+    this.zoom = clamp(this.zoom + Math.sign(event.deltaY) * 0.05, ZOOM_MIN, ZOOM_MAX);
     event.preventDefault();
   };
   private readonly onContextMenu = (event: MouseEvent) => event.preventDefault();
@@ -81,13 +97,28 @@ export class CinematicCamera {
     this.camera.inertia = 0; this.camera.inputs.clear();
     const initialSettings = getSettings();
     this.lookSensitivity = initialSettings.lookSensitivity;
-    this.screenShake = initialSettings.screenShake;
+    this.screenShake = initialSettings.screenShake && !initialSettings.reducedMotion;
+    this.mouseInvertY = initialSettings.invertY;
+    this.fovScale = initialSettings.fovScale;
+    this.distanceScale = initialSettings.cameraDistance;
+    this.reducedMotion = initialSettings.reducedMotion;
+    const touch = getCameraTouchSettings();
+    this.touchSensitivity = touch.camSensitivity;
+    this.touchInvertY = touch.invertY;
     this.unsubscribeSettings = subscribeSettings((settings) => {
       this.lookSensitivity = settings.lookSensitivity;
-      this.screenShake = settings.screenShake;
+      this.screenShake = settings.screenShake && !settings.reducedMotion;
+      this.mouseInvertY = settings.invertY;
+      this.fovScale = settings.fovScale;
+      this.distanceScale = settings.cameraDistance;
+      this.reducedMotion = settings.reducedMotion;
       if (!this.screenShake) {
         this.shakeAmount = 0;
       }
+    });
+    this.unsubscribeTouch = subscribeCameraTouchSettings((settings) => {
+      this.touchSensitivity = settings.camSensitivity;
+      this.touchInvertY = settings.invertY;
     });
     this.canvas?.addEventListener('pointerdown', this.onPointerDown);
     this.canvas?.addEventListener('pointermove', this.onPointerMove);
@@ -97,9 +128,56 @@ export class CinematicCamera {
     this.canvas?.addEventListener('contextmenu', this.onContextMenu);
   }
 
+  /** Current touch/mouse yaw offset (radians). Used by QA as "camera alpha". */
+  get touchLookYaw(): number {
+    return this.lookYaw;
+  }
+
   getPlanarBasis(): { forward: Vector3; right: Vector3 } { return { forward: this.forward, right: this.right }; }
+
+  /** One-finger look from the on-screen look pad (separate pointerId from the stick). */
+  touchLook(dx: number, dy: number): void {
+    this.looking = true;
+    this.releaseTimer = TOUCH_RELEASE_S;
+    this.applyLookDelta(dx, dy, this.touchSensitivity, this.touchInvertY);
+  }
+
+  /** Pinch zoom from the look pad; clamped to the authored dolly range. */
+  touchZoom(deltaDistance: number): void {
+    this.looking = true;
+    this.releaseTimer = TOUCH_RELEASE_S;
+    this.zoom = clamp(this.zoom + deltaDistance * 0.003, ZOOM_MIN, ZOOM_MAX);
+  }
+
+  /** Double-tap: snap the look back behind the active drone. */
+  touchRecenter(): void {
+    this.looking = false;
+    this.releaseTimer = 0;
+    if (this.reducedMotion) {
+      this.lookYaw = 0;
+      this.lookPitch = 0;
+    } else {
+      // Mark for a fast ease on the next frames by clearing the hold timer.
+      this.lookYaw *= 0.15;
+      this.lookPitch *= 0.15;
+      if (Math.abs(this.lookYaw) < 0.002) this.lookYaw = 0;
+      if (Math.abs(this.lookPitch) < 0.002) this.lookPitch = 0;
+    }
+  }
+
+  /** Keep the auto-recenter timer fresh while a look finger is down. */
+  touchLookHold(): void {
+    this.looking = true;
+    this.releaseTimer = TOUCH_RELEASE_S;
+  }
+
+  touchLookRelease(): void {
+    this.looking = false;
+  }
+
   dispose(): void {
     this.unsubscribeSettings?.();
+    this.unsubscribeTouch?.();
     this.canvas?.removeEventListener('pointerdown', this.onPointerDown);
     this.canvas?.removeEventListener('pointermove', this.onPointerMove);
     this.canvas?.removeEventListener('pointerup', this.onPointerUp);
@@ -117,11 +195,14 @@ export class CinematicCamera {
   private beatRemaining = 0;
   /** Trauma-style shake (0..1). Summed, decays quickly. Presentation only. */
   addShake(amount: number): void {
-    if (!this.screenShake) return;
+    if (!this.screenShake || this.reducedMotion) return;
     this.shakeAmount = Math.min(1, this.shakeAmount + amount);
   }
   /** Brief FOV punch for boosts/slingshots (radians). */
-  kickFov(amount: number): void { this.fovKick = Math.max(this.fovKick, amount); }
+  kickFov(amount: number): void {
+    if (this.reducedMotion) return;
+    this.fovKick = Math.max(this.fovKick, amount);
+  }
   /** Blend the look target toward a point for a duration. Presentation only. */
   beat(point: Vector3, seconds: number): void {
     this.beatTarget = point.clone();
@@ -143,8 +224,13 @@ export class CinematicCamera {
     this.previousFocus.copyFrom(this.focus);
     if (!this.looking && this.releaseTimer > 0) this.releaseTimer = Math.max(0, this.releaseTimer - safeDt);
     if (!this.looking && this.releaseTimer === 0) {
-      this.lookYaw = smooth(this.lookYaw, 0, 0.65, safeDt);
-      this.lookPitch = smooth(this.lookPitch, 0, 0.65, safeDt);
+      if (this.reducedMotion) {
+        this.lookYaw = 0;
+        this.lookPitch = 0;
+      } else {
+        this.lookYaw = smooth(this.lookYaw, 0, 0.65, safeDt);
+        this.lookPitch = smooth(this.lookPitch, 0, 0.65, safeDt);
+      }
     }
     const inLab = this.focus.z > 3 && this.focus.x > -11;
     const revealTarget = inLab && context.vaultOpen && !context.alarm ? clamp((this.focus.z - 3) / 5, 0, 1) : 0;
@@ -164,7 +250,7 @@ export class CinematicCamera {
     targetLook.y += 0.45 + this.reveal * 0.5;
     targetLook.z += this.reveal * 1.25;
     const aspect = Math.max(0.4, this.scene.getEngine().getAspectRatio(this.camera));
-    const fovTarget = context.alarm && !context.complete ? 0.94 : 0.86;
+    const fovTarget = (context.alarm && !context.complete ? 0.94 : 0.86) * this.fovScale;
     this.baseFov = smooth(this.baseFov ?? this.camera.fov, fovTarget, 1.6, safeDt);
     this.camera.fov = this.baseFov;
     const tanY = Math.tan(this.camera.fov / 2) * 0.72;
@@ -185,7 +271,8 @@ export class CinematicCamera {
       required += 3 * easeOut;
       if (this.beatRemaining <= 0) this.beatTarget = null;
     }
-    this.distance = this.placed ? smooth(this.distance, required, required > this.distance ? 5 : 1.5, safeDt) : required;
+    const scaledRequired = required * this.distanceScale;
+    this.distance = this.placed ? smooth(this.distance, scaledRequired, scaledRequired > this.distance ? 5 : 1.5, safeDt) : scaledRequired;
     const targetPosition = targetLook.subtract(view.scale(this.distance * this.zoom));
     if (!this.placed) {
       this.look.copyFrom(targetLook); this.position.copyFrom(targetPosition); this.placed = true;
@@ -213,6 +300,12 @@ export class CinematicCamera {
     }
     this.camera.setTarget(this.look);
     this.updateOcclusion(positions, safeDt);
+  }
+
+  private applyLookDelta(dx: number, dy: number, sensitivity: number, invertY: boolean): void {
+    const pitchSign = invertY ? 1 : -1;
+    this.lookYaw = clamp(this.lookYaw + dx * 0.0015 * sensitivity, -0.16, 0.16);
+    this.lookPitch = clamp(this.lookPitch + pitchSign * dy * 0.0012 * sensitivity, -0.085, 0.085);
   }
 
   private updateOcclusion(subjects: Vector3[], dt: number): void {
