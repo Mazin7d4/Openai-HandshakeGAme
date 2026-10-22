@@ -7,8 +7,26 @@ const gameModules = { promise: null as ReturnType<typeof loadGame> | null };
 const preloadGame = () => (gameModules.promise ??= loadGame());
 import { MultiplayerSession } from './network/MultiplayerSession.ts';
 import type { RoomStatus } from './network/NetworkTypes.ts';
+import { RECONNECT_GRACE_SECONDS } from './network/ReconnectionToken.ts';
 import { pingServer, wakeServer } from './network/ServerEndpoint.ts';
 import './style.css';
+
+function roomInviteUrl(code: string): string {
+  const url = new URL(window.location.href);
+  url.searchParams.set('room', code.trim().toUpperCase());
+  return url.toString();
+}
+
+function setRoomInUrl(code: string): void {
+  const url = new URL(window.location.href);
+  url.searchParams.set('room', code.trim().toUpperCase());
+  window.history.replaceState(null, '', url);
+}
+
+function roomCodeFromUrl(): string | null {
+  const code = new URLSearchParams(window.location.search).get('room')?.trim().toUpperCase() ?? '';
+  return /^[A-Z2-9]{4}$/.test(code) ? code : null;
+}
 
 const rootNode = document.querySelector('#app');
 if (!rootNode || !(rootNode instanceof HTMLElement)) {
@@ -93,7 +111,7 @@ function showMultiplayerMenu(): void {
     menuButton('CREATE ROOM', 'create-room', () => {
       void createRoom();
     }),
-    menuButton('JOIN ROOM', 'join-room', showJoinRoom),
+    menuButton('JOIN ROOM', 'join-room', () => showJoinRoom()),
     menuButton('BACK', 'back', showMainMenu),
   );
   panel.append(actions);
@@ -161,7 +179,9 @@ async function createRoom(): Promise<void> {
   }
 }
 
-function showJoinRoom(): void {
+function showJoinRoom(prefill?: string): void {
+  // menuButton passes the click event when used directly as the action; only strings count.
+  const initial = typeof prefill === 'string' ? prefill.trim().toUpperCase() : '';
   const panel = menuPanel('Join Room', 'Enter the four-character room code.');
   const form = element('form', 'join-form');
   const input = element('input', 'room-code-input');
@@ -172,6 +192,7 @@ function showJoinRoom(): void {
   input.placeholder = 'XXXX';
   input.setAttribute('aria-label', 'Room code');
   input.addEventListener('input', () => { input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+  if (initial) input.value = initial;
   const submit = element('button', 'menu-button', 'JOIN');
   submit.dataset.testid = 'join-submit';
   submit.type = 'submit';
@@ -207,19 +228,23 @@ function showJoinRoom(): void {
   });
   panel.append(form, status, back);
   input.focus();
+  if (initial.length === 4) {
+    void doJoin(initial);
+  }
 }
 
 function showLobby(session: MultiplayerSession): void {
+  setRoomInUrl(session.roomCode);
   const panel = menuPanel('Room ready', 'Share this code with the second player.');
   const label = element('p', 'room-label', 'ROOM CODE');
   const code = element('p', 'room-code', session.roomCode);
   code.dataset.testid = 'room-code';
-  const copy = element('button', 'menu-button', 'COPY CODE');
+  const copy = element('button', 'menu-button', 'COPY LINK');
   copy.dataset.testid = 'copy-code';
   copy.type = 'button';
   copy.addEventListener('click', () => {
-    void navigator.clipboard?.writeText(session.roomCode)
-      .then(() => { copy.textContent = 'COPIED!'; window.setTimeout(() => { copy.textContent = 'COPY CODE'; }, 1500); })
+    void navigator.clipboard?.writeText(roomInviteUrl(session.roomCode))
+      .then(() => { copy.textContent = 'COPIED!'; window.setTimeout(() => { copy.textContent = 'COPY LINK'; }, 1500); })
       .catch(() => { copy.textContent = 'SELECT + COPY'; });
   });
   const role = element('p', 'room-label', '');
@@ -290,28 +315,35 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
     overlay.append(overlayTitle, overlayDetail, menuButtonEl);
     root.append(overlay);
     let partnerLostAt: number | null = null;
+    let selfReconnectAt: number | null = null;
     const overlayTimer = window.setInterval(() => {
       const status = session.currentStatus;
       const net = session.connectionState;
       const partner = status.players.get(status.localRole === 'pix' ? 'nee' : 'pix');
       const lost = net === 'disconnected' || net === 'error';
-      const partnerGone = !lost && (!partner || partner.connected === false);
-      partnerLostAt = partnerGone ? partnerLostAt ?? Date.now() : null;
-      overlay.classList.toggle('visible', lost || partnerGone || net === 'reconnecting');
-      menuButtonEl.hidden = !lost && !(partnerGone && Date.now() - (partnerLostAt ?? 0) > 15_000);
+      const partnerReconnecting = !lost && !!partner && partner.connected === false;
+      const partnerLeft = !lost && !partner;
+      partnerLostAt = partnerReconnecting || partnerLeft ? partnerLostAt ?? Date.now() : null;
+      selfReconnectAt = net === 'reconnecting' ? selfReconnectAt ?? Date.now() : null;
+      const graceMs = RECONNECT_GRACE_SECONDS * 1000;
+      overlay.classList.toggle('visible', lost || partnerReconnecting || partnerLeft || net === 'reconnecting');
+      menuButtonEl.hidden = !lost && !(partnerLeft || (partnerReconnecting && Date.now() - (partnerLostAt ?? 0) > graceMs));
       if (lost) {
         overlayTitle.textContent = 'CONNECTION LOST';
         overlayDetail.textContent = 'The room closed or your connection dropped.';
       } else if (net === 'reconnecting') {
+        const left = session.reconnectSecondsLeft
+          ?? Math.max(0, RECONNECT_GRACE_SECONDS - Math.floor((Date.now() - (selfReconnectAt ?? Date.now())) / 1000));
         overlayTitle.textContent = 'RECONNECTING…';
-        overlayDetail.textContent = 'Hold tight. Your drone is parked.';
-      } else if (partnerGone) {
-        const left = Math.max(0, 15 - Math.floor((Date.now() - (partnerLostAt ?? Date.now())) / 1000));
+        overlayDetail.textContent = `Reconnecting… ${left}s`;
+      } else if (partnerReconnecting) {
+        const left = Math.max(0, RECONNECT_GRACE_SECONDS - Math.floor((Date.now() - (partnerLostAt ?? Date.now())) / 1000));
         const name = status.localRole === 'pix' ? 'NEE' : 'PIX';
         overlayTitle.textContent = `${name} DISCONNECTED`;
-        overlayDetail.textContent = left > 0
-          ? `Waiting for them to reconnect… ${left}s`
-          : 'They did not come back. You can return to the menu.';
+        overlayDetail.textContent = `Partner reconnecting… ${left}s`;
+      } else if (partnerLeft) {
+        overlayTitle.textContent = 'PARTNER LEFT';
+        overlayDetail.textContent = 'They did not come back. You can return to the menu.';
       }
     }, 500);
     const previousRemove = removeStatus;
@@ -349,7 +381,40 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   }
 }
 
-showMainMenu();
+async function bootFromInviteLink(): Promise<boolean> {
+  const code = roomCodeFromUrl();
+  if (!code) return false;
+
+  const panel = menuPanel('Rejoining room', `Room ${code}`);
+  const status = element('p', 'lobby-status', 'Checking for a saved seat…');
+  panel.append(status);
+
+  if (!(await ensureServerAwake(panel, showMainMenu, () => { void bootFromInviteLink(); }))) {
+    return true;
+  }
+
+  const resumed = await MultiplayerSession.resumeRoom(code);
+  if (resumed) {
+    status.textContent = resumed.currentStatus.started
+      ? 'Seat restored. Returning to the match…'
+      : 'Seat restored. Waiting for partner…';
+    if (resumed.currentStatus.started && resumed.currentStatus.localRole) {
+      await startGame('multiplayer', resumed);
+    } else {
+      showLobby(resumed);
+    }
+    return true;
+  }
+
+  showJoinRoom(code);
+  return true;
+}
+
+if (roomCodeFromUrl()) {
+  void bootFromInviteLink();
+} else {
+  showMainMenu();
+}
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
