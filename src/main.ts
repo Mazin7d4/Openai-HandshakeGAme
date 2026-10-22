@@ -16,6 +16,7 @@ import {
   clearRunState,
 } from './run/ClientRun.ts';
 import {
+  clearRunIntent,
   consumeRunIntent,
   dailySeed,
   formatBeatMs,
