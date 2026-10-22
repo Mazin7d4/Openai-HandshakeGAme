@@ -10,7 +10,11 @@ const processes = [];
 let stopping = false;
 
 function start(label, entry, args = []) {
-  const child = spawn(process.execPath, [entry, ...args], {
+  // Shared run helpers live in TypeScript; strip types so the Node server can import them.
+  const nodeArgs = entry.endsWith('server/index.mjs') || entry.endsWith('server\\index.mjs')
+    ? ['--experimental-strip-types', entry, ...args]
+    : [entry, ...args];
+  const child = spawn(process.execPath, nodeArgs, {
     cwd: projectRoot,
     env: process.env,
     stdio: 'inherit',

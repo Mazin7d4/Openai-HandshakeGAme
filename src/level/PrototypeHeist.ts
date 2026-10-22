@@ -1,8 +1,8 @@
 import {
-  Color3, Color4, CreateBox, CreateCylinder, CreatePlane, CreatePolyhedron, CreateTorus,
-  DirectionalLight, DynamicTexture, HemisphericLight, ImportMeshAsync, PBRMaterial, Scalar,
-  SpotLight, StandardMaterial, Vector3,
-  type HavokPlugin, type Material, type Mesh, type Scene,
+  Color3, Color4, Constants, CreateBox, CreateCylinder, CreatePlane, CreatePolyhedron, CreateTorus,
+  DirectionalLight, DynamicTexture, FresnelParameters, HemisphericLight, ImportMeshAsync, Mesh, PBRMaterial, Scalar,
+  SpotLight, StandardMaterial, TransformNode, Vector3,
+  type HavokPlugin, type Material, type Scene,
 } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import '../assets/meshopt.ts';
@@ -12,6 +12,11 @@ import { createLabPalette } from './LabPalette.ts';
 import { dressMissionAreas, mergeDecorative } from './AreaDressing.ts';
 import { loadPropKit } from './PropKit.ts';
 import layout from './heist-layout.json';
+import { mergeRigidChildren } from '../scene/mergeChildren.ts';
+
+const SECURITY_AMBER = Color3.FromHexString('#FFB84D');
+const SCREEN_IDLE = new Color3(0.35, 0.35, 0.35);
+const STATUS_IDLE = Color3.FromHexString('#D8CBB2');
 
 export interface HeistPresentation {
   alarm: boolean; complete: boolean; officeOpen: boolean; vaultOpen?: boolean;
@@ -141,22 +146,66 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     box('vault-glass', x, 5.8, 20, 0.1, 11.2, 8, p.glass);
     for (const z of [16, 24]) box('vault-mullion', x, 5.8, z, 0.13, 11.6, 0.13, p.metal);
   }
-  sign('vault-title', 'M O R R O W', 'P 0 1     /     ADAPTIVE COMPANION CORE', 0, 8.7, 25.9, 11);
   const halo = CreateTorus('vault-halo', { diameter: 7.7, thickness: 0.08, tessellation: 80 }, scene);
   halo.position.set(0, 6.2, 25.9); halo.rotation.x = Math.PI / 2; halo.material = p.light; halo.isPickable = false;
   // ── Vault bell jar: decorative frosted glass cylinder with aluminium cap ──
   const protoX = layout.objects.prototype.x;
   const protoZ = layout.objects.prototype.z;
-  const bellJarGlass = new PBRMaterial('vault-belljar-glass', scene);
-  bellJarGlass.albedoColor = Color3.FromHexString('#D8EDE8'); bellJarGlass.metallic = 0;
-  bellJarGlass.roughness = 0.28; bellJarGlass.alpha = 0.3; bellJarGlass.backFaceCulling = false;
-  bellJarGlass.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+  // Clear glass reads only at its silhouette: a fresnel rim (edges opaque + softly lit, centre clear)
+  // is the jar's rim light, so the core inside stays the brightest, most saturated thing in frame.
+  const bellJarGlass = new StandardMaterial('vault-belljar-glass', scene);
+  bellJarGlass.diffuseColor = Color3.FromHexString('#D8EDE8'); bellJarGlass.specularColor = new Color3(0.9, 0.9, 0.88);
+  bellJarGlass.specularPower = 96; bellJarGlass.alpha = 0.16; bellJarGlass.backFaceCulling = true; // back faces would read as full rim
+  bellJarGlass.opacityFresnelParameters = new FresnelParameters({ leftColor: Color3.White(), rightColor: Color3.Black(), bias: 0.08, power: 2.6 });
+  bellJarGlass.emissiveFresnelParameters = new FresnelParameters({ leftColor: new Color3(0.72, 0.76, 0.72), rightColor: Color3.Black(), bias: 0, power: 3.2 });
   const bellJar = CreateCylinder('vault-belljar', { diameter: 2.3, height: 2.2, tessellation: 40 }, scene);
   bellJar.position.set(protoX, 4.65 + 1.1, protoZ); bellJar.material = bellJarGlass; bellJar.isPickable = false;
   const capMat = new PBRMaterial('vault-belljar-cap', scene);
-  capMat.albedoColor = Color3.FromHexString('#C0C8CC'); capMat.metallic = 0.88; capMat.roughness = 0.28;
+  capMat.albedoColor = Color3.FromHexString('#C0C8CC'); capMat.metallic = 0.88; capMat.roughness = 0.3;
   const bellCap = CreateCylinder('vault-belljar-cap', { diameter: 2.35, height: 0.08, tessellation: 40 }, scene);
   bellCap.position.set(protoX, 4.65 + 2.2 + 0.04, protoZ); bellCap.material = capMat; bellCap.isPickable = false;
+  // Frosted foot band + rolled aluminium lips (bevelled edges catch the key) ride with the jar.
+  const frost = new PBRMaterial('vault-belljar-frost', scene);
+  frost.albedoColor = Color3.FromHexString('#EEF2EE'); frost.roughness = 0.6; frost.metallic = 0; frost.alpha = 0.62;
+  frost.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+  const frostBand = CreateCylinder('vault-belljar-frost', { diameter: 2.33, height: 0.36, tessellation: 40, cap: Mesh.NO_CAP }, scene);
+  frostBand.parent = bellJar; frostBand.position.y = -1.1 + 0.2; frostBand.material = frost; frostBand.isPickable = false;
+  const jarRig = new TransformNode('vault-belljar-rig', scene); jarRig.parent = bellJar;
+  for (const y of [-1.08, 1.08]) {
+    const lip = CreateTorus('vault-belljar-lip', { diameter: 2.33, thickness: 0.07, tessellation: 40 }, scene);
+    lip.parent = jarRig; lip.position.y = y; lip.material = capMat; lip.isPickable = false;
+  }
+  bellJar.computeWorldMatrix(true); mergeRigidChildren(jarRig);
+  // Museum label printed on the pedestal's front badge (diegetic: replaces the floating title card).
+  const plaqueTex = new DynamicTexture('vault-plaque-type', { width: 512, height: 160 }, scene, true);
+  const pc = plaqueTex.getContext() as CanvasRenderingContext2D;
+  pc.fillStyle = '#142022'; pc.fillRect(0, 0, 512, 160);
+  pc.fillStyle = '#A7B6B5'; pc.fillRect(28, 98, 456, 2);
+  pc.fillStyle = '#F4EFE6'; pc.font = "800 58px Archivo, 'Atkinson Hyperlegible Next', sans-serif"; pc.fillText('MORROW', 28, 78);
+  pc.fillStyle = '#C9C2B4'; pc.font = "26px 'Atkinson Hyperlegible Next', Archivo, sans-serif"; pc.fillText('P01  ·  Adaptive companion core', 28, 138);
+  plaqueTex.update();
+  const plaqueMat = new StandardMaterial('vault-plaque-ink', scene);
+  plaqueMat.diffuseTexture = plaqueTex; plaqueMat.emissiveTexture = plaqueTex;
+  plaqueMat.emissiveColor.set(0.45, 0.45, 0.45); plaqueMat.specularColor.set(0.15, 0.15, 0.15);
+  const plaque = CreatePlane('vault-plaque', { width: 1.62, height: 0.506 }, scene);
+  plaque.position.set(protoX, 2.9, 16.255); plaque.material = plaqueMat; plaque.isPickable = false;
+  // Visible source for the hero spotlight: a ceiling can (merged with the pendant fixtures below).
+  box('pendant-shell', protoX, 12.95, protoZ, 1.0, 0.5, 1.0, p.metal, false);
+  box('pendant-diffuser', protoX, 12.68, protoZ, 0.8, 0.04, 0.8, p.light, false);
+  box('pendant-wire', protoX, 13.7, protoZ, 0.05, 1.0, 0.05, p.dark, false);
+  // Faked volumetric beam from that can to the plinth (additive, top-bright ramp).
+  const beamTex = new DynamicTexture('vault-beam-ramp', { width: 8, height: 128 }, scene, false);
+  const bc = beamTex.getContext() as CanvasRenderingContext2D;
+  const ramp = bc.createLinearGradient(0, 0, 0, 128);
+  ramp.addColorStop(0, 'rgba(255,255,255,0.9)'); ramp.addColorStop(0.55, 'rgba(255,255,255,0.35)'); ramp.addColorStop(1, 'rgba(255,255,255,0.02)');
+  bc.fillStyle = ramp; bc.fillRect(0, 0, 8, 128); beamTex.update(); beamTex.hasAlpha = true;
+  const beamMat = new StandardMaterial('vault-beam', scene);
+  beamMat.disableLighting = true; beamMat.emissiveColor = Color3.FromHexString('#FFE2B0'); beamMat.diffuseColor = Color3.Black();
+  beamMat.opacityTexture = beamTex; beamMat.alphaMode = Constants.ALPHA_ADD; beamMat.alpha = 0.32;
+  // (No opacity fresnel here: Babylon adds the fresnel term to alpha, which saturated the beam.)
+  const beamHeight = 12.66 - 4.75;
+  const beam = CreateCylinder('vault-spot-beam', { height: beamHeight, diameterTop: 0.78, diameterBottom: 2.9, tessellation: 32, cap: Mesh.NO_CAP }, scene);
+  beam.position.set(protoX, 4.75 + beamHeight / 2, protoZ); beam.material = beamMat; beam.isPickable = false;
   const bellJarBaseY = 4.65 + 1.1;
   const bellCapBaseY = 4.65 + 2.2 + 0.04;
   const bellJarOpenY = 11 + 1.1;
@@ -170,9 +219,9 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   const plinthRing = CreateTorus('plinth-ring', { diameter: 3.6, thickness: 0.05, tessellation: 60 }, scene);
   plinthRing.position.set(protoX, 4.62, protoZ); plinthRing.material = plinthRingMat; plinthRing.isPickable = false;
   plinthRing.visibility = 0.1;
-  // ── Alarm beacon lamps (6 small red rotating beacons) ──
-  const beaconRedMat = new StandardMaterial('alarm-beacon-red', scene);
-  beaconRedMat.disableLighting = true; beaconRedMat.emissiveColor = new Color3(1, 0.1, 0.05);
+  // ── Alarm beacon lamps (6 rotating beacons). Security = amber (ANTI_VIBECODED colour code). ──
+  const beaconRedMat = new StandardMaterial('alarm-beacon-amber', scene);
+  beaconRedMat.disableLighting = true; beaconRedMat.emissiveColor = SECURITY_AMBER.clone();
   beaconRedMat.diffuseColor = Color3.Black();
   const alarmBeacons: { root: Mesh; beam: Mesh }[] = [];
   const beaconPositions: [number, number, number][] = [
@@ -214,7 +263,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   const officeDoor = new Door(scene, plugin, { name: 'office-access-shutter', x: -1, y: 3, z: -26, width: 6, height: 6, depth: 0.5, travel: 7 });
   officeDoor.mesh.material = p.sage; officeDoor.mesh.metadata = { cameraOccluder: true };
   const escapeDoor = new Door(scene, plugin, { name: 'pressure-relief-shutter', x: -12, y: 3, z: 13, width: 0.5, height: 6, depth: 8, travel: 7 });
-  escapeDoor.mesh.material = p.coral; escapeDoor.mesh.metadata = { cameraOccluder: true };
+  escapeDoor.mesh.material = p.metal; // aluminium roller shutter (coral is NEE's) escapeDoor.mesh.metadata = { cameraOccluder: true };
   // Objective beacons: a slowly spinning diamond and a breathing floor ring above the next goal(s).
   // Purely presentational and driven from replicated mission state, so they are identical for both players.
   const beaconMat = new StandardMaterial('objective-beacon', scene);
@@ -238,11 +287,19 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   let elapsed = 0;
   let vaultProgress = 0; // 0 = closed, 1 = fully open
   let prevVaultOpen = false;
-  // Alarm transformation: store originals once on first alarm tick.
-  let origFillDiffuse: Color3 | null = null;
-  let origSunIntensity: number | null = null;
-  let origClearColor: Color4 | null = null;
-  let alarmBlend = 0; // 0 = normal, 1 = full alarm tint
+  // Alarm transformation state (originals captured on the first tick; no per-frame allocations).
+  let sunLight: DirectionalLight | null = null;
+  let fillLight: HemisphericLight | null = null;
+  let origSunIntensity = 1.65;
+  let origFillIntensity = 0.48;
+  const origClearColor = new Color4();
+  const alarmClear = new Color4(0.42, 0.45, 0.46, 1); // dusk-neutral sky, never red
+  let alarmBlend = 0; // 0 = normal, 1 = full alarm
+  let alarmTime = 0;
+  let alarmPhase = 0;
+  let alarmStage = 0;
+  let alarmLightTamed = false;
+  let statusLed: PBRMaterial | null | undefined;
   let completeTintTimer = 0;
   levels.set(scene, { update(dt, state) {
     elapsed += dt;
@@ -251,7 +308,6 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     p.escape.emissiveColor.set(state.alarm ? 0.22 : 0.06, state.alarm ? 0.8 : 0.17, state.alarm ? 0.43 : 0.1);
     strips.forEach((mesh, i) => { mesh.visibility = state.alarm ? 0.65 + 0.35 * Math.sin(elapsed * 5 + i * 0.8) : 0.18; });
     exitSign.scaling.setAll(state.alarm ? 1.04 : 1);
-    halo.material = state.alarm ? p.coral : p.light;
 
     // ── Vault reveal ──
     const wantOpen = !!state.vaultOpen;
@@ -278,36 +334,50 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
       halo.visibility = 1;
     }
 
-    // ── Alarm transformation ──
-    const fillLight = scene.getLightByName('fill') as HemisphericLight | null;
-    const sunLight = scene.getLightByName('sun') as DirectionalLight | null;
-    // Store originals on first encounter
-    if (fillLight && origFillDiffuse === null) origFillDiffuse = fillLight.diffuse.clone();
-    if (sunLight && origSunIntensity === null) origSunIntensity = sunLight.intensity;
-    if (origClearColor === null) origClearColor = scene.clearColor.clone();
-    const alarmActive = state.alarm && !state.complete;
-    const alarmTarget = alarmActive ? 1 : 0;
-    alarmBlend = Scalar.Lerp(alarmBlend, alarmTarget, 1 - Math.exp(-dt * 3));
-    if (Math.abs(alarmBlend - alarmTarget) < 0.001) alarmBlend = alarmTarget;
-    if (alarmBlend > 0) {
-      const pulse12 = 0.5 + 0.5 * Math.sin(elapsed * 1.2 * 2 * Math.PI); // 1.2 Hz
-      const blendedPulse = alarmBlend * pulse12;
-      if (fillLight && origFillDiffuse) {
-        Color3.LerpToRef(origFillDiffuse, new Color3(1, 0.35, 0.3), blendedPulse * 0.7, fillLight.diffuse);
-      }
-      if (sunLight && origSunIntensity !== null) {
-        sunLight.intensity = Scalar.Lerp(origSunIntensity, origSunIntensity * 0.55, alarmBlend);
-      }
-      if (origClearColor) {
-        const alarmClear = new Color4(0.32, 0.16, 0.16, origClearColor.a);
-        Color4.LerpToRef(origClearColor, alarmClear, alarmBlend * 0.8, scene.clearColor);
-      }
-    } else if (origFillDiffuse && origSunIntensity !== null && origClearColor) {
-      // Restore originals when not alarmed
-      if (fillLight) fillLight.diffuse.copyFrom(origFillDiffuse);
-      if (sunLight) sunLight.intensity = origSunIntensity;
-      scene.clearColor.copyFrom(origClearColor);
+    // ── Alarm transformation (staged, allocation-free) ──
+    // Key dims to ~40%; the cool fill and every surface keep their colour. Amber comes only from
+    // lamps (beacons, wall ring) and screens. Stages: 1 trip (0-1.5 s, fast strobe), 2 sustained
+    // (1.2 Hz), 3 late escape (>30 s, 2 Hz, brighter) so a long escape keeps escalating.
+    if (sunLight === null) {
+      sunLight = scene.getLightByName('sun') as DirectionalLight | null;
+      fillLight = scene.getLightByName('fill') as HemisphericLight | null;
+      if (sunLight) origSunIntensity = sunLight.intensity;
+      if (fillLight) origFillIntensity = fillLight.intensity;
+      origClearColor.copyFrom(scene.clearColor);
     }
+    if (!alarmLightTamed) {
+      // MissionDirector's red point light would paint surfaces red; keep it on the lamp housings only.
+      const al = scene.getLightByName('alarm-light');
+      if (al) { al.diffuse.copyFrom(SECURITY_AMBER); al.includedOnlyMeshes = alarmBeacons.map(b => b.root); alarmLightTamed = true; }
+    }
+    const alarmActive = state.alarm && !state.complete;
+    alarmTime = alarmActive ? alarmTime + dt : 0;
+    const alarmTarget = alarmActive ? 1 : 0;
+    alarmBlend = Scalar.Lerp(alarmBlend, alarmTarget, 1 - Math.exp(-dt * (alarmActive ? 6 : 3)));
+    if (Math.abs(alarmBlend - alarmTarget) < 0.001) alarmBlend = alarmTarget;
+    alarmStage = !alarmActive ? 0 : alarmTime < 1.5 ? 1 : alarmTime < 30 ? 2 : 3;
+    const hz = alarmStage === 1 ? 3 : alarmStage === 3 ? 2 : 1.2;
+    alarmPhase += dt * hz * 2 * Math.PI;
+    const lampPulse = 0.5 + 0.5 * Math.sin(alarmPhase);
+    const lampLevel = alarmStage === 1 ? (lampPulse > 0.5 ? 1.25 : 0.35) : (alarmStage === 3 ? 0.55 : 0.4) + (alarmStage === 3 ? 0.7 : 0.6) * lampPulse;
+    if (sunLight) sunLight.intensity = origSunIntensity * (1 - 0.6 * alarmBlend);
+    if (fillLight) fillLight.intensity = origFillIntensity * (1 - 0.15 * alarmBlend);
+    Color4.LerpToRef(origClearColor, alarmClear, alarmBlend, scene.clearColor);
+    beaconRedMat.emissiveColor.copyFrom(SECURITY_AMBER).scaleInPlace(alarmActive ? lampLevel : 1);
+    // Screens: instrument displays and rack status LEDs blink amber with the lamps.
+    displayMat.emissiveColor.copyFrom(SCREEN_IDLE);
+    if (alarmBlend > 0) Color3.LerpToRef(SCREEN_IDLE, SECURITY_AMBER, alarmBlend * (0.35 + 0.5 * lampPulse), displayMat.emissiveColor);
+    if (statusLed === undefined) {
+      statusLed = scene.getMaterialByName('dress-status-led-warm') as PBRMaterial | null;
+      statusLed?.unfreeze();
+    }
+    if (statusLed) {
+      Color3.LerpToRef(STATUS_IDLE, SECURITY_AMBER, alarmBlend * lampPulse, statusLed.emissiveColor);
+    }
+    // Hero beam: museum-soft when closed, full when revealed, dimmed with the key during the alarm.
+    beamMat.alpha = (0.22 + 0.16 * eased) * (1 - 0.55 * alarmBlend);
+    halo.material = alarmActive ? beaconRedMat : p.light;
+    scene.metadata = { ...(scene.metadata ?? {}), alarmStage };
     // Warm gold tint on complete
     if (!state.complete) completeTintTimer = 0;
     if (state.complete && completeTintTimer < 2) {
@@ -388,5 +458,10 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   // Batch Astra's repeated physics-free trim (rack trays/LEDs, battens, fixtures) into one mesh per material.
   mergeDecorative(scene, ['rack-upright', 'rack-tray', 'rack-status', 'oak-batten', 'pendant-shell',
     'pendant-diffuser', 'pendant-wire', 'vault-mullion', 'extraction-lamp']);
+  // Authored 'Coral' plastic (planters, arm caps) reads as NEE's colour: retint it to clay.
+  for (const m of scene.materials) {
+    if (m.name !== 'Coral' || !(m instanceof PBRMaterial)) continue;
+    const frozen = m.isFrozen; m.unfreeze(); m.albedoColor.copyFrom(p.coral.albedoColor); if (frozen) m.freeze();
+  }
   return new Vector3(layout.spawn.x, layout.spawn.y, layout.spawn.z);
 }

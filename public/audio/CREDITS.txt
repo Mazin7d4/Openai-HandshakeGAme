@@ -1,0 +1,26 @@
+Audio credits
+=============
+
+Sound effects (sfx.ogg / sfx.m4a sprite)
+----------------------------------------
+Kenney (www.kenney.nl), licence CC0 1.0 Universal (public domain). Credit not required, given anyway.
+  Interface Sounds  : rollover2, click_002, confirmation_002, confirmation_004, back_002, switch_003,
+                      error_004, error_006, tick_002, pluck_001, drop_002, glitch_002
+  Impact Sounds     : impactPlate_light_000-002, impactWood_medium_000-002, impactSoft_heavy_000-002
+  Sci-fi Sounds     : doorOpen_001, forceField_001
+  Digital Audio     : zapTwoTone
+Some samples are trimmed, level-matched and filtered by tools/audio/build-sfx.mjs.
+
+Synthesised at runtime (src/audio/synth.ts, src/audio/zzfx.ts)
+---------------------------------------------------------------
+Drone chirps, spotted/suspicious alerts, rescue, hack start, stun warble, tether twang/snap/stretch,
+whooshes, thruster hum, room tone and the alarm pulse.
+ZzFX by Frank Force, MIT licence, https://github.com/KilledByAPixel/ZzFX
+  Copyright (c) 2019 Frank Force. Permission is hereby granted, free of charge, to any person obtaining a
+  copy of this software, to deal in the Software without restriction, subject to including this notice.
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+Music and stingers (music-calm, music-escape, sting_theft, sting_win, sting_vault)
+---------------------------------------------------------------------------------
+Original, composed and rendered procedurally for this game by tools/audio/render-music.mjs.
+Released as CC0 1.0.

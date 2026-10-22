@@ -4,8 +4,21 @@ import type {
   OrientationState,
   Vec3State,
 } from '../player/PlayerState.ts';
+import type { RunMode } from '../../shared/run.ts';
 
 export type DroneRole = 'pix' | 'nee';
+
+/** Authoritative run fields mirrored from room state (seed / Night Shift). */
+export interface RunNetworkState {
+  mode: RunMode;
+  seed: number;
+  floor: number;
+  captures: number;
+  maxCaptures: number;
+  startedAt: number;
+  floorTimes: number[];
+  ended: boolean;
+}
 
 export interface DroneNetworkState {
   playerId: string;
@@ -75,4 +88,5 @@ export interface RoomStatus {
   hack: HackNetworkState;
   mission: MissionNetworkState;
   security: SecurityNetworkState;
+  run: RunNetworkState;
 }

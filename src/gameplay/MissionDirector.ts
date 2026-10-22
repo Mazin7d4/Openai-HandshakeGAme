@@ -4,15 +4,17 @@ import type { GameMode } from '../app/GameMode.ts';
 import type { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole, MissionNetworkState, RoomStatus, SecurityNetworkState } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
+import { HeistReport } from '../ui/HeistReport.ts';
+import type { RunStats } from '../ui/heistAwards.ts';
 import type { GrabSystem } from './GrabSystem.ts';
 import type { HackSession } from './HackSession.ts';
 import { SecuritySystem } from './SecuritySystem.ts';
 import layout from '../level/heist-layout.json';
+import type { RunLayout } from '../seed/index.ts';
+import { nextFloorSeed, stashRunSeed } from '../seed/index.ts';
 import { updateHeistPresentation } from '../level/PrototypeHeist.ts';
 import { gameEvents } from './GameEvents.ts';
-
-const VAULT = new Vector3(layout.objects.prototype.x, layout.objects.prototype.y, layout.objects.prototype.z);
-const EXTRACTION = new Vector3(layout.extraction.x, layout.extraction.y, layout.extraction.z);
+import { getRunState, localEscape, localCapture } from '../run/ClientRun.ts';
 
 const FRESH_STATE: MissionNetworkState = {
   stage: 'infiltrate', alarm: false, securityActive: false, prototypeHeldBy: null,
@@ -30,10 +32,9 @@ export class MissionDirector {
   private readonly objectiveTitle: HTMLHeadingElement | null;
   private readonly objectiveDetail: HTMLParagraphElement | null;
   private readonly detectionFill: HTMLDivElement | null;
-  private readonly completeOverlay: HTMLDivElement | null;
+  private readonly report: HeistReport | null;
   private successTimer: number | null = null;
   private alarmTimer: number | null = null;
-  private readonly stats: HTMLDListElement | null;
   private localElapsed = 0;
   private lastStage = this.state.stage;
   private spotCooldown = 0;
@@ -42,6 +43,14 @@ export class MissionDirector {
   private cameraDisabledFor = 0;
   private hacksWereComplete = false;
   private clotheslines = 0;
+  private cordTwangs = 0;
+  private nearMisses = 0;
+  private crateHaulMeters = 0;
+  private readonly yankBy: DroneRole[] = [];
+  private peakDetection = 0;
+  private lastCrateX = 0;
+  private lastCrateZ = 0;
+  private crateSampleReady = false;
   /** Multiplayer: latest server-owned security state and pending server shoves for our drone. */
   private securityState: SecurityNetworkState | null = null;
   private readonly pendingShoves: { role: DroneRole; impulse: Vector3 }[] = [];
@@ -51,6 +60,10 @@ export class MissionDirector {
   private readonly unsubscribe: (() => void) | null;
   private readonly scene: Scene;
   private routeHint = 'Enter beneath reception, then rise together through the service vent.';
+  private vault = new Vector3(layout.objects.prototype.x, layout.objects.prototype.y, layout.objects.prototype.z);
+  private extraction = new Vector3(layout.extraction.x, layout.extraction.y, layout.extraction.z);
+  private runLayout: RunLayout | null = null;
+  private seedHud: HTMLElement | null = null;
 
   constructor(
     scene: Scene,
@@ -60,6 +73,7 @@ export class MissionDirector {
     audio: GameAudio,
     uiParent?: HTMLElement,
     onLeave?: () => void,
+    runLayout?: RunLayout | null,
   ) {
     this.scene = scene;
     this.multiplayer = multiplayer;
@@ -80,7 +94,7 @@ export class MissionDirector {
     });
     const offSpotted = multiplayer?.onSecuritySpotted((role) => {
       this.spottedLog.push(role);
-      this.audio.warning();
+      this.audio.spotted(role);
     });
     const offShove = multiplayer?.onPatrolShove((m) => {
       const impulse = new Vector3(m.impulse?.x, m.impulse?.y, m.impulse?.z);
@@ -91,7 +105,11 @@ export class MissionDirector {
       }
     });
     const offLine = gameEvents.on('clothesline', () => { if (!this.multiplayer) this.clotheslines += 1; });
-    this.unsubscribe = () => { offStun?.(); offSpotted?.(); offShove?.(); offLine(); };
+    const offYank = gameEvents.on('yank', (event) => {
+      this.cordTwangs += 1;
+      this.yankBy.push(event.from);
+    });
+    this.unsubscribe = () => { offStun?.(); offSpotted?.(); offShove?.(); offLine(); offYank(); };
 
     if (uiParent) {
       const objective = document.createElement('aside');
@@ -106,48 +124,56 @@ export class MissionDirector {
       detection.className = 'detection-meter';
       this.detectionFill = document.createElement('div');
       detection.append(this.detectionFill);
-      objective.append(kicker, this.objectiveTitle, this.objectiveDetail, detection);
+      this.seedHud = document.createElement('span');
+      this.seedHud.className = 'mission-seed';
+      this.seedHud.dataset.testid = 'mission-seed';
+      this.seedHud.hidden = !runLayout;
+      objective.append(kicker, this.objectiveTitle, this.objectiveDetail, this.seedHud, detection);
+      uiParent.append(objective);
 
-      const completeOverlay = document.createElement('div');
-      this.completeOverlay = completeOverlay;
-      completeOverlay.className = 'mission-complete-overlay';
-      completeOverlay.dataset.testid = 'mission-complete';
-      const panel = document.createElement('section');
-      panel.className = 'mission-complete-panel';
-      panel.innerHTML = '<p class="menu-kicker">PROTOTYPE SECURED</p><h1>MISSION COMPLETE</h1>' +
-        '<div class="mission-crew"><span class="crew-face pix">^ ^</span><span class="mission-rating"></span><span class="crew-face nee">^ ^</span></div>' +
-        '<p class="mission-quip"></p>';
-      this.stats = document.createElement('dl');
-      this.stats.className = 'mission-stats';
-      const retry = document.createElement('button');
-      retry.type = 'button';
-      retry.className = 'menu-button';
-      retry.textContent = 'RETRY';
-      retry.dataset.testid = 'retry-mission';
-      retry.addEventListener('click', () => {
-        if (mode === 'multiplayer') multiplayer?.retryMission();
-        else this.resetLocal();
+      this.report = new HeistReport(uiParent, {
+        audio,
+        onLeave,
+        onPlayAgain: () => {
+          if (mode === 'multiplayer') multiplayer?.retryMission();
+          else this.resetLocal();
+        },
+        // Night Shift: advance run-state seed/floor, stash for getRunSeed, restart same mode.
+        onNextFloor: mode === 'night-shift' ? () => {
+          const advanced = localEscape(this.state.elapsedSeconds);
+          if (advanced) stashRunSeed({ seed: advanced.seed, floor: advanced.floor });
+          else if (this.runLayout) {
+            stashRunSeed(nextFloorSeed({ seed: this.runLayout.seed, floor: this.runLayout.floor }));
+          }
+          try { sessionStorage.setItem('pixnee.pendingMode', mode); } catch { /* private mode */ }
+          onLeave?.();
+        } : undefined,
       });
-      const menu = document.createElement('button');
-      menu.type = 'button';
-      menu.className = 'menu-button';
-      menu.textContent = 'RETURN TO MENU';
-      menu.addEventListener('click', () => onLeave?.());
-      const actions = document.createElement('div');
-      actions.className = 'mission-complete-actions';
-      actions.append(retry, menu);
-      panel.append(this.stats, actions);
-      completeOverlay.append(panel);
-      uiParent.append(objective, completeOverlay);
+      // TEST / screenshot hook: window.__heistReport.show(stats?)
+      (window as unknown as { __heistReport?: unknown }).__heistReport = {
+        show: (stats?: RunStats) => this.presentReport(stats ?? this.snapshotStats('win'), true),
+        hide: () => this.report?.hide(),
+        visible: () => this.report?.visible ?? false,
+      };
     } else {
       this.objective = null;
       this.objectiveTitle = null;
       this.objectiveDetail = null;
       this.detectionFill = null;
-      this.completeOverlay = null;
-      this.stats = null;
+      this.report = null;
+      this.seedHud = null;
     }
+    if (runLayout) this.applyRunLayout(runLayout);
     this.renderObjective(0);
+  }
+
+  /** Solo / seed hook: update loot + extraction anchors and HUD seed line. */
+  applyRunLayout(run: RunLayout): void {
+    this.runLayout = run;
+    this.vault.set(run.loot.x, run.loot.y, run.loot.z);
+    this.extraction.set(run.extraction.x, run.extraction.y, run.extraction.z);
+    this.security.applyRunLayout(run);
+    this.renderSeedHud();
   }
 
   sync(status: RoomStatus): void {
@@ -187,7 +213,7 @@ export class MissionDirector {
     this.cameraDisabledFor = Math.max(0, this.cameraDisabledFor - dt);
     if (hack.allComplete() && !this.hacksWereComplete) {
       this.cameraDisabledFor = 18;
-      if (!this.state.alarm) gameEvents.emit('heist', { beat: 'vault', position: VAULT.clone() });
+      if (!this.state.alarm) gameEvents.emit('heist', { beat: 'vault', position: this.vault.clone() });
     }
     this.hacksWereComplete = hack.allComplete();
     if (!this.multiplayer) {
@@ -202,8 +228,8 @@ export class MissionDirector {
       if (holder && !this.state.alarm && hack.allComplete()) this.notifyGrab('prototype', holder);
       this.state = { ...this.state, prototypeHeldBy: holder };
       if (this.state.stage === 'escape' && holder) {
-        const bothInside = [...drones.values()].every((drone) => Vector3.Distance(drone.position, EXTRACTION) <= 5.5);
-        const carrierInside = Vector3.Distance(drones.get(holder)?.position ?? Vector3.Zero(), EXTRACTION) <= 4.5;
+        const bothInside = [...drones.values()].every((drone) => Vector3.Distance(drone.position, this.extraction) <= 5.5);
+        const carrierInside = Vector3.Distance(drones.get(holder)?.position ?? Vector3.Zero(), this.extraction) <= 4.5;
         if (bothInside && carrierInside) this.completeMission();
       }
     }
@@ -241,6 +267,8 @@ export class MissionDirector {
       this.security.update(dt, drones, this.state.securityActive, this.cameraDisabledFor > 0, tetherStrain);
     }
     this.alarmLight.intensity = this.state.alarm ? 1.6 + Math.sin(this.localElapsed * 9) * 1.2 : 0;
+    this.trackNearMisses();
+    this.trackCrateHaul(grab);
     this.renderObjective(hack.completionCount());
     this.presentStageChange();
   }
@@ -284,26 +312,40 @@ export class MissionDirector {
     this.security.dispose();
     this.alarmLight.dispose();
     this.objective?.remove();
-    this.completeOverlay?.remove();
+    this.report?.dispose();
+    const hook = window as unknown as { __heistReport?: unknown };
+    if (hook.__heistReport) delete hook.__heistReport;
   }
 
-  private spotted(_role: DroneRole): void {
+  private spotted(role: DroneRole): void {
     if (this.spotCooldown > 0 || this.state.stage === 'complete') return;
     this.spotCooldown = 2.8;
+    this.peakDetection = 0;
     // Single-player only: in multiplayer the server detects, counts and broadcasts 'security-spotted'.
     if (this.multiplayer) return;
+    this.spottedLog.push(role);
     this.state = { ...this.state, timesSpotted: this.state.timesSpotted + 1 };
-    this.audio.warning();
+    this.audio.spotted(role);
   }
 
   private completeMission(): void {
     if (this.state.stage === 'complete') return;
     this.state = { ...this.state, stage: 'complete', extracted: true, securityActive: false };
     this.audio.stopAlarm();
+    // Solo Night Shift: advance floor/seed via the shared run module (no server).
+    if (!this.multiplayer && getRunState()?.mode === 'nightshift') {
+      localEscape(this.state.elapsedSeconds);
+    }
+  }
+
+  /** Solo / offline Night Shift capture (test + future fail path). */
+  reportCapture(): void {
+    if (this.multiplayer || getRunState()?.mode !== 'nightshift') return;
+    localCapture();
   }
 
   private beginAlarm(): void {
-    gameEvents.emit('heist', { beat: 'pickup', position: VAULT.clone(), role: this.state.prototypeHeldBy });
+    gameEvents.emit('heist', { beat: 'pickup', position: this.vault.clone(), role: this.state.prototypeHeldBy });
     this.audio.prototypePickup();
     if (this.alarmTimer !== null) window.clearTimeout(this.alarmTimer);
     this.alarmTimer = window.setTimeout(() => { this.alarmTimer = null; if (this.state.alarm && this.state.stage === 'escape') this.audio.startAlarm(); }, 600);
@@ -312,22 +354,21 @@ export class MissionDirector {
   private presentStageChange(): void {
     if (this.lastStage === this.state.stage) return;
     this.lastStage = this.state.stage;
-    if (this.state.stage === 'infiltrate') this.clotheslines = 0;
+    if (this.state.stage === 'infiltrate') this.resetRunCounters();
     if (this.state.stage === 'complete' && !this.completedPresented) {
       this.completedPresented = true;
       this.audio.stopAlarm();
       this.audio.missionComplete();
-      gameEvents.emit('heist', { beat: 'extract', position: EXTRACTION.clone() });
-      this.renderStats();
+      gameEvents.emit('heist', { beat: 'extract', position: this.extraction.clone() });
       // Let the extraction confetti play before the results panel covers it.
       if (this.successTimer !== null) window.clearTimeout(this.successTimer);
       this.successTimer = window.setTimeout(() => {
         this.successTimer = null;
-        if (this.state.stage === 'complete') this.completeOverlay?.classList.add('visible');
+        if (this.state.stage === 'complete') this.presentReport(this.snapshotStats('win'));
       }, 1200);
     } else if (this.state.stage !== 'complete') {
       this.completedPresented = false;
-      this.completeOverlay?.classList.remove('visible');
+      this.report?.hide();
     }
   }
 
@@ -348,50 +389,86 @@ export class MissionDirector {
     this.objective?.classList.toggle('alarm', this.state.alarm);
   }
 
-  private renderStats(): void {
-    if (!this.stats) return;
-    this.stats.replaceChildren();
-    const values: [string, string][] = [
-      ['COMPLETION TIME', formatTime(this.state.elapsedSeconds)],
-      ['TIMES SPOTTED', String(Math.round(this.state.timesSpotted))],
-      ['OBJECTS THROWN', String(Math.round(this.state.objectsThrown))],
-      ['TETHER SAVES', String(Math.round(this.state.tetherSaves))],
-      ['CLOTHESLINES', String(this.clotheslines)],
-    ];
-    const spotted = Math.round(this.state.timesSpotted);
-    const stars = 1 + (spotted <= 1 ? 1 : 0) + (this.state.elapsedSeconds < 420 || this.state.tetherSaves + this.clotheslines >= 2 ? 1 : 0);
-    const rating = this.completeOverlay?.querySelector('.mission-rating');
-    if (rating) {
-      rating.textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
-      rating.setAttribute('aria-label', `${stars} of 3 stars`);
+  private renderSeedHud(): void {
+    if (!this.seedHud || !this.runLayout) return;
+    const twist = this.runLayout.twist.label;
+    this.seedHud.textContent = `Seed ${this.runLayout.seed} · Floor ${this.runLayout.floor} · ${twist}`;
+  }
+
+  private presentReport(stats: RunStats, force = false): void {
+    if (!this.report) return;
+    if (!force && this.state.stage !== 'complete') return;
+    this.report.show(stats);
+  }
+
+  private snapshotStats(outcome: RunStats['outcome']): RunStats {
+    return {
+      elapsedSeconds: this.state.elapsedSeconds,
+      timesSpotted: this.state.timesSpotted,
+      objectsThrown: this.state.objectsThrown,
+      tetherSaves: this.state.tetherSaves,
+      clotheslines: this.clotheslines,
+      cordTwangs: this.cordTwangs,
+      nearMisses: this.nearMisses,
+      crateHaulMeters: this.crateHaulMeters,
+      spottedBy: [...this.spottedLog],
+      yankBy: [...this.yankBy],
+      outcome,
+    };
+  }
+
+  /** Detection climbed past "almost" then cooled without a spot. */
+  private trackNearMisses(): void {
+    if (this.state.stage === 'complete' || !this.state.securityActive) return;
+    const d = this.security.detection;
+    if (d > this.peakDetection) this.peakDetection = d;
+    if (this.peakDetection >= 0.72 && d < 0.35) {
+      this.nearMisses += 1;
+      this.peakDetection = 0;
     }
-    const quip = this.completeOverlay?.querySelector('.mission-quip');
-    if (quip) quip.textContent = spotted === 0
-      ? 'PIX: “Ghosts. We were ghosts.”   NEE: “I was SO nervous.”'
-      : this.state.tetherSaves > 0
-        ? 'NEE: “You yanked me out of there!”   PIX: “That’s what the cord is for.”'
-        : 'PIX: “Nobody saw a thing.”   NEE: “Everybody saw everything.”';
-    for (const [label, value] of values) {
-      const dt = document.createElement('dt');
-      dt.textContent = label;
-      const dd = document.createElement('dd');
-      dd.textContent = value;
-      this.stats.append(dt, dd);
+  }
+
+  /** Accumulate planar metres while the heavy lab crate is held (helped or not). */
+  private trackCrateHaul(grab: GrabSystem): void {
+    if (this.state.stage === 'complete') return;
+    const holder = grab.objectHeldBy('crate-blue');
+    const pos = grab.objectPosition('crate-blue');
+    if (!holder || !pos) {
+      this.crateSampleReady = false;
+      return;
     }
+    if (!this.crateSampleReady) {
+      this.lastCrateX = pos.x;
+      this.lastCrateZ = pos.z;
+      this.crateSampleReady = true;
+      return;
+    }
+    const dx = pos.x - this.lastCrateX;
+    const dz = pos.z - this.lastCrateZ;
+    const step = Math.hypot(dx, dz);
+    if (step > 0.02 && step < 4) this.crateHaulMeters += step;
+    this.lastCrateX = pos.x;
+    this.lastCrateZ = pos.z;
+  }
+
+  private resetRunCounters(): void {
+    this.clotheslines = 0;
+    this.cordTwangs = 0;
+    this.nearMisses = 0;
+    this.crateHaulMeters = 0;
+    this.yankBy.length = 0;
+    this.spottedLog.length = 0;
+    this.peakDetection = 0;
+    this.crateSampleReady = false;
   }
 
   private resetLocal(): void {
     this.state = { ...FRESH_STATE };
-    this.clotheslines = 0;
+    this.resetRunCounters();
     this.localElapsed = 0;
     this.completedPresented = false;
     this.lastStage = 'infiltrate';
     this.audio.stopAlarm();
-    this.completeOverlay?.classList.remove('visible');
+    this.report?.hide();
   }
-}
-
-function formatTime(seconds: number): string {
-  const whole = Math.max(0, Math.floor(seconds));
-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 }

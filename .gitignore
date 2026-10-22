@@ -24,3 +24,7 @@ artifacts/
 *.sln
 *.sw?
 public/assets/props/*.blend
+
+# Playwright / QA outputs
+test-results/
+playwright-report/
