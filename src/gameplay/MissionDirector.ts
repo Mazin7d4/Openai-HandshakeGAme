@@ -8,11 +8,10 @@ import type { GrabSystem } from './GrabSystem.ts';
 import type { HackSession } from './HackSession.ts';
 import { SecuritySystem } from './SecuritySystem.ts';
 import layout from '../level/heist-layout.json';
+import type { RunLayout } from '../seed/index.ts';
+import { nextFloorSeed, stashRunSeed } from '../seed/index.ts';
 import { updateHeistPresentation } from '../level/PrototypeHeist.ts';
 import { gameEvents } from './GameEvents.ts';
-
-const VAULT = new Vector3(layout.objects.prototype.x, layout.objects.prototype.y, layout.objects.prototype.z);
-const EXTRACTION = new Vector3(layout.extraction.x, layout.extraction.y, layout.extraction.z);
 
 const FRESH_STATE: MissionNetworkState = {
   stage: 'infiltrate', alarm: false, securityActive: false, prototypeHeldBy: null,
@@ -51,6 +50,10 @@ export class MissionDirector {
   private readonly unsubscribe: (() => void) | null;
   private readonly scene: Scene;
   private routeHint = 'Enter beneath reception, then rise together through the service vent.';
+  private vault = new Vector3(layout.objects.prototype.x, layout.objects.prototype.y, layout.objects.prototype.z);
+  private extraction = new Vector3(layout.extraction.x, layout.extraction.y, layout.extraction.z);
+  private runLayout: RunLayout | null = null;
+  private seedHud: HTMLElement | null = null;
 
   constructor(
     scene: Scene,
@@ -60,6 +63,7 @@ export class MissionDirector {
     audio: GameAudio,
     uiParent?: HTMLElement,
     onLeave?: () => void,
+    runLayout?: RunLayout | null,
   ) {
     this.scene = scene;
     this.multiplayer = multiplayer;
@@ -106,7 +110,10 @@ export class MissionDirector {
       detection.className = 'detection-meter';
       this.detectionFill = document.createElement('div');
       detection.append(this.detectionFill);
-      objective.append(kicker, this.objectiveTitle, this.objectiveDetail, detection);
+      this.seedHud = document.createElement('span');
+      this.seedHud.className = 'mission-seed';
+      this.seedHud.dataset.testid = 'mission-seed';
+      objective.append(kicker, this.objectiveTitle, this.objectiveDetail, this.seedHud, detection);
 
       const completeOverlay = document.createElement('div');
       this.completeOverlay = completeOverlay;
@@ -114,7 +121,7 @@ export class MissionDirector {
       completeOverlay.dataset.testid = 'mission-complete';
       const panel = document.createElement('section');
       panel.className = 'mission-complete-panel';
-      panel.innerHTML = '<p class="menu-kicker">PROTOTYPE SECURED</p><h1>MISSION COMPLETE</h1>' +
+      panel.innerHTML = '<p class="menu-kicker">Heist report</p><h1>Mission complete</h1>' +
         '<div class="mission-crew"><span class="crew-face pix">^ ^</span><span class="mission-rating"></span><span class="crew-face nee">^ ^</span></div>' +
         '<p class="mission-quip"></p>';
       this.stats = document.createElement('dl');
@@ -122,7 +129,7 @@ export class MissionDirector {
       const retry = document.createElement('button');
       retry.type = 'button';
       retry.className = 'menu-button';
-      retry.textContent = 'RETRY';
+      retry.textContent = 'Retry';
       retry.dataset.testid = 'retry-mission';
       retry.addEventListener('click', () => {
         if (mode === 'multiplayer') multiplayer?.retryMission();
@@ -131,11 +138,25 @@ export class MissionDirector {
       const menu = document.createElement('button');
       menu.type = 'button';
       menu.className = 'menu-button';
-      menu.textContent = 'RETURN TO MENU';
+      menu.textContent = 'Return to menu';
       menu.addEventListener('click', () => onLeave?.());
+      const nextFloor = document.createElement('button');
+      nextFloor.type = 'button';
+      nextFloor.className = 'menu-button';
+      nextFloor.textContent = 'Next floor';
+      nextFloor.dataset.testid = 'next-floor';
+      const showNextFloor = mode === 'night-shift' || mode === 'singleplayer';
+      nextFloor.hidden = !showNextFloor;
+      nextFloor.addEventListener('click', () => {
+        // Thin stub: stash floor+1 for getRunSeed, then restart. Capture limits live on prod-net.
+        if (this.runLayout) stashRunSeed(nextFloorSeed({ seed: this.runLayout.seed, floor: this.runLayout.floor }));
+        try { sessionStorage.setItem('pixnee.pendingMode', mode); } catch { /* private mode */ }
+        onLeave?.();
+      });
       const actions = document.createElement('div');
       actions.className = 'mission-complete-actions';
-      actions.append(retry, menu);
+      if (showNextFloor) actions.append(retry, nextFloor, menu);
+      else actions.append(retry, menu);
       panel.append(this.stats, actions);
       completeOverlay.append(panel);
       uiParent.append(objective, completeOverlay);
@@ -146,8 +167,19 @@ export class MissionDirector {
       this.detectionFill = null;
       this.completeOverlay = null;
       this.stats = null;
+      this.seedHud = null;
     }
+    if (runLayout) this.applyRunLayout(runLayout);
     this.renderObjective(0);
+  }
+
+  /** Solo / seed hook: update loot + extraction anchors and HUD seed line. */
+  applyRunLayout(run: RunLayout): void {
+    this.runLayout = run;
+    this.vault.set(run.loot.x, run.loot.y, run.loot.z);
+    this.extraction.set(run.extraction.x, run.extraction.y, run.extraction.z);
+    this.security.applyRunLayout(run);
+    this.renderSeedHud();
   }
 
   sync(status: RoomStatus): void {
@@ -187,7 +219,7 @@ export class MissionDirector {
     this.cameraDisabledFor = Math.max(0, this.cameraDisabledFor - dt);
     if (hack.allComplete() && !this.hacksWereComplete) {
       this.cameraDisabledFor = 18;
-      if (!this.state.alarm) gameEvents.emit('heist', { beat: 'vault', position: VAULT.clone() });
+      if (!this.state.alarm) gameEvents.emit('heist', { beat: 'vault', position: this.vault.clone() });
     }
     this.hacksWereComplete = hack.allComplete();
     if (!this.multiplayer) {
@@ -202,8 +234,8 @@ export class MissionDirector {
       if (holder && !this.state.alarm && hack.allComplete()) this.notifyGrab('prototype', holder);
       this.state = { ...this.state, prototypeHeldBy: holder };
       if (this.state.stage === 'escape' && holder) {
-        const bothInside = [...drones.values()].every((drone) => Vector3.Distance(drone.position, EXTRACTION) <= 5.5);
-        const carrierInside = Vector3.Distance(drones.get(holder)?.position ?? Vector3.Zero(), EXTRACTION) <= 4.5;
+        const bothInside = [...drones.values()].every((drone) => Vector3.Distance(drone.position, this.extraction) <= 5.5);
+        const carrierInside = Vector3.Distance(drones.get(holder)?.position ?? Vector3.Zero(), this.extraction) <= 4.5;
         if (bothInside && carrierInside) this.completeMission();
       }
     }
@@ -303,7 +335,7 @@ export class MissionDirector {
   }
 
   private beginAlarm(): void {
-    gameEvents.emit('heist', { beat: 'pickup', position: VAULT.clone(), role: this.state.prototypeHeldBy });
+    gameEvents.emit('heist', { beat: 'pickup', position: this.vault.clone(), role: this.state.prototypeHeldBy });
     this.audio.prototypePickup();
     if (this.alarmTimer !== null) window.clearTimeout(this.alarmTimer);
     this.alarmTimer = window.setTimeout(() => { this.alarmTimer = null; if (this.state.alarm && this.state.stage === 'escape') this.audio.startAlarm(); }, 600);
@@ -317,7 +349,7 @@ export class MissionDirector {
       this.completedPresented = true;
       this.audio.stopAlarm();
       this.audio.missionComplete();
-      gameEvents.emit('heist', { beat: 'extract', position: EXTRACTION.clone() });
+      gameEvents.emit('heist', { beat: 'extract', position: this.extraction.clone() });
       this.renderStats();
       // Let the extraction confetti play before the results panel covers it.
       if (this.successTimer !== null) window.clearTimeout(this.successTimer);
@@ -348,16 +380,27 @@ export class MissionDirector {
     this.objective?.classList.toggle('alarm', this.state.alarm);
   }
 
+  private renderSeedHud(): void {
+    if (!this.seedHud || !this.runLayout) return;
+    const twist = this.runLayout.twist.label;
+    this.seedHud.textContent = `Seed ${this.runLayout.seed} · Floor ${this.runLayout.floor} · ${twist}`;
+  }
+
   private renderStats(): void {
     if (!this.stats) return;
     this.stats.replaceChildren();
     const values: [string, string][] = [
-      ['COMPLETION TIME', formatTime(this.state.elapsedSeconds)],
-      ['TIMES SPOTTED', String(Math.round(this.state.timesSpotted))],
-      ['OBJECTS THROWN', String(Math.round(this.state.objectsThrown))],
-      ['TETHER SAVES', String(Math.round(this.state.tetherSaves))],
-      ['CLOTHESLINES', String(this.clotheslines)],
+      ['Completion time', formatTime(this.state.elapsedSeconds)],
+      ['Times spotted', String(Math.round(this.state.timesSpotted))],
+      ['Objects thrown', String(Math.round(this.state.objectsThrown))],
+      ['Tether saves', String(Math.round(this.state.tetherSaves))],
+      ['Clotheslines', String(this.clotheslines)],
     ];
+    if (this.runLayout) {
+      values.push(['Seed', String(this.runLayout.seed)]);
+      values.push(['Floor', String(this.runLayout.floor)]);
+      values.push(['Twist', this.runLayout.twist.label]);
+    }
     const spotted = Math.round(this.state.timesSpotted);
     const stars = 1 + (spotted <= 1 ? 1 : 0) + (this.state.elapsedSeconds < 420 || this.state.tetherSaves + this.clotheslines >= 2 ? 1 : 0);
     const rating = this.completeOverlay?.querySelector('.mission-rating');

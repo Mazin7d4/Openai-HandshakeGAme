@@ -10,11 +10,20 @@ import { MemoryTraceView } from './MemoryTraceView.ts';
 import { PacketRoutingView } from './PacketRoutingView.ts';
 import { SignalMatchView } from './SignalMatchView.ts';
 import layout from '../level/heist-layout.json';
+import type { RunLayout } from '../seed/index.ts';
 
 interface ActiveHack {
   station: HackStation;
   role: DroneRole;
   view: HackMinigameView;
+}
+
+function terminalPos(
+  run: RunLayout | null | undefined,
+  id: HackStationId,
+): Vector3 {
+  const src = run?.terminals[id] ?? layout.terminals[id];
+  return new Vector3(src.x, src.y, src.z);
 }
 
 /** Owns station proximity, minigame lifetime, completion state and the shared door target. */
@@ -42,6 +51,7 @@ export class HackSession {
     multiplayer: MultiplayerSession | null,
     uiParent?: HTMLElement,
     audio?: GameAudio,
+    runLayout?: RunLayout | null,
   ) {
     this.multiplayer = multiplayer;
     this.uiParent = uiParent ?? null;
@@ -51,7 +61,7 @@ export class HackSession {
       new HackStation(scene, {
         id: 'terminal-a',
         label: 'PIX PACKET CONSOLE',
-        position: Vector3.FromArray(Object.values(layout.terminals['terminal-a'])),
+        position: terminalPos(runLayout, 'terminal-a'),
         interactionRadius: 3.2,
         minigameType: 'packet-routing',
         allowedRole: 'pix',
@@ -60,7 +70,7 @@ export class HackSession {
       new HackStation(scene, {
         id: 'terminal-b',
         label: 'NEE SIGNAL CONSOLE',
-        position: Vector3.FromArray(Object.values(layout.terminals['terminal-b'])),
+        position: terminalPos(runLayout, 'terminal-b'),
         interactionRadius: 3.2,
         minigameType: 'signal-match',
         allowedRole: 'nee',
@@ -69,7 +79,7 @@ export class HackSession {
       new HackStation(scene, {
         id: 'terminal-c',
         label: 'MEMORY AUTHORIZER',
-        position: Vector3.FromArray(Object.values(layout.terminals['terminal-c'])),
+        position: terminalPos(runLayout, 'terminal-c'),
         interactionRadius: 3.1,
         minigameType: 'memory-trace',
         allowedRole: 'either',
@@ -77,6 +87,13 @@ export class HackSession {
       }),
     ];
     this.door = new Door(scene, plugin);
+  }
+
+  /** Re-apply terminal positions from a RunLayout (solo next-floor stub). */
+  applyRunLayout(run: RunLayout): void {
+    for (const station of this.stations) {
+      station.relocate(terminalPos(run, station.id));
+    }
   }
 
   sync(status: RoomStatus): void {

@@ -8,7 +8,10 @@ const preloadGame = () => (gameModules.promise ??= loadGame());
 import { MultiplayerSession } from './network/MultiplayerSession.ts';
 import type { RoomStatus } from './network/NetworkTypes.ts';
 import { pingServer, wakeServer } from './network/ServerEndpoint.ts';
+import { getRunSeed } from './seed/index.ts';
 import './style.css';
+
+const MODE_STASH_KEY = 'pixnee.pendingMode';
 
 const rootNode = document.querySelector('#app');
 if (!rootNode || !(rootNode instanceof HTMLElement)) {
@@ -113,8 +116,12 @@ function showSinglePlayer(): void {
   const start = menuButton('Start', 'start-singleplayer', () => {
     void startGame('singleplayer');
   }, 'btn--primary');
+  const night = menuButton('Night Shift', 'night-shift', () => {
+    void startGame('night-shift');
+  });
+  night.title = 'Endless floors from one seed. Stubbed until Netcode owns captures.';
   const actions = element('div', 'menu-actions');
-  actions.append(start, menuButton('Back', 'back', showMainMenu, 'btn--quiet'));
+  actions.append(start, night, menuButton('Back', 'back', showMainMenu, 'btn--quiet'));
   panel.append(actions);
   start.focus();
 }
@@ -272,6 +279,7 @@ function showLobby(session: MultiplayerSession): void {
 }
 
 async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<void> {
+  try { sessionStorage.removeItem(MODE_STASH_KEY); } catch { /* private mode */ }
   const canvas = element('canvas');
   canvas.id = 'game-canvas';
   canvas.dataset.testid = 'game-canvas';
@@ -279,12 +287,16 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   const boot = element('div', 'boot-card');
   boot.id = 'boot-status';
   const bootStep = element('p', 'boot-step', 'Loading physics…');
+  const runSeed = mode === 'multiplayer' ? undefined : getRunSeed();
   boot.append(
     element('p', 'boot-title', 'PIX & NEE'),
     Object.assign(element('div', 'boot-dots'), { innerHTML: '<span class="pix"></span><span class="nee"></span>' }),
     Object.assign(element('div', 'boot-bar'), { innerHTML: '<span></span>' }),
     bootStep,
   );
+  if (runSeed) {
+    boot.append(element('p', 'boot-seed', `Seed ${runSeed.seed} · Floor ${runSeed.floor}`));
+  }
   root.replaceChildren(canvas, boot);
   const bootSteps = ['Loading physics…', 'Building the lab…', 'Waking PIX and NEE…'];
   let bootIndex = 0;
@@ -362,11 +374,22 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
         : undefined,
       mode,
       multiplayer: session,
+      runSeed,
       onLeaveGame: () => {
         removeStatus?.();
         game?.dispose();
         game = null;
-        showMainMenu();
+        // Next-floor stub stashes seed then leaves; resume the same mode when pending.
+        let resume: GameMode | null = null;
+        try {
+          const pending = sessionStorage.getItem(MODE_STASH_KEY);
+          if (pending === 'singleplayer' || pending === 'night-shift' || pending === 'dev-local') {
+            resume = pending;
+            sessionStorage.removeItem(MODE_STASH_KEY);
+          }
+        } catch { /* private mode */ }
+        if (resume) void startGame(resume);
+        else showMainMenu();
       },
     });
     window.clearInterval(bootTimer);

@@ -5,6 +5,8 @@ import type { InteractionActions } from '../input/InteractionActions.ts';
 import type { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole, RoomStatus } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
+import type { RunLayout } from '../seed/index.ts';
+import { applyRunLayout } from '../seed/index.ts';
 import { GrabSystem } from './GrabSystem.ts';
 import { Grabbable } from './Grabbable.ts';
 import { HackSession } from './HackSession.ts';
@@ -13,12 +15,18 @@ import layout from '../level/heist-layout.json';
 import { dressPrototype } from '../level/PrototypeVisual.ts';
 import { dressLabCrate } from '../level/LabCrateVisual.ts';
 
+function vec(src: { x: number; y: number; z: number }): Vector3 {
+  return new Vector3(src.x, src.y, src.z);
+}
+
 /** Small reusable interaction layer for the dev gameplay room. */
 export class GameplayWorld {
   private readonly grab: GrabSystem;
   private readonly hack: HackSession;
   private readonly mission: MissionDirector;
   private readonly audio = new GameAudio();
+  private readonly objects: Grabbable[];
+  private runLayout: RunLayout | null;
 
   constructor(
     scene: Scene,
@@ -27,7 +35,10 @@ export class GameplayWorld {
     session: MultiplayerSession | null,
     uiParent?: HTMLElement,
     onLeave?: () => void,
+    runLayout?: RunLayout | null,
   ) {
+    this.runLayout = runLayout ?? null;
+    const loot = runLayout?.loot ?? layout.objects.prototype;
     const objects = [
       new Grabbable(scene, plugin, {
         id: 'cargo-core',
@@ -61,13 +72,14 @@ export class GameplayWorld {
         id: 'prototype',
         cradled: true,
         label: 'Quantum Prototype',
-        position: Vector3.FromArray(Object.values(layout.objects.prototype)),
+        position: vec(loot),
         color: new Color3(0.32, 0.95, 0.72),
         shape: 'sphere',
         size: 1.15,
         grabRadius: 3.2,
       }),
     ];
+    this.objects = objects;
     dressLabCrate(objects.find((object) => object.id === 'crate-blue')!.mesh, 3.6, scene);
     dressPrototype(objects.find((object) => object.id === 'prototype')!.mesh, scene);
     this.grab = new GrabSystem(
@@ -83,9 +95,29 @@ export class GameplayWorld {
         canGrab: (objectId) => objectId !== 'prototype' || this.hack.allComplete(),
       },
     );
-    this.hack = new HackSession(scene, plugin, session, uiParent, this.audio);
-    this.mission = new MissionDirector(scene, mode, session, this.grab, this.audio, uiParent, onLeave);
+    this.hack = new HackSession(scene, plugin, session, uiParent, this.audio, runLayout);
+    this.mission = new MissionDirector(scene, mode, session, this.grab, this.audio, uiParent, onLeave, runLayout);
     if (session) this.sync(session.currentStatus);
+    else if (runLayout) this.applySoloLayout(runLayout);
+  }
+
+  /** Solo / next-floor: push a RunLayout into terminals, loot, mission, and security. */
+  applySoloLayout(run: RunLayout): void {
+    this.runLayout = run;
+    applyRunLayout(run, {
+      objects: {
+        prototype: { position: this.objects.find((o) => o.id === 'prototype')!.position },
+      },
+      onApplied: () => {
+        this.objects.find((o) => o.id === 'prototype')?.relocateCradle(vec(run.loot));
+        this.hack.applyRunLayout(run);
+        this.mission.applyRunLayout(run);
+      },
+    });
+  }
+
+  get activeRunLayout(): RunLayout | null {
+    return this.runLayout;
   }
 
   sync(status: RoomStatus): void {
