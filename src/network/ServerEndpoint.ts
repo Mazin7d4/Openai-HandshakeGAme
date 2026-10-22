@@ -27,8 +27,9 @@ export function serverHttpUrl(): string {
 
 export async function pingServer(timeoutMs = 4000): Promise<boolean> {
   try {
+    // Colyseus' built-in health route (CORS-enabled in every server version).
     // CORS fetch so a proxy error page (e.g. 502 while a free host spins up) is not mistaken for "awake".
-    const response = await fetch(`${serverHttpUrl()}/health`, {
+    const response = await fetch(`${serverHttpUrl()}/__healthcheck`, {
       cache: 'no-store',
       signal: AbortSignal.timeout(timeoutMs),
     });

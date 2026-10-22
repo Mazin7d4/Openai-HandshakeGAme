@@ -36,8 +36,12 @@ async function health() {
   const started = Date.now();
   while (Date.now() - started < WAKE_MS) {
     try {
-      const res = await fetch(`${http}/health`, { signal: AbortSignal.timeout(10_000) });
-      if (res.ok) return { ...(await res.json()), wakeSeconds: +((Date.now() - started) / 1000).toFixed(1) };
+      const res = await fetch(`${http}/__healthcheck`, { signal: AbortSignal.timeout(20_000) });
+      if (res.ok) {
+        const wakeSeconds = +((Date.now() - started) / 1000).toFixed(1);
+        const detail = await fetch(`${http}/health`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        return { wakeSeconds, health: detail ?? 'no /health (older server)' };
+      }
     } catch { /* sleeping host: keep polling */ }
     await new Promise((r) => setTimeout(r, 3000));
   }
@@ -74,8 +78,8 @@ const errors = [];
 const failedRequests = [];
 for (const [name, page] of [['host', host], ['guest', guest]]) {
   page.on('pageerror', (e) => errors.push(`${name} pageerror: ${e.message}`));
-  page.on('requestfailed', (r) => { if (!/\/health/.test(r.url())) failedRequests.push(`${name} ${r.url()} ${r.failure()?.errorText}`); });
-  page.on('response', (r) => { if (r.status() >= 400 && !/\/health/.test(r.url())) failedRequests.push(`${name} ${r.status()} ${r.url()}`); });
+  page.on('requestfailed', (r) => { if (!/\/(health|__healthcheck)/.test(r.url())) failedRequests.push(`${name} ${r.url()} ${r.failure()?.errorText}`); });
+  page.on('response', (r) => { if (r.status() >= 400 && !/\/(health|__healthcheck)/.test(r.url())) failedRequests.push(`${name} ${r.status()} ${r.url()}`); });
 }
 
 const result = { pagesUrl: PAGES_URL, serverUrl: SERVER_URL || '(baked into build)' };

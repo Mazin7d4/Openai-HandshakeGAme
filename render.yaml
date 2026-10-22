@@ -1,7 +1,7 @@
 # Free-tier Colyseus game server for the GitHub Pages client
 services:
   - type: web
-    name: pix-nee-server
+    name: openai-handshakegame
     runtime: node
     plan: free
     region: oregon
