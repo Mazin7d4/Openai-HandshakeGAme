@@ -1,5 +1,6 @@
 import { Client, type Room } from '@colyseus/sdk';
 import { reportStabilityIssue } from '../dev/StabilityDiagnostics.ts';
+import { serverEndpoint } from './ServerEndpoint.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import type {
   DroneNetworkState,
@@ -106,15 +107,6 @@ const EMPTY_MISSION: MissionNetworkState = {
 };
 
 const EMPTY_SECURITY: SecurityNetworkState = { patrols: [], cameraDisabled: false, detection: { pix: 0, nee: 0 } };
-
-function serverEndpoint(): string {
-  const configured = import.meta.env.VITE_COLYSEUS_URL as string | undefined;
-  if (configured) {
-    return configured;
-  }
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.hostname}:2567`;
-}
 
 function copyPlayer(player: SchemaPlayer): DroneNetworkState {
   return {

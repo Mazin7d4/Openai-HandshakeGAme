@@ -16,6 +16,7 @@ export const SERVER_URL = process.env.QA_SERVER_URL ?? 'ws://127.0.0.1:2583';
 export function url(extra = {}) {
   const u = new URL(BASE_URL);
   u.searchParams.set('debug', '1');
+  u.searchParams.set('autotest', '1');
   u.searchParams.set('server', SERVER_URL);
   for (const [k, v] of Object.entries(extra)) u.searchParams.set(k, v);
   return u.toString();
@@ -90,8 +91,14 @@ export async function worldState(page) {
   for (const m of text.matchAll(/([a-z][\w-]*):(free|pix|nee)@(-?\d+\.\d+),(-?\d+\.\d+),(-?\d+\.\d+)/g)) {
     objects[m[1]] = { holder: m[2], x: +m[3], y: +m[4], z: +m[5] };
   }
-  const patrols = parsePatrols(text);
-  return { players, mission, objects, patrols, raw: text };
+  let patrols = parsePatrols(text);
+  // Server-owned security (production >= 3114574): read via the ?autotest hook when present.
+  const security = await page.evaluate(() => window.__autotest?.security?.() ?? null).catch(() => null);
+  if (security) {
+    patrols = (security.patrols ?? []).map((p, i) => ({ id: String(i), state: '', x: p.x, y: p.y, z: p.z }));
+  }
+  const sec = security && { stage: security.stage, alarm: security.alarm, securityActive: security.securityActive, timesSpotted: security.timesSpotted };
+  return { players, mission, objects, patrols, security: sec, raw: text };
 }
 
 /** Placeholder: returns [] until the readout (or a window hook) exposes patrol state. */
@@ -119,6 +126,11 @@ export function compareWorld(a, b, { playerTol = 1.5, objectTol = 1.5, patrolTol
     if (!o) continue;
     if (o.holder !== a.objects[id].holder) issues.push(`${id} holder ${a.objects[id].holder} vs ${o.holder}`);
     else if (dist(o, a.objects[id]) > objectTol) issues.push(`${id} pos differs ${dist(o, a.objects[id]).toFixed(2)}`);
+  }
+  if (a.security && b.security) {
+    for (const k of ['stage', 'alarm', 'securityActive', 'timesSpotted']) {
+      if (a.security[k] !== b.security[k]) issues.push(`security.${k} ${a.security[k]} vs ${b.security[k]}`);
+    }
   }
   // Enemy agreement (activates automatically once parsePatrols returns data on both clients).
   if (a.patrols.length && b.patrols.length) {

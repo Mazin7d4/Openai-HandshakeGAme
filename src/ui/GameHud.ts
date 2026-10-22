@@ -12,6 +12,38 @@ export interface GameHudOptions {
   onYank?: () => void;
 }
 
+// One drawn icon style for every control glyph: 24px grid, 2px graphite stroke, round caps, no fills.
+const ICONS: Record<string, string> = {
+  fly: '<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>',
+  updown: '<path d="M8 4v16M8 4L5 7M8 4l3 3M16 20V4M16 20l-3-3M16 20l3-3"/>',
+  boost: '<path d="M5 6l6 6-6 6M12 6l6 6-6 6"/>',
+  hack: '<path d="M9 3v5M15 3v5M6 8h12v4a6 6 0 0 1-12 0zM12 18v3"/>',
+  grab: '<path d="M12 3v5M7 8h10M7 8l-2 6 3 4M17 8l2 6-3 4"/>',
+  yank: '<path d="M3 8h4M17 8h4M7 8c0 9 10 9 10 0"/><path d="M12 15v5M9 18l3 3 3-3"/>',
+  pause: '<path d="M9 6v12M15 6v12"/>',
+};
+function icon(name: string): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.classList.add('glyph');
+  svg.innerHTML = ICONS[name] ?? '';
+  return svg;
+}
+/** Keycaps for a binding like "W A S D" or "Space / Ctrl"; "/" becomes a quiet separator. */
+function keycaps(binding: string): HTMLElement {
+  const group = document.createElement('span');
+  group.className = 'keys';
+  for (const part of binding.split(' ')) {
+    if (part === '/') { group.append(Object.assign(document.createElement('span'), { className: 'keys__or', textContent: 'or' })); continue; }
+    const cap = document.createElement('kbd');
+    cap.className = 'keycap';
+    cap.textContent = part;
+    group.append(cap);
+  }
+  return group;
+}
+
 /** Lightweight contextual HUD and pause/settings/controls navigation. */
 export class GameHud {
   private readonly prompt: HTMLDivElement;
@@ -29,6 +61,11 @@ export class GameHud {
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (event.code === 'KeyH' && !this.paused && !(event.target instanceof HTMLInputElement)) {
       this.setControlsCard(!this.controlsCard.classList.contains('visible'));
+    }
+    // While paused, Tab walks the menu (the flight input would otherwise swallow it as "switch drone").
+    if (event.code === 'Tab' && this.paused) {
+      event.stopPropagation();
+      return;
     }
     if (event.code === 'Escape' && this.paused) {
       event.preventDefault();
@@ -54,20 +91,24 @@ export class GameHud {
     this.controlsCard = document.createElement('div');
     this.controlsCard.className = 'controls-card';
     this.controlsCard.dataset.testid = 'controls-card';
-    const title = document.createElement('strong');
-    title.textContent = 'Quick controls';
-    const list = document.createElement('dl');
-    for (const [key, action] of [
-      ['WASD', 'Fly'], ['SPACE / CTRL', 'Up / down'], ['SHIFT', 'Boost'], ['F', 'Hack / interact'],
-      ['E', 'Grab · Q throw'], ['R', 'Yank partner · slingshot'], ['ESC', 'Pause & all controls'],
+    this.controlsCard.setAttribute('aria-label', 'Controls');
+    const list = document.createElement('ul');
+    list.className = 'glyph-list';
+    for (const [keys, glyph, action] of [
+      ['W A S D', 'fly', 'Fly'], ['Space / Ctrl', 'updown', 'Up, down'], ['Shift', 'boost', 'Boost'],
+      ['F', 'hack', 'Hack'], ['E / Q', 'grab', 'Grab, throw'], ['R', 'yank', 'Yank'], ['Esc', 'pause', 'Pause'],
     ]) {
-      const dt = document.createElement('dt'); dt.textContent = key;
-      const dd = document.createElement('dd'); dd.textContent = action;
-      list.append(dt, dd);
+      const item = document.createElement('li');
+      const label = document.createElement('span');
+      label.className = 'glyph-label';
+      label.textContent = action;
+      item.append(keycaps(keys), icon(glyph), label);
+      list.append(item);
     }
     const tip = document.createElement('p');
-    tip.textContent = 'Follow the beacon. H hides this.';
-    this.controlsCard.append(title, list, tip);
+    tip.className = 'glyph-tip';
+    tip.append('Follow the beacon. ', keycaps('H'), ' hides this.');
+    this.controlsCard.append(list, tip);
     this.toastLayer = document.createElement('div');
     this.toastLayer.className = 'juice-toasts';
     this.toastLayer.dataset.testid = 'juice-toasts';
@@ -86,7 +127,13 @@ export class GameHud {
       this.prompt.replaceChildren(...prompts.map((text) => {
         const item = document.createElement('button');
         item.type = 'button';
-        item.textContent = text;
+        // "[F] Hack the console" -> drawn keycap + label, so the key reads as a key, not as brackets.
+        const match = /^\[([^\]]+)\]\s*(.*)$/.exec(text);
+        if (match) {
+          const label = document.createElement('span');
+          label.textContent = match[2];
+          item.append(keycaps(match[1]), label);
+        } else item.textContent = text;
         item.addEventListener('click', text.startsWith('[F]')
           ? this.options.onInteract
           : text.startsWith('[Q]') ? this.options.onThrow
@@ -97,7 +144,7 @@ export class GameHud {
     }
     this.prompt.classList.toggle('visible', prompts.length > 0 && !this.paused);
     const activeDroneText = mode === 'dev-local'
-      ? `ACTIVE: ${activeRole.toUpperCase()}  ·  [TAB] SWITCH`
+      ? `Flying ${activeRole.toUpperCase()} · Tab switches`
       : activeRole.toUpperCase();
     if (activeDroneText !== this.activeDroneText) {
       this.activeDroneText = activeDroneText;
@@ -129,6 +176,11 @@ export class GameHud {
     if (paused) this.showPauseHome();
   }
 
+  /** Keyboard players land on the first action of each pause screen. */
+  private focusFirst(): void {
+    this.panel.querySelector<HTMLElement>('button, select, input')?.focus({ preventScroll: true });
+  }
+
   dispose(): void {
     window.removeEventListener('keydown', this.onKeyDown, true);
     this.prompt.remove();
@@ -147,6 +199,7 @@ export class GameHud {
       this.button('Controls', () => this.showControls()),
       this.button('Leave game', this.options.onLeave, 'btn--danger danger'),
     );
+    this.focusFirst();
   }
 
   private showSettings(): void {
@@ -216,6 +269,7 @@ export class GameHud {
       }),
       this.button('Back', () => this.showPauseHome(), 'btn--quiet'),
     );
+    this.focusFirst();
   }
 
   private showControls(): void {
@@ -223,19 +277,20 @@ export class GameHud {
     const list = document.createElement('dl');
     list.className = 'controls-list';
     for (const [key, action] of [
-      ['WASD', 'Move'], ['SPACE', 'Ascend'], ['CTRL / C', 'Descend'], ['SHIFT', 'Boost'],
-      ['E', 'Grab / Drop'], ['Q', 'Throw held object'], ['F', 'Interact / Hack'],
-      ['TAB', 'Switch drone (Dev Local)'], ['ESC', 'Pause'], ['H', 'Show / hide quick controls'],
-      ['RIGHT DRAG / WHEEL', 'Look a little / adjust framing'],
-      ['TWO FINGERS', 'Look / pinch on touch screens'], ['F2', 'Inspection camera'],
+      ['W A S D', 'Move'], ['Space', 'Ascend'], ['Ctrl / C', 'Descend'], ['Shift', 'Boost'],
+      ['E', 'Grab or drop'], ['Q', 'Throw held object'], ['F', 'Interact or hack'],
+      ['Tab', 'Switch drone (dev local)'], ['Esc', 'Pause'], ['H', 'Show or hide the controls card'],
+      ['Right-drag / Wheel', 'Look around, adjust framing'],
+      ['Two-finger', 'Look or pinch on touch screens'], ['F2', 'Inspection camera'],
     ]) {
       const dt = document.createElement('dt');
-      dt.textContent = key;
+      dt.append(keycaps(key));
       const dd = document.createElement('dd');
       dd.textContent = action;
       list.append(dt, dd);
     }
     this.panel.append(list, this.button('Back', () => this.showPauseHome(), 'btn--quiet'));
+    this.focusFirst();
   }
 
   private rangeRow(

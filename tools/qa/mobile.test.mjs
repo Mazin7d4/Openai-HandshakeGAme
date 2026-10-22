@@ -9,7 +9,7 @@ await runTest('mobile', async (browser, notes) => {
     const page = await ctx.newPage();
     collectErrors(page, label, errors);
     await page.goto(url());
-    await page.getByRole('heading', { name: 'Choose a mode' }).waitFor({ timeout: 20_000 });
+    await page.getByRole('heading', { name: 'Two drones. One cord.' }).waitFor({ timeout: 20_000 });
     const menu = await layoutAudit(page);
     await shot(page, `mobile-${label}-menu`);
     await page.getByTestId('singleplayer').tap();

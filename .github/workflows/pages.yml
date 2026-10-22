@@ -1,0 +1,52 @@
+name: Deploy client to GitHub Pages
+
+on:
+  push:
+    branches: [production]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}/
+          # Repo variable COLYSEUS_URL overrides the default Render server; solo never needs it.
+          VITE_COLYSEUS_URL: ${{ vars.COLYSEUS_URL || 'wss://openai-handshakegame.onrender.com' }}
+        run: npm run build
+      - name: Report bundle size
+        run: |
+          du -sh dist
+          find dist -type f -printf '%s\t%p\n' | sort -rn | head -10
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

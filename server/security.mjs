@@ -93,7 +93,7 @@ export class SecuritySim {
     ];
     this.camera = {
       meters: { pix: 0, nee: 0 },
-      alertCooldown: 0,
+      alertCooldown: { pix: 0, nee: 0 }, // per drone: each one is spotted on its own timer
     };
   }
 
@@ -106,10 +106,12 @@ export class SecuritySim {
     const shoves = [];
 
     // ── Camera ──────────────────────────────────────────────────────────
-    this.camera.alertCooldown = Math.max(0, this.camera.alertCooldown - dt);
+    for (const role of ['pix', 'nee']) {
+      this.camera.alertCooldown[role] = Math.max(0, this.camera.alertCooldown[role] - dt);
+    }
 
     for (const p of ctx.players) {
-      if (!p.connected) continue;
+      if (!p.connected || !(p.role in this.camera.meters)) continue;
       const role = p.role;                    // 'pix' | 'nee'
       const meterKey = role;                  // matches camera.meters keys
       const rel = {
@@ -127,9 +129,9 @@ export class SecuritySim {
       this.camera.meters[meterKey] = next;
 
       // Spotted
-      if (next >= 1 && this.camera.alertCooldown <= 0) {
+      if (next >= 1 && this.camera.alertCooldown[role] <= 0) {
         spotted.push(role);
-        this.camera.alertCooldown = 3;
+        this.camera.alertCooldown[role] = 3;
         this.camera.meters[meterKey] = 0.35;
       }
     }
@@ -274,7 +276,8 @@ export class SecuritySim {
     }
     this.camera.meters.pix = 0;
     this.camera.meters.nee = 0;
-    this.camera.alertCooldown = 0;
+    this.camera.alertCooldown.pix = 0;
+    this.camera.alertCooldown.nee = 0;
     this.state.detectionPix = 0;
     this.state.detectionNee = 0;
     this.state.cameraDisabled = false;
