@@ -14,14 +14,16 @@ await runTest('reconnect', async (browser, notes) => {
   await guestCtx.addInitScript(TRACK_WS);
   const host = await hostCtx.newPage(); const guest = await guestCtx.newPage();
   collectErrors(host, 'host', errors); collectErrors(guest, 'guest', errors);
+  for (const [n, pg] of [['host', host], ['guest', guest]]) { pg.on('crash', () => errors.push(`${n} CRASHED`)); pg.on('close', () => errors.push(`${n} closed`)); }
   const code = await createAndJoin(host, guest);
   notes.room = code;
   await Promise.all([waitForGame(host), waitForGame(guest)]);
   await host.waitForTimeout(1500);
 
   // --- 1. transient drop ---
-  const dropped = await guest.evaluate(() => { const s = window.__qaSockets.filter((w) => w.readyState === 1); s.forEach((w) => w.close(4999, 'qa-drop')); return s.length; });
+  const dropped = await guest.evaluate(() => { const s = window.__qaSockets.filter((w) => w.readyState === 1 && !/vite|token=/.test(w.url) && !w.protocol.includes('vite')); s.forEach((w) => w.close(4999, 'qa-drop')); return s.length; });
   notes.socketsDropped = dropped;
+  notes.socketUrls = await guest.evaluate(() => window.__qaSockets.map((w) => w.url.replace(/\?.*/, '')));
   const sawOverlay = await guest.getByTestId('partner-overlay').and(guest.locator('.visible')).waitFor({ timeout: 5_000 }).then(() => true, () => false);
   notes.guestOverlayDuringDrop = sawOverlay ? await guest.getByTestId('partner-overlay').innerText() : null;
   await shot(guest, 'reconnect-drop-guest');
