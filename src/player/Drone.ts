@@ -300,6 +300,15 @@ export class Drone implements CameraSubject {
     this.visualYaw = state.orientation.yaw;
   }
 
+  /** TEST-ONLY (?autotest): place the drone instantly with zero velocity (multiplayer setup shortcuts). */
+  debugTeleport(x: number, y: number, z: number): void {
+    if (!finiteValues(x, y, z)) return;
+    this.root.position.set(x, y, z);
+    this.flight.velocity.setAll(0);
+    this.aggregate.body.setLinearVelocity(this.zero);
+    this.lockUpright();
+  }
+
   /** Push the steered velocity into Havok. */
   commit(): void {
     if (!isFiniteVector(this.flight.velocity)) {

@@ -122,6 +122,9 @@ export class GameplayWorld {
     this.grab.debugGrab('prototype', 'nee');
   }
 
+  /** TEST-ONLY (?autotest): security snapshot for multiplayer agreement checks. */
+  debugSecurity() { return this.mission.debugSecurity(); }
+
   publish(): void {
     this.grab.publish();
   }

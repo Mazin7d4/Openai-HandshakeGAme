@@ -4,12 +4,15 @@ import { fileURLToPath } from 'node:url';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const forwardedArgs = process.argv.slice(2);
+// Local dev server only: enable test-only room messages used by tools/verify-* (never set by `npm start`).
+process.env.HANDSHAKE_TEST_HOOKS ??= '1';
 const processes = [];
 let stopping = false;
 
 function start(label, entry, args = []) {
   const child = spawn(process.execPath, [entry, ...args], {
     cwd: projectRoot,
+    env: process.env,
     stdio: 'inherit',
     windowsHide: true,
   });
