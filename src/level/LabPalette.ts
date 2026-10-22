@@ -13,7 +13,8 @@ export function createLabPalette(scene: Scene) {
   const sage = make('sage-paint', '#728D83', 0.57);
   const dark = make('graphite-rubber', '#263737', 0.84);
   const metal = make('brushed-aluminium', '#A7B6B5', 0.32, 0.82);
-  const coral = make('coral-polymer', '#D77859', 0.34);
+  // Clay, not coral: coral belongs to NEE (ANTI_VIBECODED palette). Kept as `coral` key for callers.
+  const coral = make('clay-polymer', '#A9806A', 0.42);
   const blue = make('blue-polymer', '#438AAA', 0.36);
   const wood = make('white-oak', '#BE9162', 0.52);
   const grain = new DynamicTexture('oak-grain-512', { width: 512, height: 128 }, scene, true);

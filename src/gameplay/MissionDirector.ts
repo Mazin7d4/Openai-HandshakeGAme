@@ -89,7 +89,7 @@ export class MissionDirector {
     });
     const offSpotted = multiplayer?.onSecuritySpotted((role) => {
       this.spottedLog.push(role);
-      this.audio.warning();
+      this.audio.spotted(role);
     });
     const offShove = multiplayer?.onPatrolShove((m) => {
       const impulse = new Vector3(m.impulse?.x, m.impulse?.y, m.impulse?.z);
@@ -295,7 +295,7 @@ export class MissionDirector {
     if (this.multiplayer) return;
     this.spottedLog.push(role);
     this.state = { ...this.state, timesSpotted: this.state.timesSpotted + 1 };
-    this.audio.warning();
+    this.audio.spotted(role);
   }
 
   private completeMission(): void {
