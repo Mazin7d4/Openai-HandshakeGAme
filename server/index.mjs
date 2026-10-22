@@ -1,16 +1,56 @@
-import { CloseCode, Room, Server, WebSocketTransport } from 'colyseus';
+import { Room, Server, WebSocketTransport, matchMaker } from 'colyseus';
 import { schema, t } from '@colyseus/schema';
+import { createRequire } from 'node:module';
 import layout from '../src/level/heist-layout.json' with { type: 'json' };
+import { Security, createSecurityState, SecuritySim } from './security.mjs';
+import { applyRunLayout, generateRun, getRunSeed } from '../shared/seed/index.mjs';
+
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json');
 
 const PORT = Number.parseInt(process.env.PORT ?? '2567', 10);
+// Test-only room messages. `npm run dev` (tools/dev.mjs) turns them on; deployments use `npm start`
+// and must never enable them, so they are refused outright on Render.
+const TEST_HOOKS = process.env.HANDSHAKE_TEST_HOOKS === '1' && !process.env.RENDER;
+if (process.env.HANDSHAKE_TEST_HOOKS === '1' && process.env.RENDER) {
+  console.warn('[handshake] HANDSHAKE_TEST_HOOKS ignored on Render');
+}
+const EMPTY_ROOM_SECONDS = Number.parseInt(process.env.EMPTY_ROOM_SECONDS ?? '60', 10);
+const LONELY_ROOM_SECONDS = Number.parseInt(process.env.LONELY_ROOM_SECONDS ?? '900', 10);
+// Seat hold after an unexpected drop. Tests may shorten via RECONNECT_SECONDS.
+const RECONNECT_SECONDS = Number.parseInt(process.env.RECONNECT_SECONDS ?? '30', 10);
+
+// --- CORS allow-list -----------------------------------------------------------
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+const permissive = ALLOWED_ORIGINS.length === 0;
+
+function isOriginAllowed(origin) {
+  return permissive || !origin || ALLOWED_ORIGINS.includes(origin);
+}
+
+// --- Live-room tracking --------------------------------------------------------
+const liveRooms = new Set();
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const RECONNECT_SECONDS = 15;
 const MAX_WORLD_COORDINATE = 200;
 const MAX_PLAYER_SPEED = 28;
 const MAX_OBJECT_SPEED = 32;
 const TERMINAL_RANGE = 5;
-const TERMINALS = layout.terminals;
-const EXTRACTION = layout.extraction;
+/** Mutable per-room world sinks filled by applyRunLayout (defaults match heist-layout.json). */
+function createWorldSinks() {
+  return {
+    spawn: { x: layout.spawn.x, y: layout.spawn.y, z: layout.spawn.z },
+    extraction: { x: layout.extraction.x, y: layout.extraction.y, z: layout.extraction.z },
+    terminals: {
+      'terminal-a': { ...layout.terminals['terminal-a'] },
+      'terminal-b': { ...layout.terminals['terminal-b'] },
+      'terminal-c': { ...layout.terminals['terminal-c'] },
+    },
+    infiltrationZ: layout.infiltrationZ,
+  };
+}
 
 const Vec3 = schema(
   {
@@ -96,6 +136,7 @@ const HandshakeState = schema(
     objects: t.map(Grabbable),
     hack: Hack,
     mission: Mission,
+    security: Security,
   },
   'HandshakeState',
 );
@@ -147,14 +188,45 @@ function createGrabbable(id, x, y, z, grabRadius) {
 class HandshakeRoom extends Room {
   state = new HandshakeState();
   missionStartedAt = Date.now();
+  doorOpenedAt = 0;
+  spotCooldownUntil = { pix: 0, nee: 0 };
+  clotheslines = 0;
+  createdAt = Date.now();
+  disposeReason = 'disposed';
+  world = createWorldSinks();
+  runLayout = null;
 
-  onCreate() {
+  onCreate(options) {
+    liveRooms.add(this);
+
+    // Empty-room timeout: disconnect if nobody joins within EMPTY_ROOM_SECONDS
+    this._emptyTimeout = this.clock.setTimeout(() => {
+      this.disposeReason = 'empty-timeout';
+      this.disconnect();
+    }, EMPTY_ROOM_SECONDS * 1000);
+
+    // Lonely-room timeout: host waiting alone, never started
+    this._lonelyTimeout = this.clock.setTimeout(() => {
+      if (this.state.players.size < 2) {
+        this.disposeReason = 'lonely-timeout';
+        this.disconnect();
+      }
+    }, LONELY_ROOM_SECONDS * 1000);
     this.maxClients = 2;
     this.roomId = roomCode();
     this.setMetadata({ code: this.roomId });
+    console.log(`[handshake] room ${this.roomId} created`);
+    this.state.security = createSecurityState();
+    this.securitySim = new SecuritySim(this.state.security);
     for (const [id, position] of Object.entries(layout.objects)) {
       const radius = { 'cargo-core': 3.3, 'crate-blue': 4.8, 'crate-pink': 3, prototype: 3.2 }[id];
       this.state.objects.set(id, createGrabbable(id, position.x, position.y, position.z, radius));
+    }
+    // Seed hook: stub getRunSeed until prod-net supplies room-authoritative seed/floor.
+    // Clients render the handcrafted level in co-op, so only remix when a seed is explicitly supplied.
+    if (Number.isFinite(options?.seed)) {
+      const runSeed = getRunSeed(options);
+      this.applySeedFloor(runSeed.seed, runSeed.floor);
     }
     this.onMessage('snapshot', (client, message) => {
       this.applySnapshot(client.sessionId, message);
@@ -165,54 +237,107 @@ class HandshakeRoom extends Room {
     this.onMessage('hack-start', (client, message) => this.startHack(client.sessionId, message));
     this.onMessage('hack-complete', (client, message) => this.completeHack(client.sessionId, message));
     this.onMessage('hack-cancel', (client, message) => this.cancelHack(client.sessionId, message));
-    this.onMessage('mission-spotted', (client) => this.reportSpotted(client.sessionId));
     this.onMessage('mission-tether-save', (client) => this.reportTetherSave(client.sessionId));
     this.onMessage('mission-retry', () => this.resetMission());
     this.onMessage('tether-yank', (client, message) => this.relayTetherYank(client, message));
     this.onMessage('patrol-stun', (client, message) => this.stunPatrol(client, message));
-    this.setSimulationInterval(() => {
+    if (TEST_HOOKS) {
+      console.log('[handshake] TEST HOOKS enabled');
+      this.onMessage('debug-stage', (client, m) => {
+        if (m?.stage === 'escape') {
+          this.state.mission.stage = 'escape';
+          this.state.mission.alarm = true;
+          this.state.mission.securityActive = true;
+        }
+      });
+    }
+    this.setSimulationInterval((deltaMs) => {
       this.updateHack();
       this.updateMission();
+      this.updateSecurity(deltaMs / 1000);
     });
   }
 
   onJoin(client) {
+    // Clear empty-room timeout on first join
+    if (this._emptyTimeout) {
+      this._emptyTimeout.clear();
+      this._emptyTimeout = null;
+    }
     const roles = new Set(Array.from(this.state.players.values()).map((player) => player.role));
     const role = roles.has('pix') ? 'nee' : 'pix';
     const player = new Player();
     player.playerId = client.sessionId;
     player.role = role;
     player.connected = true;
-    player.position.x = role === 'pix' ? -1.6 : 1.6;
-    player.position.y = layout.spawn.y;
-    player.position.z = layout.spawn.z;
+    player.position.x = this.world.spawn.x + (role === 'pix' ? -1.6 : 1.6);
+    player.position.y = this.world.spawn.y;
+    player.position.z = this.world.spawn.z;
     this.state.players.set(client.sessionId, player);
     this.state.started = this.state.players.size === 2;
+    if (this.state.started && this._lonelyTimeout) {
+      this._lonelyTimeout.clear();
+      this._lonelyTimeout = null;
+    }
   }
 
-  async onLeave(client, code) {
+  /** Unexpected drop: hold the seat, freeze the drone, keep match state. */
+  onDrop(client) {
     const player = this.state.players.get(client.sessionId);
     if (!player) {
       return;
     }
-    player.connected = false;
+    this.freezePlayer(player);
     this.releaseRole(player.role);
+    this.allowReconnection(client, RECONNECT_SECONDS);
+  }
 
-    try {
-      if (code === CloseCode.CONSENTED) {
-        throw new Error('consented leave');
-      }
-      await this.allowReconnection(client, RECONNECT_SECONDS);
+  onReconnect(client) {
+    const player = this.state.players.get(client.sessionId);
+    if (player) {
       player.connected = true;
-    } catch {
-      this.state.players.delete(client.sessionId);
-      this.state.started = false;
     }
+  }
+
+  /** Permanent leave (consent, or grace window expired): existing partner-left path. */
+  onLeave(client) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) {
+      return;
+    }
+    if (player.connected) {
+      this.freezePlayer(player);
+      this.releaseRole(player.role);
+    }
+    this.state.players.delete(client.sessionId);
+    this.state.started = false;
+  }
+
+  freezePlayer(player) {
+    player.connected = false;
+    player.velocity.x = 0;
+    player.velocity.y = 0;
+    player.velocity.z = 0;
+    player.boost = 'off';
+    player.movement = 'idle';
+    player.tetherPull = 0;
+  }
+
+  onDispose() {
+    if (this._emptyTimeout) this._emptyTimeout.clear();
+    if (this._lonelyTimeout) this._lonelyTimeout.clear();
+    liveRooms.delete(this);
+    const s = Math.round((Date.now() - this.createdAt) / 1000);
+    const n = this.state.players.size;
+    const stage = this.state.mission.stage;
+    const reason = this.disposeReason;
+    console.log(`[handshake] room ${this.roomId} closed after ${s}s (players=${n}, stage=${stage}, reason=${reason})`);
   }
 
   applySnapshot(sessionId, message) {
     const player = this.state.players.get(sessionId);
-    if (!player || !message || typeof message !== 'object') {
+    // Dropped seats stay frozen until they reconnect.
+    if (!player || !player.connected || !message || typeof message !== 'object') {
       return;
     }
     const position = message.position ?? {};
@@ -296,7 +421,7 @@ class HandshakeRoom extends Room {
     const player = this.state.players.get(sessionId);
     const stationId = message?.stationId;
     const fields = this.stationFields(stationId);
-    const position = TERMINALS[stationId];
+    const position = this.world.terminals[stationId];
     if (
       !player ||
       !fields ||
@@ -320,13 +445,16 @@ class HandshakeRoom extends Room {
       !player ||
       !fields ||
       this.state.hack[fields.owner] !== player.role ||
-      distance(player.position, TERMINALS[stationId]) > TERMINAL_RANGE
+      distance(player.position, this.world.terminals[stationId]) > TERMINAL_RANGE
     ) return;
     this.state.hack[fields.complete] = true;
     this.state.hack[fields.owner] = '';
     this.state.hack.doorOpen =
       this.state.hack.stationAComplete && this.state.hack.stationBComplete &&
       this.state.hack.stationCComplete;
+    if (this.state.hack.doorOpen && !this.doorOpenedAt) {
+      this.doorOpenedAt = Date.now();
+    }
   }
 
   cancelHack(sessionId, message) {
@@ -344,7 +472,7 @@ class HandshakeRoom extends Room {
       const role = this.state.hack[field];
       if (!role) continue;
       const player = Array.from(this.state.players.values()).find((candidate) => candidate.role === role);
-      if (!player?.connected || distance(player.position, TERMINALS[stationId]) > TERMINAL_RANGE) {
+      if (!player?.connected || distance(player.position, this.world.terminals[stationId]) > TERMINAL_RANGE) {
         this.state.hack[field] = '';
       }
     }
@@ -362,7 +490,7 @@ class HandshakeRoom extends Room {
     const mission = this.state.mission;
     mission.elapsedSeconds = (Date.now() - this.missionStartedAt) / 1000;
     const players = Array.from(this.state.players.values());
-    if (mission.stage === 'infiltrate' && players.some((player) => player.position.z > layout.infiltrationZ)) {
+    if (mission.stage === 'infiltrate' && players.some((player) => player.position.z > this.world.infiltrationZ)) {
       mission.stage = 'hack-security';
     }
     if (mission.stage === 'hack-security' && this.state.hack.doorOpen) {
@@ -372,10 +500,11 @@ class HandshakeRoom extends Room {
     mission.prototypeHeldBy = prototype?.heldBy ?? '';
     if (mission.alarm && prototype?.heldBy) {
       const carrier = players.find((player) => player.role === prototype.heldBy);
+      const extraction = this.world.extraction;
       const bothNear = players.length === 2 && players.every(
-        (player) => distance(player.position, EXTRACTION) <= 5.5,
+        (player) => distance(player.position, extraction) <= 5.5,
       );
-      if (carrier && distance(carrier.position, EXTRACTION) <= 4.5 && bothNear) {
+      if (carrier && distance(carrier.position, extraction) <= 4.5 && bothNear) {
         mission.extracted = true;
         mission.stage = 'complete';
         mission.securityActive = false;
@@ -383,10 +512,42 @@ class HandshakeRoom extends Room {
     }
   }
 
-  reportSpotted(sessionId) {
-    if (this.state.players.has(sessionId) && this.state.mission.stage !== 'complete') {
-      this.state.mission.timesSpotted += 1;
+  updateSecurity(dt) {
+    dt = Math.max(0, Math.min(0.1, dt));
+    if (this.state.mission.stage === 'complete') return;
+    const now = Date.now();
+    const cameraDisabled = this.doorOpenedAt > 0 && (now - this.doorOpenedAt) < 18000;
+    const players = Array.from(this.state.players.values()).map((p) => ({
+      role: p.role,
+      connected: p.connected,
+      position: { x: p.position.x, y: p.position.y, z: p.position.z },
+    }));
+    const result = this.securitySim.update(dt, {
+      active: this.state.mission.securityActive,
+      elapsed: this.state.mission.elapsedSeconds,
+      cameraDisabled,
+      players,
+      objects: this.state.objects.values(),
+    });
+    // Each drone has its own spotted cooldown, so both can be spotted in the same window.
+    for (const role of result.spotted) {
+      if (!(role in this.spotCooldownUntil)) continue;
+      if (this.spotCooldownUntil[role] <= now && this.state.mission.stage !== 'complete') {
+        this.state.mission.timesSpotted += 1;
+        this.spotCooldownUntil[role] = now + 2800;
+        this.broadcast('security-spotted', { role });
+      }
     }
+    // A shove goes only to the client that owns the shoved drone; it applies the impulse locally.
+    for (const shove of result.shoves) this.clientForRole(shove.role)?.send('patrol-shove', shove);
+  }
+
+  clientForRole(role) {
+    for (const client of this.clients) {
+      const player = this.state.players.get(client.sessionId);
+      if (player?.role === role && player.connected) return client;
+    }
+    return undefined;
   }
 
   /** Validate a tether move and relay the impulse to the partner, who owns its own drone. */
@@ -419,20 +580,63 @@ class HandshakeRoom extends Room {
     });
   }
 
-  /** Server-arbitrated clothesline: one stun per patrol, broadcast to both clients so they agree. */
+  /**
+   * Per-floor seed hook. Netcode calls this when seed/floor change; onCreate uses getRunSeed stub.
+   * Builds enemies and security from generateRun → applyRunLayout.
+   */
+  applySeedFloor(seed, floor = 0) {
+    const run = generateRun(seed >>> 0, Math.max(0, floor | 0));
+    this.runLayout = run;
+    applyRunLayout(run, {
+      spawn: this.world.spawn,
+      extraction: this.world.extraction,
+      terminals: this.world.terminals,
+      objects: this.state.objects,
+      security: this.securitySim,
+    });
+    return run;
+  }
+
+  /** Server-arbitrated clothesline: validate claim, then let SecuritySim own the stun. */
   stunPatrol(client, message) {
     if (!this.state.players.has(client.sessionId) || !message || typeof message !== 'object') return;
     if (!this.state.mission.securityActive) return;
     const index = Math.round(finite(message.index, -1));
-    if (index !== 0 && index !== 1) return;
-    const now = Date.now();
-    this.patrolStunUntil ??= [0, 0];
-    if (now < this.patrolStunUntil[index]) return;
-    this.patrolStunUntil[index] = now + 3400;
-    this.clotheslines = (this.clotheslines ?? 0) + 1;
+    if (index < 0 || index >= this.state.security.patrols.length) return;
+    const p = this.securitySim.patrolPosition(index);
+    if (!p) return;
+
+    // Reported stun point must be within 3.5 of the server patrol position
+    const r = { x: finite(message.x), y: finite(message.y, 2), z: finite(message.z) };
+    if (distance(r, p) > 3.5) return;
+
+    // Both players must be present and within 14 of the patrol
+    const players = Array.from(this.state.players.values());
+    if (players.length !== 2 || !players[0].connected || !players[1].connected) return;
+    if (distance(players[0].position, p) > 14 || distance(players[1].position, p) > 14) return;
+
+    // Distance from patrol to the segment between the two player positions must be <= 3.5
+    const a = players[0].position, b = players[1].position;
+    const seg = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z };
+    const segLenSq = seg.x * seg.x + seg.y * seg.y + seg.z * seg.z;
+    let segDist;
+    if (segLenSq < 0.0001) {
+      segDist = distance(p, a);
+    } else {
+      const ap = { x: p.x - a.x, y: p.y - a.y, z: p.z - a.z };
+      const tParam = Math.max(0, Math.min(1, (ap.x * seg.x + ap.y * seg.y + ap.z * seg.z) / segLenSq));
+      const proj = { x: a.x + seg.x * tParam, y: a.y + seg.y * tParam, z: a.z + seg.z * tParam };
+      segDist = distance(p, proj);
+    }
+    if (segDist > 3.5) return;
+
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
+    if (!this.securitySim.stun(index, midpoint)) return;
+    this.clotheslines += 1;
+    const np = this.securitySim.patrolPosition(index);
     this.broadcast('patrol-stunned', {
       index, by: this.state.players.get(client.sessionId).role, clotheslines: this.clotheslines,
-      x: finite(message.x), y: Math.max(0.8, finite(message.y, 2)), z: finite(message.z),
+      x: np.x, y: np.y, z: np.z,
     });
   }
 
@@ -443,7 +647,9 @@ class HandshakeRoom extends Room {
   }
 
   resetMission() {
-    this.patrolStunUntil = [0, 0];
+    this.securitySim.reset();
+    this.doorOpenedAt = 0;
+    this.spotCooldownUntil = { pix: 0, nee: 0 };
     this.clotheslines = 0;
     this.state.hack.stationAOwner = '';
     this.state.hack.stationBOwner = '';
@@ -456,9 +662,10 @@ class HandshakeRoom extends Room {
     if (prototype) {
       prototype.heldBy = '';
       prototype.mode = 'free';
-      prototype.position.x = layout.objects.prototype.x;
-      prototype.position.y = layout.objects.prototype.y;
-      prototype.position.z = layout.objects.prototype.z;
+      const loot = this.runLayout?.loot ?? layout.objects.prototype;
+      prototype.position.x = loot.x;
+      prototype.position.y = loot.y;
+      prototype.position.z = loot.z;
       prototype.velocity.x = 0;
       prototype.velocity.y = 0;
       prototype.velocity.z = 0;
@@ -501,10 +708,94 @@ class HandshakeRoom extends Room {
   }
 }
 
+// --- CORS for matchmake preflight, /__healthcheck, and other router routes -----
+// DEFAULT_CORS_HEADERS starts with ACAO '*'. When an allow-list is set, clear that
+// default so disallowed origins do not keep the wildcard via the object spread.
+if (!permissive) {
+  matchMaker.controller.DEFAULT_CORS_HEADERS = {
+    ...matchMaker.controller.DEFAULT_CORS_HEADERS,
+    'Access-Control-Allow-Origin': '',
+  };
+  matchMaker.controller.getCorsHeaders = (headers) => {
+    const origin = headers.get('origin');
+    if (origin && ALLOWED_ORIGINS.includes(origin)) {
+      return { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' };
+    }
+    return { 'Access-Control-Allow-Origin': '', Vary: 'Origin' };
+  };
+}
+
+// --- Transport & server --------------------------------------------------------
+const transportOptions = {};
+if (!permissive) {
+  transportOptions.verifyClient = (info, cb) => {
+    const origin = info.origin;
+    cb(isOriginAllowed(origin));
+  };
+}
+
 const gameServer = new Server({
-  transport: new WebSocketTransport(),
+  transport: new WebSocketTransport(transportOptions),
   greet: false,
 });
 gameServer.define('handshake', HandshakeRoom);
 await gameServer.listen(PORT, '0.0.0.0');
-console.log(`Handshake multiplayer server listening on ws://0.0.0.0:${PORT}`);
+
+// --- /health endpoint (installed after listen so Colyseus listeners exist) -----
+const httpServer = gameServer.transport.server;
+const originalListeners = httpServer.listeners('request').slice();
+httpServer.removeAllListeners('request');
+
+function corsHeaders(req) {
+  const origin = req.headers['origin'];
+  const headers = { 'Cache-Control': 'no-store' };
+  if (permissive) {
+    headers['Access-Control-Allow-Origin'] = origin || '*';
+  } else if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin;
+    headers['Vary'] = 'Origin';
+  } else {
+    headers['Vary'] = 'Origin';
+  }
+  return headers;
+}
+
+httpServer.on('request', (req, res) => {
+  const path = (req.url ?? '/').split('?')[0];
+  if (path === '/health') {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, corsHeaders(req));
+      res.end();
+      return;
+    }
+    let totalClients = 0;
+    for (const room of liveRooms) {
+      totalClients += room.clients.length;
+    }
+    const body = JSON.stringify({
+      ok: true,
+      uptime: Math.floor(process.uptime()),
+      rooms: liveRooms.size,
+      clients: totalClients,
+      version: pkg.version || 'dev',
+    });
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      ...corsHeaders(req),
+    });
+    res.end(body);
+    return;
+  }
+  for (const listener of originalListeners) {
+    listener.call(httpServer, req, res);
+  }
+});
+
+// --- Startup log ---------------------------------------------------------------
+if (permissive) {
+  console.log('[handshake] CORS: permissive');
+} else {
+  console.log(`[handshake] CORS allow-list: ${ALLOWED_ORIGINS.join(', ')}`);
+}
+console.log(`[handshake] reconnect grace ${RECONNECT_SECONDS}s`);
+console.log(`[handshake] listening on port ${PORT}`);

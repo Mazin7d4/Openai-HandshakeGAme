@@ -28,6 +28,7 @@ import {
 import { FLIGHT_TUNING } from './FlightTuning.ts';
 import type { Expression } from './DroneFace.ts';
 import { gameEvents } from '../gameplay/GameEvents.ts';
+import { audio } from '../audio/AudioManager.ts';
 
 export interface DroneOptions {
   id?: string;
@@ -75,6 +76,7 @@ function shortestAngle(from: number, to: number): number {
  */
 export class Drone implements CameraSubject {
   readonly id: string;
+  readonly role: 'pix' | 'nee';
   readonly root: Mesh;
 
   private movement: MovementState = 'idle';
@@ -99,10 +101,14 @@ export class Drone implements CameraSubject {
   private wasBoosting = false;
   /** Seconds since this drone was last knocked about (patrol shove / hard hit). */
   private hurtTimer = 0;
+  private lastChirpTime = -1000;
+  private showingExpression: Expression | null = null;
+  private showingUntil = 0;
 
   constructor(scene: Scene, plugin: HavokPlugin, options: DroneOptions) {
     this.plugin = plugin;
     this.id = options.id ?? 'local-player';
+    this.role = options.palette === DRONE_PALETTES.nee || this.id === 'player-2' ? 'nee' : 'pix';
     this.snapshot = createPlayerSnapshot(this.id);
 
     this.root = CreateBox(`${this.id}-collider`, { width: 1.3, height: 0.72, depth: 1.15 }, scene);
@@ -250,6 +256,13 @@ export class Drone implements CameraSubject {
 
   react(expression: Expression, seconds: number): void {
     this.visual.react(expression, seconds);
+    const now = performance.now();
+    if ((this.showingExpression !== expression || now >= this.showingUntil) && now - this.lastChirpTime >= 350) {
+      this.lastChirpTime = now;
+      audio.play('chirp', { role: this.role, mood: expression, position: this.position });
+    }
+    this.showingExpression = expression;
+    this.showingUntil = now + seconds * 1000;
   }
 
   get inTrouble(): boolean {
@@ -298,6 +311,15 @@ export class Drone implements CameraSubject {
     const node = this.visual.root;
     node.rotation.set(state.orientation.pitch, state.orientation.yaw, state.orientation.roll);
     this.visualYaw = state.orientation.yaw;
+  }
+
+  /** TEST-ONLY (?autotest): place the drone instantly with zero velocity (multiplayer setup shortcuts). */
+  debugTeleport(x: number, y: number, z: number): void {
+    if (!finiteValues(x, y, z)) return;
+    this.root.position.set(x, y, z);
+    this.flight.velocity.setAll(0);
+    this.aggregate.body.setLinearVelocity(this.zero);
+    this.lockUpright();
   }
 
   /** Push the steered velocity into Havok. */

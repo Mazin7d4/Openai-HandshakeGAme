@@ -110,6 +110,7 @@ export function isDynamicOrInteractive(mesh: AbstractMesh): boolean {
     || n.startsWith('exit-sign') // scales on alarm
     || n.startsWith('vault-belljar')
     || n.startsWith('vault-halo')
+    || n.startsWith('vault-beam') // alarm/vault reveal alpha
     || n.startsWith('plinth-ring')
     || n.startsWith('alarm-beacon')
     || n.includes('beacon')

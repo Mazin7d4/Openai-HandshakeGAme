@@ -7,7 +7,33 @@ const gameModules = { promise: null as ReturnType<typeof loadGame> | null };
 const preloadGame = () => (gameModules.promise ??= loadGame());
 import { MultiplayerSession } from './network/MultiplayerSession.ts';
 import type { RoomStatus } from './network/NetworkTypes.ts';
+import { RECONNECT_GRACE_SECONDS } from './network/ReconnectionToken.ts';
+import { pingServer, wakeServer } from './network/ServerEndpoint.ts';
+import { getRunSeed } from './seed/index.ts';
 import './style.css';
+import { audio } from './audio/AudioManager.ts';
+
+// Unlock-on-first-gesture, menu UI sounds and M to mute; sound files load lazily once the page is idle.
+audio.install();
+
+function roomInviteUrl(code: string): string {
+  const url = new URL(window.location.href);
+  url.searchParams.set('room', code.trim().toUpperCase());
+  return url.toString();
+}
+
+function setRoomInUrl(code: string): void {
+  const url = new URL(window.location.href);
+  url.searchParams.set('room', code.trim().toUpperCase());
+  window.history.replaceState(null, '', url);
+}
+
+function roomCodeFromUrl(): string | null {
+  const code = new URLSearchParams(window.location.search).get('room')?.trim().toUpperCase() ?? '';
+  return /^[A-Z2-9]{4}$/.test(code) ? code : null;
+}
+
+const MODE_STASH_KEY = 'pixnee.pendingMode';
 
 const rootNode = document.querySelector('#app');
 if (!rootNode || !(rootNode instanceof HTMLElement)) {
@@ -32,19 +58,43 @@ function element<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-function menuButton(label: string, testId: string, action: () => void): HTMLButtonElement {
-  const button = element('button', 'menu-button', label);
+type ButtonVariant = '' | 'btn--primary' | 'btn--quiet' | 'btn--danger';
+function menuButton(label: string, testId: string, action: () => void, variant: ButtonVariant = ''): HTMLButtonElement {
+  const button = element('button', `btn menu-button ${variant}`.trim(), label);
   button.type = 'button';
   button.dataset.testid = testId;
   button.addEventListener('click', action);
   return button;
 }
 
-function menuPanel(title: string, subtitle: string): HTMLElement {
+// "Dev local" (both drones on one keyboard) is a developer tool: only on a dev host or with ?dev=1,
+// so tools/verify-* (127.0.0.1) keep working and players on the real site never see it.
+const devMenuAllowed = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
+  || new URLSearchParams(window.location.search).get('dev') === '1';
+
+// The menu backdrop is key art rendered from the real spawn room (public/key-art), not a stock gradient.
+function menuShell(): HTMLElement {
   const shell = element('main', 'menu-shell');
-  const panel = element('section', 'menu-panel');
-  panel.append(element('p', 'menu-kicker', 'HANDSHAKE'), element('h1', '', title));
-  panel.append(element('p', 'menu-subtitle', subtitle));
+  shell.append(Object.assign(element('div', 'menu-art'), { ariaHidden: 'true' }));
+  return shell;
+}
+
+// Wordmark: PIX and NEE joined by the cord instead of an ampersand. Drawn inline so it scales crisply.
+const CORD_SVG = '<svg viewBox="0 0 96 48" aria-hidden="true" focusable="false">'
+  + '<rect x="2" y="10" width="12" height="10" rx="2"/><rect x="82" y="10" width="12" height="10" rx="2"/>'
+  + '<path d="M14 15 C 30 15, 30 42, 48 42 S 66 15, 82 15"/></svg>';
+function wordmark(): HTMLElement {
+  const mark = element('h1', 'wordmark');
+  mark.setAttribute('aria-label', 'PIX & NEE');
+  mark.innerHTML = `<span class="wordmark__pix">PIX</span><span class="wordmark__cord">${CORD_SVG}</span><span class="wordmark__nee">NEE</span>`;
+  return mark;
+}
+
+function menuPanel(title: string, subtitle: string): HTMLElement {
+  const shell = menuShell();
+  const panel = element('section', 'panel menu-panel');
+  panel.append(element('p', 'menu-kicker', 'PIX & NEE'), element('h1', 'panel__title', title));
+  panel.append(element('p', 'panel__body menu-subtitle', subtitle));
   shell.append(panel);
   root.replaceChildren(shell);
   return panel;
@@ -53,65 +103,151 @@ function menuPanel(title: string, subtitle: string): HTMLElement {
 function errorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : 'Unable to connect.';
   if (message.toLowerCase().includes('failed to fetch')) {
-    return 'Multiplayer server unavailable. Restart with npm run dev, or run npm run server beside npm run dev:client.';
+    return import.meta.env.PROD
+      ? "Can't reach the game server right now. Check your connection and try again in a moment."
+      : 'Multiplayer server unavailable. Restart with npm run dev, or run npm run server beside npm run dev:client.';
   }
   return message;
 }
 
 function showMainMenu(): void {
-  const panel = menuPanel('Choose a mode', 'Two drones. One tether.');
+  const beat = new URLSearchParams(window.location.search).get('beat');
+  const blurb = beat && /^\d+:\d{2}$/.test(beat)
+    ? `A friend finished in ${beat}. Can you beat it?`
+    : 'Fly a pair of tethered drones through a sleepy office and lift the core from the vault.';
+  const shell = menuShell();
+  shell.classList.add('menu-shell--title');
+  const panel = element('section', 'panel menu-panel title-panel');
+  panel.append(wordmark(), element('h2', 'title-tagline', 'Two drones. One cord.'));
+  panel.append(element('p', 'panel__body menu-subtitle', blurb));
+  const play = menuButton('', 'singleplayer', showSinglePlayer, 'btn--primary');
+  play.classList.add('btn--hero');
+  play.append(element('span', 'btn__label', 'Play now'), element('span', 'btn__hint', 'Solo · you fly PIX'));
   const actions = element('div', 'menu-actions');
-  actions.append(
-    menuButton('SINGLE PLAYER', 'singleplayer', showSinglePlayer),
-    menuButton('MULTIPLAYER', 'multiplayer', showMultiplayerMenu),
-    menuButton('DEV LOCAL', 'dev-local', () => {
+  actions.append(play, menuButton('Play with a friend', 'multiplayer', showMultiplayerMenu));
+  if (devMenuAllowed) {
+    actions.append(menuButton('Dev local', 'dev-local', () => {
       void startGame('dev-local');
-    }),
-  );
+    }, 'btn--quiet'));
+  }
+  actions.append(menuButton('Settings', 'title-settings', openTitleSettings, 'btn--quiet'));
   panel.append(actions);
+  shell.append(panel);
+  root.replaceChildren(shell);
+  // PLAY NOW is first in tab order and already focused, so Enter starts it.
+  play.focus();
+}
+
+function openTitleSettings(): void {
+  void import('./ui/SettingsMenu.ts').then(({ SettingsMenu }) => {
+    const host = document.createElement('div');
+    host.className = 'settings-host';
+    root.append(host);
+    let menu: InstanceType<typeof SettingsMenu> | null = null;
+    menu = new SettingsMenu(host, {
+      onClose: () => {
+        menu?.dispose();
+        host.remove();
+        showMainMenu();
+      },
+    });
+  });
 }
 
 function showSinglePlayer(): void {
-  const panel = menuPanel('Single Player', 'Fly PIX. A CPU NEE follows you (early preview: it follows, it does not hack yet).');
+  const panel = menuPanel('Solo heist', 'You fly PIX. A CPU NEE rides the other end of the cord. It follows you, but it can\'t hack yet.');
+  const start = menuButton('Start', 'start-singleplayer', () => {
+    void startGame('singleplayer');
+  }, 'btn--primary');
+  const night = menuButton('Night Shift', 'night-shift', () => {
+    void startGame('night-shift');
+  });
+  night.title = 'Endless floors from one seed. Stubbed until Netcode owns captures.';
   const actions = element('div', 'menu-actions');
-  actions.append(
-    menuButton('START', 'start-singleplayer', () => {
-      void startGame('singleplayer');
-    }),
-    menuButton('BACK', 'back', showMainMenu),
-  );
+  actions.append(start, night, menuButton('Back', 'back', showMainMenu, 'btn--quiet'));
   panel.append(actions);
+  start.focus();
 }
 
 function showMultiplayerMenu(): void {
-  const panel = menuPanel('Multiplayer', 'Create a private room or join with a code.');
+  const panel = menuPanel('Play with a friend', 'Make a private room and share its code, or join a friend\'s room.');
   const actions = element('div', 'menu-actions');
   actions.append(
-    menuButton('CREATE ROOM', 'create-room', () => {
+    menuButton('Create a room', 'create-room', () => {
       void createRoom();
-    }),
-    menuButton('JOIN ROOM', 'join-room', showJoinRoom),
-    menuButton('BACK', 'back', showMainMenu),
+    }, 'btn--primary'),
+    menuButton('Join with a code', 'join-room', () => showJoinRoom()),
+    menuButton('Back', 'back', showMainMenu, 'btn--quiet'),
   );
   panel.append(actions);
+  void pingServer(2500);
+}
+
+async function ensureServerAwake(
+  panel: HTMLElement,
+  back: () => void,
+  retry: () => void,
+): Promise<boolean> {
+  panel.querySelectorAll('.wake-overlay').forEach((node) => node.remove());
+  const ui = { overlay: null as HTMLElement | null, title: null as HTMLElement | null, detail: null as HTMLElement | null };
+
+  const result = await wakeServer({
+    onWaiting(attempt) {
+      if (!ui.overlay) {
+        ui.overlay = element('div', 'wake-overlay');
+        ui.overlay.dataset.testid = 'wake-overlay';
+        ui.title = element('p', 'wake-title', 'Waking server…');
+        ui.detail = element('p', 'wake-detail', `Free server is starting up (up to a minute). Attempt ${attempt}`);
+        ui.overlay.append(ui.title, ui.detail);
+        panel.append(ui.overlay);
+      } else {
+        ui.detail!.textContent = `Free server is starting up (up to a minute). Attempt ${attempt}`;
+      }
+    },
+  });
+
+  if (result) {
+    ui.overlay?.remove();
+    return true;
+  }
+
+  // Failed — show error UI
+  if (!ui.overlay) {
+    ui.overlay = element('div', 'wake-overlay');
+    ui.overlay.dataset.testid = 'wake-overlay';
+    ui.title = element('p', 'wake-title');
+    ui.detail = element('p', 'wake-detail');
+    ui.overlay.append(ui.title, ui.detail);
+    panel.append(ui.overlay);
+  }
+  ui.title!.textContent = "Server didn't wake up";
+  ui.detail!.textContent = 'Check your connection and retry.';
+  ui.overlay.append(
+    menuButton('RETRY', 'wake-retry', retry),
+    menuButton('BACK', 'back', back),
+  );
+  return false;
 }
 
 async function createRoom(): Promise<void> {
   const panel = menuPanel('Creating room', 'Connecting to the multiplayer server…');
   const status = element('p', 'lobby-status', 'Please wait.');
   panel.append(status);
+  if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void createRoom(); }))) return;
   try {
     const session = await MultiplayerSession.createRoom();
     showLobby(session);
   } catch (error) {
     status.textContent = errorMessage(error);
     status.classList.add('error');
-    panel.append(menuButton('BACK', 'back', showMultiplayerMenu));
+    panel.append(menuButton('Back', 'back', showMultiplayerMenu, 'btn--quiet'));
   }
 }
 
-function showJoinRoom(): void {
-  const panel = menuPanel('Join Room', 'Enter the four-character room code.');
+function showJoinRoom(prefill?: string): void {
+  // menuButton passes the click event when used directly as the action; only strings count.
+  const initial = typeof prefill === 'string' ? prefill.trim().toUpperCase() : '';
+  const panel = menuPanel('Join a room', 'Type the four-character code your friend sees.');
   const form = element('form', 'join-form');
   const input = element('input', 'room-code-input');
   input.dataset.testid = 'room-code-input';
@@ -121,12 +257,31 @@ function showJoinRoom(): void {
   input.placeholder = 'XXXX';
   input.setAttribute('aria-label', 'Room code');
   input.addEventListener('input', () => { input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
-  const submit = element('button', 'menu-button', 'JOIN');
+  if (initial) input.value = initial;
+  const submit = element('button', 'btn btn--primary menu-button', 'Join');
   submit.dataset.testid = 'join-submit';
   submit.type = 'submit';
   const status = element('p', 'lobby-status');
-  const back = menuButton('BACK', 'back', showMultiplayerMenu);
+  const back = menuButton('Back', 'back', showMultiplayerMenu, 'btn--quiet');
   form.append(input, submit);
+
+  async function doJoin(code: string): Promise<void> {
+    submit.disabled = true;
+    status.textContent = 'Connecting…';
+    if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void doJoin(code); }))) {
+      submit.disabled = false;
+      return;
+    }
+    try {
+      const session = await MultiplayerSession.joinRoom(code);
+      showLobby(session);
+    } catch (error: unknown) {
+      status.textContent = errorMessage(error);
+      status.classList.add('error');
+      submit.disabled = false;
+    }
+  }
+
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const code = input.value.trim().toUpperCase();
@@ -134,34 +289,28 @@ function showJoinRoom(): void {
       status.textContent = 'Enter a four-character room code.';
       return;
     }
-    submit.disabled = true;
-    status.textContent = 'Joining…';
-    void MultiplayerSession.joinRoom(code)
-      .then((session) => {
-        showLobby(session);
-      })
-      .catch((error: unknown) => {
-        status.textContent = errorMessage(error);
-        status.classList.add('error');
-        submit.disabled = false;
-      });
+    void doJoin(code);
   });
   panel.append(form, status, back);
   input.focus();
+  if (initial.length === 4) {
+    void doJoin(initial);
+  }
 }
 
 function showLobby(session: MultiplayerSession): void {
+  setRoomInUrl(session.roomCode);
   const panel = menuPanel('Room ready', 'Share this code with the second player.');
-  const label = element('p', 'room-label', 'ROOM CODE');
+  const label = element('p', 'panel__kicker room-label', 'Room code');
   const code = element('p', 'room-code', session.roomCode);
   code.dataset.testid = 'room-code';
-  const copy = element('button', 'menu-button', 'COPY CODE');
+  const copy = element('button', 'btn btn--primary menu-button', 'Copy invite link');
   copy.dataset.testid = 'copy-code';
   copy.type = 'button';
   copy.addEventListener('click', () => {
-    void navigator.clipboard?.writeText(session.roomCode)
-      .then(() => { copy.textContent = 'COPIED!'; window.setTimeout(() => { copy.textContent = 'COPY CODE'; }, 1500); })
-      .catch(() => { copy.textContent = 'SELECT + COPY'; });
+    void navigator.clipboard?.writeText(roomInviteUrl(session.roomCode))
+      .then(() => { copy.textContent = 'Copied'; window.setTimeout(() => { copy.textContent = 'Copy invite link'; }, 1500); })
+      .catch(() => { copy.textContent = 'Select the link to copy'; });
   });
   const role = element('p', 'room-label', '');
   const status = element('p', 'lobby-status', 'Waiting for partner…');
@@ -170,7 +319,7 @@ function showLobby(session: MultiplayerSession): void {
 
   const removeStatus = session.onStatus((next) => {
     const me = next.localRole;
-    role.textContent = me ? `YOU ARE ${me.toUpperCase()} · PARTNER IS ${me === 'pix' ? 'NEE' : 'PIX'}` : '';
+    role.textContent = me ? `You fly ${me.toUpperCase()} · your friend flies ${me === 'pix' ? 'NEE' : 'PIX'}` : '';
     status.textContent = next.started ? 'Partner connected. Starting…' : 'Waiting for partner…';
   });
   void session.waitForStart().then(() => {
@@ -180,6 +329,7 @@ function showLobby(session: MultiplayerSession): void {
 }
 
 async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<void> {
+  try { sessionStorage.removeItem(MODE_STASH_KEY); } catch { /* private mode */ }
   const canvas = element('canvas');
   canvas.id = 'game-canvas';
   canvas.dataset.testid = 'game-canvas';
@@ -187,12 +337,16 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   const boot = element('div', 'boot-card');
   boot.id = 'boot-status';
   const bootStep = element('p', 'boot-step', 'Loading physics…');
+  const runSeed = mode === 'night-shift' ? getRunSeed() : undefined;
   boot.append(
-    element('p', 'boot-title', 'HANDSHAKE'),
+    element('p', 'boot-title', 'PIX & NEE'),
     Object.assign(element('div', 'boot-dots'), { innerHTML: '<span class="pix"></span><span class="nee"></span>' }),
     Object.assign(element('div', 'boot-bar'), { innerHTML: '<span></span>' }),
     bootStep,
   );
+  if (runSeed) {
+    boot.append(element('p', 'boot-seed', `Seed ${runSeed.seed} · Floor ${runSeed.floor}`));
+  }
   root.replaceChildren(canvas, boot);
   const bootSteps = ['Loading physics…', 'Building the lab…', 'Waking PIX and NEE…'];
   let bootIndex = 0;
@@ -225,34 +379,41 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
     overlay.dataset.testid = 'partner-overlay';
     const overlayTitle = element('p', 'partner-title', '');
     const overlayDetail = element('p', 'partner-detail', '');
-    const menuButtonEl = element('button', 'menu-button', 'RETURN TO MENU');
+    const menuButtonEl = element('button', 'btn menu-button', 'Back to menu');
     menuButtonEl.type = 'button';
     menuButtonEl.addEventListener('click', () => window.location.reload());
     overlay.append(overlayTitle, overlayDetail, menuButtonEl);
     root.append(overlay);
     let partnerLostAt: number | null = null;
+    let selfReconnectAt: number | null = null;
     const overlayTimer = window.setInterval(() => {
       const status = session.currentStatus;
       const net = session.connectionState;
       const partner = status.players.get(status.localRole === 'pix' ? 'nee' : 'pix');
       const lost = net === 'disconnected' || net === 'error';
-      const partnerGone = !lost && (!partner || partner.connected === false);
-      partnerLostAt = partnerGone ? partnerLostAt ?? Date.now() : null;
-      overlay.classList.toggle('visible', lost || partnerGone || net === 'reconnecting');
-      menuButtonEl.hidden = !lost && !(partnerGone && Date.now() - (partnerLostAt ?? 0) > 15_000);
+      const partnerReconnecting = !lost && !!partner && partner.connected === false;
+      const partnerLeft = !lost && !partner;
+      partnerLostAt = partnerReconnecting || partnerLeft ? partnerLostAt ?? Date.now() : null;
+      selfReconnectAt = net === 'reconnecting' ? selfReconnectAt ?? Date.now() : null;
+      const graceMs = RECONNECT_GRACE_SECONDS * 1000;
+      overlay.classList.toggle('visible', lost || partnerReconnecting || partnerLeft || net === 'reconnecting');
+      menuButtonEl.hidden = !lost && !(partnerLeft || (partnerReconnecting && Date.now() - (partnerLostAt ?? 0) > graceMs));
       if (lost) {
-        overlayTitle.textContent = 'CONNECTION LOST';
+        overlayTitle.textContent = 'Connection lost';
         overlayDetail.textContent = 'The room closed or your connection dropped.';
       } else if (net === 'reconnecting') {
-        overlayTitle.textContent = 'RECONNECTING…';
-        overlayDetail.textContent = 'Hold tight. Your drone is parked.';
-      } else if (partnerGone) {
-        const left = Math.max(0, 15 - Math.floor((Date.now() - (partnerLostAt ?? Date.now())) / 1000));
+        const left = session.reconnectSecondsLeft
+          ?? Math.max(0, RECONNECT_GRACE_SECONDS - Math.floor((Date.now() - (selfReconnectAt ?? Date.now())) / 1000));
+        overlayTitle.textContent = 'Reconnecting…';
+        overlayDetail.textContent = `Hold tight. Your drone is parked. ${left}s`;
+      } else if (partnerReconnecting) {
+        const left = Math.max(0, RECONNECT_GRACE_SECONDS - Math.floor((Date.now() - (partnerLostAt ?? Date.now())) / 1000));
         const name = status.localRole === 'pix' ? 'NEE' : 'PIX';
-        overlayTitle.textContent = `${name} DISCONNECTED`;
-        overlayDetail.textContent = left > 0
-          ? `Waiting for them to reconnect… ${left}s`
-          : 'They did not come back. You can return to the menu.';
+        overlayTitle.textContent = `${name} disconnected`;
+        overlayDetail.textContent = `Waiting for them to reconnect… ${left}s`;
+      } else if (partnerLeft) {
+        overlayTitle.textContent = 'Partner left';
+        overlayDetail.textContent = 'They did not come back. You can return to the menu.';
       }
     }, 500);
     const previousRemove = removeStatus;
@@ -270,11 +431,22 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
         : undefined,
       mode,
       multiplayer: session,
+      runSeed,
       onLeaveGame: () => {
         removeStatus?.();
         game?.dispose();
         game = null;
-        showMainMenu();
+        // Next-floor stub stashes seed then leaves; resume the same mode when pending.
+        let resume: GameMode | null = null;
+        try {
+          const pending = sessionStorage.getItem(MODE_STASH_KEY);
+          if (pending === 'singleplayer' || pending === 'night-shift' || pending === 'dev-local') {
+            resume = pending;
+            sessionStorage.removeItem(MODE_STASH_KEY);
+          }
+        } catch { /* private mode */ }
+        if (resume) void startGame(resume);
+        else showMainMenu();
       },
     });
     window.clearInterval(bootTimer);
@@ -290,7 +462,75 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   }
 }
 
-showMainMenu();
+/** Dev / screenshot hook: `?report` mounts the Heist Report with demo stats (no Havok boot). */
+async function showHeistReportDemo(): Promise<void> {
+  const shell = menuShell();
+  shell.classList.add('heist-report-demo');
+  root.replaceChildren(shell);
+  const { HeistReport, demoRunStats } = await import('./ui/HeistReport.ts');
+  const report = new HeistReport(shell, {
+    onPlayAgain: () => {
+      const next = new URL(window.location.href);
+      next.searchParams.delete('report');
+      next.searchParams.set('play', 'solo');
+      window.location.href = next.toString();
+    },
+    onLeave: () => {
+      const next = new URL(window.location.href);
+      next.searchParams.delete('report');
+      window.location.href = next.toString();
+    },
+  });
+  report.show(demoRunStats());
+  (window as unknown as { __heistReport?: unknown }).__heistReport = {
+    show: (stats?: Parameters<typeof report.show>[0]) => report.show(stats ?? demoRunStats()),
+    hide: () => report.hide(),
+    visible: () => report.visible,
+  };
+}
+
+async function bootFromInviteLink(): Promise<boolean> {
+  const code = roomCodeFromUrl();
+  if (!code) return false;
+
+  const panel = menuPanel('Rejoining room', `Room ${code}`);
+  const status = element('p', 'lobby-status', 'Checking for a saved seat…');
+  panel.append(status);
+
+  if (!(await ensureServerAwake(panel, showMainMenu, () => { void bootFromInviteLink(); }))) {
+    return true;
+  }
+
+  const resumed = await MultiplayerSession.resumeRoom(code);
+  if (resumed) {
+    status.textContent = resumed.currentStatus.started
+      ? 'Seat restored. Returning to the match…'
+      : 'Seat restored. Waiting for partner…';
+    if (resumed.currentStatus.started && resumed.currentStatus.localRole) {
+      await startGame('multiplayer', resumed);
+    } else {
+      showLobby(resumed);
+    }
+    return true;
+  }
+
+  showJoinRoom(code);
+  return true;
+}
+
+const bootParams = new URLSearchParams(window.location.search);
+if (bootParams.has('report')) {
+  void showHeistReportDemo();
+} else if (roomCodeFromUrl()) {
+  void bootFromInviteLink();
+  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+} else if (bootParams.get('play') === 'solo') {
+  void startGame('singleplayer');
+  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+} else {
+  showMainMenu();
+  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+}
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
@@ -298,5 +538,3 @@ if (import.meta.hot) {
     game = null;
   });
 }
-
-setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);

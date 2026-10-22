@@ -1,5 +1,6 @@
 import { Vector3, type Engine, type Scene } from '@babylonjs/core';
 import { AssetLoader } from '../assets/AssetLoader.ts';
+import { audio as audioHub } from '../audio/AudioManager.ts';
 import { CinematicCamera } from '../camera/CinematicCamera.ts';
 import { BotControlSource } from '../control/BotControlSource.ts';
 import type { DroneControlSource } from '../control/DroneControlSource.ts';
@@ -22,8 +23,14 @@ import { Drone, DRONE_PALETTES } from '../player/Drone.ts';
 import { DRONE_MODEL_URL } from '../player/DroneVisual.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import { enableHavok } from '../physics/enableHavok.ts';
-import { createEngine, createScene, limitGlowToStrongEmitters } from '../scene/createScene.ts';
+import { createEngine, createScene } from '../scene/createScene.ts';
+import { AccessibilityFeedback } from '../ui/AccessibilityFeedback.ts';
 import { GameHud } from '../ui/GameHud.ts';
+import { OnboardingCoach } from '../ui/OnboardingCoach.ts';
+import { saveSettings } from '../ui/Settings.ts';
+import { generateRun, getRunSeed, type RunLayout } from '../seed/index.ts';
+import { TouchControls } from '../ui/TouchControls.ts';
+import { isTouchPlayDevice } from '../ui/touchDetect.ts';
 import type { GameMode } from './GameMode.ts';
 
 export interface GameAppOptions {
@@ -34,6 +41,8 @@ export interface GameAppOptions {
   mode?: GameMode;
   multiplayer?: MultiplayerSession;
   onLeaveGame?: () => void;
+  /** Optional override; default is getRunSeed() stub (Netcode swaps the getter later). */
+  runSeed?: { seed: number; floor: number };
 }
 
 interface LocalPlayer {
@@ -63,6 +72,9 @@ export class GameApp {
   private readonly removeNetworkStatus: (() => void) | null;
   private readonly snapshots: PlayerSnapshot[] = [];
   private readonly hud: GameHud | null;
+  private readonly a11y: AccessibilityFeedback | null;
+  private readonly coach: OnboardingCoach | null;
+  private touch: TouchControls | null = null;
   private readonly diagnostics = new StabilityDiagnostics();
   private readonly idleAxes = zeroFlightAxes();
   /** TEST-ONLY (?autotest): position-targeted steering for deterministic verifiers. */
@@ -75,6 +87,8 @@ export class GameApp {
   private yankRequested = false;
   private disposed = false;
   private activeDevRole: DroneRole = 'pix';
+  readonly runLayout: RunLayout | null;
+  private readonly touchPlay = isTouchPlayDevice();
   private readonly onResize = () => {
     this.engine.resize();
   };
@@ -105,6 +119,7 @@ export class GameApp {
     gameplay: GameplayWorld,
     hudParent: HTMLElement | undefined,
     onLeaveGame: (() => void) | undefined,
+    runLayout: RunLayout | null = null,
   ) {
     this.engine = engine;
     this.scene = scene;
@@ -118,21 +133,27 @@ export class GameApp {
     this.mode = mode;
     this.multiplayer = multiplayer;
     this.gameplay = gameplay;
+    this.runLayout = runLayout;
     this.hud = hudParent
       ? new GameHud(hudParent, {
           onResume: () => this.setPaused(false),
           onLeave: () => onLeaveGame?.(),
-          onGraphicsQuality: (quality) => {
-            this.engine.setHardwareScalingLevel(
-              quality === 'low' ? 1.5 : quality === 'medium' ? 1 : 0.75,
-            );
-          },
+          // QualityManager (scene/Quality.ts) listens to this setting; AUTO re-enables the governor.
+          onGraphicsQuality: (quality) => { saveSettings({ graphicsQuality: quality }); },
           onInteract: () => this.triggerHudAction('interact'),
           onGrabDrop: () => this.triggerHudAction('grabDrop'),
           onThrow: () => this.triggerHudAction('throwObject'),
           onYank: () => { this.yankRequested = true; },
+          onReplayTutorial: () => this.coach?.begin(),
         })
       : null;
+    this.a11y = hudParent ? new AccessibilityFeedback(hudParent) : null;
+    this.coach = hudParent ? new OnboardingCoach(hudParent, mode === 'night-shift' ? 'singleplayer' : mode) : null;
+    this.hud?.setControlsCardSuppressed(this.coach?.isActive === true);
+    if (hudParent && this.touchPlay) {
+      hudParent.classList.add('touch-play');
+      this.bindTouchControls(hudParent);
+    }
     this.juice = new Juice(scene);
     const audio = gameplay.sfx;
     this.moves = new TetherMoves(
@@ -150,7 +171,7 @@ export class GameApp {
     this.unsubscribers.push(
       gameEvents.on('impact', (e) => {
         this.juice.burst('impact', e.position, 6 + Math.min(16, e.strength * 1.4));
-        audio.impact(Math.min(1, e.strength / 12));
+        audio.impact(Math.min(1, e.strength / 12), e.position);
         if (isLocalDrone(e.droneId)) this.cameraRig.addShake(Math.min(0.4, e.strength * 0.03));
       }),
       gameEvents.on('boost', (e) => {
@@ -177,7 +198,7 @@ export class GameApp {
         switch (e.beat) {
           case 'vault':
             this.juice.burst('zap', pos, 40);
-            audio.success();
+            audioHub.play('vaultOpen', { position: pos });
             this.cameraRig.beat(pos, 2.4);
             this.cameraRig.addShake(0.12);
             for (const drone of this.drones) drone.react('happy', 2);
@@ -239,13 +260,20 @@ export class GameApp {
     const scene = createScene(engine);
     const plugin = await enableHavok(scene);
     const levelSpawn = await options.createLevel(scene);
-    // TEST-ONLY: ?autotest&stage=escape starts local modes in the alarm escape, beside the heavy crate.
-    const escapeStage = Autopilot.enabled && (options.mode ?? 'dev-local') !== 'multiplayer'
-      && new URLSearchParams(window.location.search).get('stage') === 'escape';
-    const spawn = escapeStage ? new Vector3(-7, 4.5, 13) : levelSpawn;
-    const assets = new AssetLoader(scene);
     const mode = options.mode ?? 'dev-local';
     const multiplayer = options.multiplayer ?? null;
+    // Solo + Night Shift share generateRun; multiplayer waits on server applySeedFloor (prod-net sync).
+    // Story/solo/co-op keep the handcrafted level; only Night Shift remixes (until Netcode syncs room seeds).
+    const runSeed = mode === 'night-shift' ? options.runSeed ?? getRunSeed() : null;
+    const runLayout = runSeed ? generateRun(runSeed.seed, runSeed.floor) : null;
+    // TEST-ONLY: ?autotest&stage=escape starts local modes in the alarm escape, beside the heavy crate.
+    const escapeStage = Autopilot.enabled && mode !== 'multiplayer'
+      && new URLSearchParams(window.location.search).get('stage') === 'escape';
+    const layoutSpawn = runLayout
+      ? new Vector3(runLayout.spawn.x, runLayout.spawn.y, runLayout.spawn.z)
+      : levelSpawn;
+    const spawn = escapeStage ? new Vector3(-7, 4.5, 13) : layoutSpawn;
+    const assets = new AssetLoader(scene);
     const localRole = multiplayer?.currentStatus.localRole ?? null;
     if (mode === 'multiplayer' && (!multiplayer || !localRole)) {
       throw new Error('Multiplayer mode requires a joined room and assigned role.');
@@ -259,13 +287,14 @@ export class GameApp {
 
     // Late-bound refs so the single-player companion can perceive drones/camera created below.
     const live: { drones?: Drone[]; camera?: CinematicCamera; gameplay?: GameplayWorld } = {};
+    const companionModes: GameMode[] = ['singleplayer', 'night-shift'];
     const controlFor = (role: DroneRole): DroneControlSource => {
       if (mode === 'multiplayer') {
         return role === localRole
           ? new HumanControlSource(PLAYER_ONE_KEYS)
           : new RemoteControlSource();
       }
-      if (mode === 'singleplayer') {
+      if (companionModes.includes(mode)) {
         return role === 'pix'
           ? new HumanControlSource(PLAYER_ONE_KEYS)
           : new BotControlSource({
@@ -306,20 +335,25 @@ export class GameApp {
       },
     ];
     const drones = players.map((p) => p.drone);
-    const tether = new Tether(scene, drones[0], drones[1], TETHER_TUNING, {
+    const tetherTuning = { ...TETHER_TUNING };
+    if (runLayout) {
+      tetherTuning.restLength = runLayout.cord.restLength;
+      tetherTuning.maxLength = runLayout.cord.maxLength;
+    }
+    const tether = new Tether(scene, drones[0], drones[1], tetherTuning, {
       collarA: DRONE_PALETTES.pix.accent,
       collarB: DRONE_PALETTES.nee.accent,
     });
     const uiParent = options.uiParent ?? options.devParent;
-    const gameplay = new GameplayWorld(scene, plugin, mode, multiplayer, uiParent, options.onLeaveGame);
+    const gameplay = new GameplayWorld(
+      scene, plugin, mode, multiplayer, uiParent, options.onLeaveGame, runLayout,
+    );
     if (escapeStage) gameplay.debugStartEscape();
 
     const cameraRig = new CinematicCamera(scene);
     cameraRig.snap(drones);
     Object.assign(live, { drones, camera: cameraRig, gameplay });
     scene.activeCamera = cameraRig.camera;
-    // Level + drones are loaded; restrict the glow pass to strong emitters before the first frame.
-    limitGlowToStrongEmitters(scene);
     const devReadout = options.devParent ? new DevReadout(options.devParent, mode) : null;
     const devOrbit = options.devParent ? new DevOrbitCamera(scene, options.canvas) : null;
 
@@ -337,11 +371,44 @@ export class GameApp {
       gameplay,
       uiParent,
       options.onLeaveGame,
+      runLayout,
     );
   }
 
   start(): void {
-    this.autopilot?.install();
+    this.autopilot?.install({
+      /** Multiplayer agreement checks: rendered + server security state on this client. */
+      security: () => this.gameplay.debugSecurity(),
+      /** Teleport a drone this client owns (multiplayer: only the local role). */
+      teleport: (role: DroneRole, x: number, y: number, z: number) => {
+        const player = this.players.find((candidate) => candidate.role === role);
+        if (!player || player.control.kind === 'remote') return false;
+        player.drone.debugTeleport(x, y, z);
+        return true;
+      },
+      /** Ask the server for a test stage (needs HANDSHAKE_TEST_HOOKS=1 on the server). */
+      debugStage: (stage: 'escape') => this.multiplayer?.debugStage(stage),
+      /** Propose a clothesline stun to the server (it validates against its own patrol + player positions). */
+      requestStun: (index: number, at?: { x: number; y: number; z: number }) => {
+        const point = at ?? this.gameplay.debugSecurity().patrols[index];
+        if (point) this.multiplayer?.requestPatrolStun({ index, x: point.x, y: point.y, z: point.z });
+      },
+      /** Force an unexpected disconnect (server holds the seat for the reconnect grace window). */
+      dropConnection: () => this.multiplayer?.dropConnectionForTest(),
+      connectionState: () => this.multiplayer?.connectionState ?? null,
+      partnerConnected: () => {
+        const status = this.multiplayer?.currentStatus;
+        if (!status?.localRole) return null;
+        const partner = status.players.get(status.localRole === 'pix' ? 'nee' : 'pix');
+        return partner?.connected ?? false;
+      },
+    });
+    // QA / debug: expose camera look yaw ("alpha") for Playwright touch-look checks.
+    if (new URLSearchParams(window.location.search).has('debug')) {
+      (window as unknown as { __pixneeCamera?: { getLookYaw: () => number } }).__pixneeCamera = {
+        getLookYaw: () => this.cameraRig.touchLookYaw,
+      };
+    }
     window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKeyDown);
     this.engine.runRenderLoop(() => {
@@ -366,7 +433,10 @@ export class GameApp {
     this.devOrbit?.dispose();
     this.cameraRig.dispose();
     this.gameplay.dispose();
+    this.touch?.dispose();
+    this.coach?.dispose();
     this.hud?.dispose();
+    this.a11y?.dispose();
     this.diagnostics.dispose();
     this.scene.dispose();
     this.engine.dispose();
@@ -390,6 +460,8 @@ export class GameApp {
     for (const player of this.players) droneByRole.set(player.role, player.drone);
 
     let switchDrone = false;
+    let coachAxes = this.idleAxes;
+    let coachActions = null as ReturnType<HumanControlSource['sample']>['interactions'] | null;
     for (const player of this.players) {
       const control = player.control.sample(dt);
       if (control.remoteState) {
@@ -408,9 +480,22 @@ export class GameApp {
         this.gameplay.handle(player.role, player.drone, interactions);
         const wantsYank = interactions.yank || (this.yankRequested && player.role === this.hudRole());
         if (wantsYank && !this.gameplay.isRoleHacking(player.role)) this.yank(player);
-        if (interactions.pause) this.setPaused(true);
+        if (interactions.pause) {
+          if (this.coach?.isActive) this.coach.skip();
+          else this.setPaused(true);
+        }
         switchDrone ||= control.interactions.switchDrone;
+        if (player.role === this.hudRole() && player.control instanceof HumanControlSource) {
+          coachAxes = control.actions;
+          coachActions = interactions;
+        }
       }
+    }
+    if (coachActions && this.coach?.isActive) {
+      this.coach.observe(coachAxes, coachActions);
+      this.hud?.setControlsCardSuppressed(true);
+    } else if (this.coach && !this.coach.isActive) {
+      this.hud?.setControlsCardSuppressed(false);
     }
     this.yankRequested = false;
     this.moves.update(dt);
@@ -445,6 +530,7 @@ export class GameApp {
     this.tether.updateVisual();
     this.cameraRig.update(dt, this.drones, this.gameplay.cameraContext);
     this.devOrbit?.update(this.drones);
+    this.updateAudio();
     this.devReadout?.update(
       this.snapshots,
       this.tether.currentStrain,
@@ -475,6 +561,23 @@ export class GameApp {
       );
     }
   }
+
+  /** Camera as the audio listener, plus a thruster hum per drone (the partner's is spatialised). */
+  private updateAudio(): void {
+    const camera = this.scene.activeCamera;
+    if (camera) audioHub.setListener(camera.globalPosition, camera.getDirection(Vector3.Right()));
+    const local = this.hudRole();
+    const dt = Math.max(1e-3, this.engine.getDeltaTime() / 1000);
+    for (const player of this.players) {
+      // Speed from position change so remote (replicated) drones hum correctly too.
+      const p = player.drone.position;
+      const last = this.audioLastPos.get(player.role);
+      const speed = last ? Math.min(30, Vector3.Distance(p, last) / dt) : 0;
+      if (last) last.copyFrom(p); else this.audioLastPos.set(player.role, p.clone());
+      audioHub.setDroneMotion(player.role, speed, p, player.role === local);
+    }
+  }
+  private readonly audioLastPos = new Map<DroneRole, Vector3>();
 
   private hudRole(): DroneRole {
     return this.mode === 'dev-local'
@@ -523,6 +626,7 @@ export class GameApp {
   private setPaused(paused: boolean): void {
     this.paused = paused;
     this.hud?.setPaused(paused);
+    this.touch?.setVisible(!paused);
   }
 
   private switchDevDrone(): void {
@@ -533,6 +637,35 @@ export class GameApp {
         ? new HumanControlSource(PLAYER_ONE_KEYS)
         : new BotControlSource();
     }
+    if (this.touchPlay && this.touch) {
+      const human = this.humanControl();
+      if (human) this.touch.rebindVirtual(human.enableVirtualControls());
+    }
+  }
+
+  private humanControl(): HumanControlSource | null {
+    const role = this.hudRole();
+    const player = this.players.find((candidate) => candidate.role === role);
+    return player?.control instanceof HumanControlSource ? player.control : null;
+  }
+
+  private bindTouchControls(parent: HTMLElement): void {
+    const human = this.humanControl();
+    if (!human) return;
+    this.touch?.dispose();
+    const virtual = human.enableVirtualControls();
+    // Look up the live HumanControlSource each tap — drone switch recreates it.
+    const live = () => this.humanControl();
+    this.touch = new TouchControls(parent, {
+      virtual,
+      camera: this.cameraRig,
+      solo: this.mode !== 'multiplayer',
+      onGrab: () => live()?.requestGrabDrop(),
+      onYank: () => live()?.requestYank(),
+      onInteract: () => live()?.requestInteract(),
+      onPause: () => live()?.requestPause(),
+      onSwitch: this.mode !== 'multiplayer' ? () => live()?.requestSwitchDrone() : undefined,
+    });
   }
 
   private triggerHudAction(action: 'interact' | 'grabDrop' | 'throwObject'): void {

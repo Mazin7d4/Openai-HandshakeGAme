@@ -14,41 +14,44 @@ import {
   type AbstractMesh,
 } from '@babylonjs/core';
 import { createStudioEnvironment } from './studioEnvironment.ts';
+import { initialTier, QualityManager } from './Quality.ts';
 
 /** `?scale=N` renders at 1/N resolution (low-end GPUs, software-render CI); `?lowfx` drops glow. */
 const params = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
 export const renderScale = Math.min(6, Math.max(1, Number(params.get('scale')) || 1));
 export const lowFx = params.has('lowfx');
 
-/** Bloom only meshes whose emissive is strong enough to read at the layer intensity. */
-export function limitGlowToStrongEmitters(scene: Scene, minEmissiveSum = 0.35): number {
-  const glow = scene.getGlowLayerByName('glow');
-  if (!glow) return 0;
-  let n = 0;
-  for (const mesh of scene.meshes) {
-    if (!(mesh instanceof Mesh)) continue;
-    // Include disabled meshes too (alarm beacons turn on later). Thin-instance hosts glow once.
-    const mat = mesh.material;
-    if (!mat || !('emissiveColor' in mat)) continue;
-    const e = (mat as { emissiveColor?: { r: number; g: number; b: number }; emissiveTexture?: unknown }).emissiveColor;
-    const hasTex = !!(mat as { emissiveTexture?: unknown }).emissiveTexture;
-    const sum = e ? e.r + e.g + e.b : 0;
-    if (sum < minEmissiveSum && !hasTex) continue;
-    glow.addIncludedOnlyMesh(mesh);
-    n++;
-  }
-  return n;
-}
-
 export function createEngine(canvas: HTMLCanvasElement): Engine {
-  const engine = new Engine(canvas, !lowFx, {
+  // MSAA can only be chosen at context creation: weak devices (auto low tier) start without it.
+  const aa = !lowFx && initialTier() !== 'low';
+  const engine = new Engine(canvas, aa, {
     adaptToDeviceRatio: renderScale === 1,
-    antialias: !lowFx,
+    antialias: aa,
     powerPreference: 'high-performance',
   });
   if (renderScale > 1) engine.setHardwareScalingLevel(renderScale);
   return engine;
 }
+
+// Intentional glow include-list (prod-art): core, screens, face-screens, security lenses, alarm/objective beacons.
+const GLOW_NAMES = /^(p01-core|p01-core-halo|alarm-beacon-lamp|alarm-beacon-beam|security-camera|security-drone-\d+-eye|instrument-screen|.*-beacon)$/;
+// Strong decorative emitters that still read at the layer intensity (merged with the include-list approach).
+const GLOW_MATERIALS = /^(sign-lip-glow|dress-status-led-warm|dress-status-led-soft|dress-wall-washer|lab-warm-diffuser|Glow|Glow-antenna|LedAmber|LedCyan|objective-beacon|vault-beam)$/;
+
+/** Glow include-list: named gameplay emitters + strong decorative materials (not every faint emissive). */
+function isGlowMesh(mesh: AbstractMesh): boolean {
+  if (GLOW_NAMES.test(mesh.name)) return true;
+  const mat = mesh.material;
+  if (!mat) return false;
+  // Mascot face-screens: the drone GLB's 'Screen' material carries the animated face texture.
+  if (mat.name === 'Screen' && !!(mat as { emissiveTexture?: unknown }).emissiveTexture) return true;
+  if (GLOW_MATERIALS.test(mat.name)) return true;
+  return false;
+}
+
+const qualityManagers = new WeakMap<Scene, QualityManager>();
+/** The scene's automatic quality tier manager (see Quality.ts). */
+export function getQuality(scene: Scene): QualityManager | undefined { return qualityManagers.get(scene); }
 
 export function createScene(engine: Engine): Scene {
   const scene = new Scene(engine);
@@ -85,7 +88,7 @@ export function createScene(engine: Engine): Scene {
       if (sphere.radiusWorld >= 0.45) staticCasters.push({ mesh, x: sphere.centerWorld.x, z: sphere.centerWorld.z, r: sphere.radiusWorld });
     }
   });
-  // Shadow-pass culling: only static casters overlapping the camera-following 48 m ortho box are
+  // Shadow-pass culling: only static casters overlapping the camera-following 48 m shadow box are
   // rendered into the shadow map (rebuilt only when the 2 m-snapped centre moves).
   let castersKey = '';
   const refreshCasters = (fx: number, fz: number) => {
@@ -109,14 +112,21 @@ export function createScene(engine: Engine): Scene {
     refreshCasters(fx, fz);
   });
 
+  let glow: GlowLayer | null = null;
   if (!lowFx) {
-    const glow = new GlowLayer('glow', scene, { blurKernelSize: 32 });
-    glow.intensity = 0.22;
-    // Faint emissives (sign ink ~0.2, escape strips ~0.06, dim screens) still shade in the
-    // main pass but contribute almost nothing to bloom at intensity 0.22 — exclude them so the
-    // glow map only draws strong emitters (lips, LEDs, drone glow, beacons, washers).
-    scene.onAfterRenderObservable.addOnce(() => limitGlowToStrongEmitters(scene));
+    // Glow discipline: include-list only (prod-art) plus strong decorative materials — not every faint emissive.
+    glow = new GlowLayer('glow', scene, { blurKernelSize: 16, mainTextureRatio: 0.5 });
+    glow.intensity = 0.5;
+    const layer = glow;
+    const pending: AbstractMesh[] = [];
+    scene.onNewMeshAddedObservable.add((mesh) => pending.push(mesh));
+    // Materials are often assigned after creation, so classify on the next frame.
+    scene.onBeforeRenderObservable.add(() => {
+      if (pending.length === 0) return;
+      for (const mesh of pending.splice(0)) if (isGlowMesh(mesh)) layer.addIncludedOnlyMesh(mesh as Mesh);
+    });
   }
+  qualityManagers.set(scene, new QualityManager(scene, { sun, shadows, glow }));
 
   // Shared soft daylight reflections on painted surfaces, glass, metal and drones.
   scene.environmentTexture = createStudioEnvironment(scene);

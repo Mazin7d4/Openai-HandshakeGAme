@@ -1,5 +1,6 @@
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { HackMinigameView } from './HackMinigame.ts';
+import { audio } from '../audio/AudioManager.ts';
 
 /** Two-axis waveform matching task. Range inputs support mouse, keyboard and touch. */
 export class SignalMatchView implements HackMinigameView {
@@ -23,10 +24,10 @@ export class SignalMatchView implements HackMinigameView {
     stationLabel: string,
     complete: () => void,
     cancel: () => void,
-    audio?: GameAudio,
+    gameAudio?: GameAudio,
   ) {
     this.cancel = cancel;
-    this.audio = audio;
+    this.audio = gameAudio;
     const seed = Math.floor(performance.now()) % 41;
     this.targetFrequency = 32 + seed;
     this.targetAmplitude = 38 + ((seed * 7) % 45);
@@ -70,6 +71,7 @@ export class SignalMatchView implements HackMinigameView {
     panel.append(scope, controls, track, this.status, this.cancelButton);
     this.overlay.append(panel);
     parent.append(this.overlay);
+    audio.play('hackStart');
     this.update(complete);
   }
 
@@ -107,7 +109,7 @@ export class SignalMatchView implements HackMinigameView {
     this.playerWave.setAttribute('d', this.wavePath(frequency, amplitude));
     this.meter.style.width = `${Math.round(closeness * 100)}%`;
     this.status.textContent = closeness > 0.9 ? 'LOCK ALMOST STABLE' : closeness > 0.65 ? 'SIGNAL CONVERGING' : 'SEARCHING…';
-    this.audio?.click(closeness);
+    audio.play('hackTick', { progress: closeness });
     if (Math.abs(frequency - this.targetFrequency) <= 4 && Math.abs(amplitude - this.targetAmplitude) <= 4) {
       this.completed = true;
       this.overlay.classList.add('success');

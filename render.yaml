@@ -1,0 +1,17 @@
+# Free-tier Colyseus game server for the GitHub Pages client
+services:
+  - type: web
+    name: openai-handshakegame
+    runtime: node
+    plan: free
+    region: oregon
+    branch: production
+    buildCommand: npm ci --omit=dev --ignore-scripts
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: ALLOWED_ORIGINS
+        value: "https://mazin7d4.github.io"
