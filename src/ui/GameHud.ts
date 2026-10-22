@@ -45,17 +45,17 @@ export class GameHud {
     this.activeDrone = document.createElement('div');
     this.activeDrone.className = 'active-drone-hud';
     this.pauseOverlay = document.createElement('div');
-    this.pauseOverlay.className = 'pause-overlay';
+    this.pauseOverlay.className = 'overlay pause-overlay';
     this.pauseOverlay.dataset.testid = 'pause-menu';
     this.panel = document.createElement('section');
-    this.panel.className = 'pause-panel';
+    this.panel.className = 'panel pause-panel';
     this.pauseOverlay.append(this.panel);
     // First-time-player card: core controls + the co-op goal. Auto-hides; [H] toggles it any time.
     this.controlsCard = document.createElement('div');
     this.controlsCard.className = 'controls-card';
     this.controlsCard.dataset.testid = 'controls-card';
     const title = document.createElement('strong');
-    title.textContent = 'PIX + NEE · QUICK CONTROLS';
+    title.textContent = 'Quick controls';
     const list = document.createElement('dl');
     for (const [key, action] of [
       ['WASD', 'Fly'], ['SPACE / CTRL', 'Up / down'], ['SHIFT', 'Boost'], ['F', 'Hack / interact'],
@@ -66,7 +66,7 @@ export class GameHud {
       list.append(dt, dd);
     }
     const tip = document.createElement('p');
-    tip.textContent = 'You are tethered — stay together. Follow the glowing beacon to the next objective. [H] hides this.';
+    tip.textContent = 'Follow the beacon. H hides this.';
     this.controlsCard.append(title, list, tip);
     this.toastLayer = document.createElement('div');
     this.toastLayer.className = 'juice-toasts';
@@ -140,21 +140,21 @@ export class GameHud {
   }
 
   private showPauseHome(): void {
-    this.panel.replaceChildren(this.heading('PAUSED'));
+    this.panel.replaceChildren(this.heading('Paused'));
     this.panel.append(
-      this.button('RESUME', this.options.onResume),
-      this.button('SETTINGS', () => this.showSettings()),
-      this.button('CONTROLS', () => this.showControls()),
-      this.button('LEAVE GAME', this.options.onLeave, 'danger'),
+      this.button('Resume', this.options.onResume, 'btn--primary'),
+      this.button('Settings', () => this.showSettings()),
+      this.button('Controls', () => this.showControls()),
+      this.button('Leave game', this.options.onLeave, 'btn--danger danger'),
     );
   }
 
   private showSettings(): void {
     const settings = getSettings();
-    this.panel.replaceChildren(this.heading('SETTINGS'));
+    this.panel.replaceChildren(this.heading('Settings'));
 
     const masterVolumeRow = this.rangeRow(
-      'MASTER VOLUME',
+      'Master volume',
       settings.masterVolume,
       0,
       100,
@@ -166,7 +166,7 @@ export class GameHud {
     );
 
     const sensitivityRow = this.rangeRow(
-      'LOOK SENSITIVITY',
+      'Look sensitivity',
       settings.lookSensitivity,
       0.25,
       2,
@@ -180,7 +180,7 @@ export class GameHud {
     const shakeRow = document.createElement('label');
     shakeRow.className = 'settings-row';
     const shakeLabel = document.createElement('span');
-    shakeLabel.textContent = 'SCREEN SHAKE';
+    shakeLabel.textContent = 'Screen shake';
     const shakeInput = document.createElement('input');
     shakeInput.type = 'checkbox';
     shakeInput.checked = settings.screenShake;
@@ -191,12 +191,12 @@ export class GameHud {
 
     const row = document.createElement('label');
     row.className = 'settings-row';
-    row.append(document.createTextNode('GRAPHICS QUALITY'));
+    row.append(document.createTextNode('Graphics quality'));
     const select = document.createElement('select');
     for (const value of ['low', 'medium', 'high'] as const) {
       const option = document.createElement('option');
       option.value = value;
-      option.textContent = value.toUpperCase();
+      option.textContent = value[0].toUpperCase() + value.slice(1);
       option.selected = value === 'high';
       select.append(option);
     }
@@ -210,16 +210,16 @@ export class GameHud {
       sensitivityRow,
       shakeRow,
       row,
-      this.button('TOGGLE FULLSCREEN', () => {
+      this.button('Fullscreen', () => {
         if (document.fullscreenElement) void document.exitFullscreen();
         else void document.documentElement.requestFullscreen();
       }),
-      this.button('BACK', () => this.showPauseHome()),
+      this.button('Back', () => this.showPauseHome(), 'btn--quiet'),
     );
   }
 
   private showControls(): void {
-    this.panel.replaceChildren(this.heading('CONTROLS'));
+    this.panel.replaceChildren(this.heading('Controls'));
     const list = document.createElement('dl');
     list.className = 'controls-list';
     for (const [key, action] of [
@@ -235,7 +235,7 @@ export class GameHud {
       dd.textContent = action;
       list.append(dt, dd);
     }
-    this.panel.append(list, this.button('BACK', () => this.showPauseHome()));
+    this.panel.append(list, this.button('Back', () => this.showPauseHome(), 'btn--quiet'));
   }
 
   private rangeRow(
@@ -271,7 +271,7 @@ export class GameHud {
   private button(label: string, action: () => void, className = ''): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `pause-button ${className}`.trim();
+    button.className = `btn pause-button ${className}`.trim();
     button.textContent = label;
     button.addEventListener('click', action);
     return button;

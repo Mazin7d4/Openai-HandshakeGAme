@@ -32,8 +32,9 @@ function element<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-function menuButton(label: string, testId: string, action: () => void): HTMLButtonElement {
-  const button = element('button', 'menu-button', label);
+type ButtonVariant = '' | 'btn--primary' | 'btn--quiet' | 'btn--danger';
+function menuButton(label: string, testId: string, action: () => void, variant: ButtonVariant = ''): HTMLButtonElement {
+  const button = element('button', `btn menu-button ${variant}`.trim(), label);
   button.type = 'button';
   button.dataset.testid = testId;
   button.addEventListener('click', action);
@@ -42,9 +43,9 @@ function menuButton(label: string, testId: string, action: () => void): HTMLButt
 
 function menuPanel(title: string, subtitle: string): HTMLElement {
   const shell = element('main', 'menu-shell');
-  const panel = element('section', 'menu-panel');
-  panel.append(element('p', 'menu-kicker', 'HANDSHAKE'), element('h1', '', title));
-  panel.append(element('p', 'menu-subtitle', subtitle));
+  const panel = element('section', 'panel menu-panel');
+  panel.append(element('p', 'menu-kicker', 'PIX & NEE'), element('h1', 'panel__title', title));
+  panel.append(element('p', 'panel__body menu-subtitle', subtitle));
   shell.append(panel);
   root.replaceChildren(shell);
   return panel;
@@ -62,11 +63,11 @@ function showMainMenu(): void {
   const panel = menuPanel('Choose a mode', 'Two drones. One tether.');
   const actions = element('div', 'menu-actions');
   actions.append(
-    menuButton('SINGLE PLAYER', 'singleplayer', showSinglePlayer),
-    menuButton('MULTIPLAYER', 'multiplayer', showMultiplayerMenu),
-    menuButton('DEV LOCAL', 'dev-local', () => {
+    menuButton('Play now · solo', 'singleplayer', showSinglePlayer, 'btn--primary'),
+    menuButton('Play with a friend', 'multiplayer', showMultiplayerMenu),
+    menuButton('Dev local', 'dev-local', () => {
       void startGame('dev-local');
-    }),
+    }, 'btn--quiet'),
   );
   panel.append(actions);
 }
@@ -75,10 +76,10 @@ function showSinglePlayer(): void {
   const panel = menuPanel('Single Player', 'Fly PIX. A CPU NEE follows you (early preview: it follows, it does not hack yet).');
   const actions = element('div', 'menu-actions');
   actions.append(
-    menuButton('START', 'start-singleplayer', () => {
+    menuButton('Start', 'start-singleplayer', () => {
       void startGame('singleplayer');
-    }),
-    menuButton('BACK', 'back', showMainMenu),
+    }, 'btn--primary'),
+    menuButton('Back', 'back', showMainMenu, 'btn--quiet'),
   );
   panel.append(actions);
 }
@@ -87,11 +88,11 @@ function showMultiplayerMenu(): void {
   const panel = menuPanel('Multiplayer', 'Create a private room or join with a code.');
   const actions = element('div', 'menu-actions');
   actions.append(
-    menuButton('CREATE ROOM', 'create-room', () => {
+    menuButton('Create a room', 'create-room', () => {
       void createRoom();
-    }),
-    menuButton('JOIN ROOM', 'join-room', showJoinRoom),
-    menuButton('BACK', 'back', showMainMenu),
+    }, 'btn--primary'),
+    menuButton('Join with a code', 'join-room', showJoinRoom),
+    menuButton('Back', 'back', showMainMenu, 'btn--quiet'),
   );
   panel.append(actions);
 }
@@ -106,7 +107,7 @@ async function createRoom(): Promise<void> {
   } catch (error) {
     status.textContent = errorMessage(error);
     status.classList.add('error');
-    panel.append(menuButton('BACK', 'back', showMultiplayerMenu));
+    panel.append(menuButton('Back', 'back', showMultiplayerMenu, 'btn--quiet'));
   }
 }
 
@@ -121,11 +122,11 @@ function showJoinRoom(): void {
   input.placeholder = 'XXXX';
   input.setAttribute('aria-label', 'Room code');
   input.addEventListener('input', () => { input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
-  const submit = element('button', 'menu-button', 'JOIN');
+  const submit = element('button', 'btn btn--primary menu-button', 'Join');
   submit.dataset.testid = 'join-submit';
   submit.type = 'submit';
   const status = element('p', 'lobby-status');
-  const back = menuButton('BACK', 'back', showMultiplayerMenu);
+  const back = menuButton('Back', 'back', showMultiplayerMenu, 'btn--quiet');
   form.append(input, submit);
   form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -152,16 +153,16 @@ function showJoinRoom(): void {
 
 function showLobby(session: MultiplayerSession): void {
   const panel = menuPanel('Room ready', 'Share this code with the second player.');
-  const label = element('p', 'room-label', 'ROOM CODE');
+  const label = element('p', 'panel__kicker room-label', 'Room code');
   const code = element('p', 'room-code', session.roomCode);
   code.dataset.testid = 'room-code';
-  const copy = element('button', 'menu-button', 'COPY CODE');
+  const copy = element('button', 'btn btn--primary menu-button', 'Copy code');
   copy.dataset.testid = 'copy-code';
   copy.type = 'button';
   copy.addEventListener('click', () => {
     void navigator.clipboard?.writeText(session.roomCode)
-      .then(() => { copy.textContent = 'COPIED!'; window.setTimeout(() => { copy.textContent = 'COPY CODE'; }, 1500); })
-      .catch(() => { copy.textContent = 'SELECT + COPY'; });
+      .then(() => { copy.textContent = 'Copied'; window.setTimeout(() => { copy.textContent = 'Copy code'; }, 1500); })
+      .catch(() => { copy.textContent = 'Select the code to copy'; });
   });
   const role = element('p', 'room-label', '');
   const status = element('p', 'lobby-status', 'Waiting for partner…');
@@ -188,7 +189,7 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   boot.id = 'boot-status';
   const bootStep = element('p', 'boot-step', 'Loading physics…');
   boot.append(
-    element('p', 'boot-title', 'HANDSHAKE'),
+    element('p', 'boot-title', 'PIX & NEE'),
     Object.assign(element('div', 'boot-dots'), { innerHTML: '<span class="pix"></span><span class="nee"></span>' }),
     Object.assign(element('div', 'boot-bar'), { innerHTML: '<span></span>' }),
     bootStep,
