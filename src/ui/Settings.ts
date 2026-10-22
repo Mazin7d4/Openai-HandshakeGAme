@@ -1,5 +1,6 @@
 /** Persisted player preferences. Applied live via subscribeSettings / applyDocumentSettings. */
 
+export type TouchHandedness = 'right' | 'left';
 export type GraphicsQualitySetting = 'auto' | 'low' | 'medium' | 'high';
 /** @deprecated Prefer GraphicsQualitySetting — alias kept for SettingsMenu call sites. */
 export type GraphicsQuality = GraphicsQualitySetting;
@@ -8,8 +9,13 @@ export type UiScale = 100 | 125 | 150;
 export interface GameSettings {
   // Audio (0..100) — master syncs with AudioManager; music/sfx/ui live on the hub
   masterVolume: number;
+  lookSensitivity: number;
   screenShake: boolean;
   graphicsQuality: GraphicsQualitySetting;
+  /** Stick on the left (right) or right (left-handed). */
+  touchHandedness: TouchHandedness;
+  /** On-screen control opacity 0.35..1. */
+  touchOpacity: number;
   /** Multiplier on cinematic FOV (0.85..1.2). */
   fovScale: number;
   /** Multiplier on follow distance (0.85..1.25). */
@@ -24,15 +30,11 @@ export interface GameSettings {
   subtitles: boolean;
   /** Boost becomes toggle; grab becomes hold-to-grab / release-to-drop. */
   holdToToggle: boolean;
-  lookSensitivity: number;
+  /** Mouse look invert Y (touch invert lives in CameraTouchSettings). */
   invertY: boolean;
 }
 
 const STORAGE_KEY = 'handshake.settings';
-
-/** Touch-controls branch reads these exact keys. */
-export const TOUCH_CAM_SENSITIVITY_KEY = 'pixnee.touch.camSensitivity';
-export const TOUCH_INVERT_Y_KEY = 'pixnee.touch.invertY';
 
 const OS_REDUCED_MOTION = (): boolean => {
   try {
@@ -44,8 +46,11 @@ const OS_REDUCED_MOTION = (): boolean => {
 
 export const DEFAULT_SETTINGS: GameSettings = {
   masterVolume: 80,
+  lookSensitivity: 1,
   screenShake: true,
   graphicsQuality: 'auto',
+  touchHandedness: 'right',
+  touchOpacity: 0.85,
   fovScale: 1,
   cameraDistance: 1,
   reducedMotion: false,
@@ -55,7 +60,6 @@ export const DEFAULT_SETTINGS: GameSettings = {
   visualAudioAlerts: false,
   subtitles: false,
   holdToToggle: false,
-  lookSensitivity: 1,
   invertY: false,
 };
 
@@ -92,8 +96,13 @@ export function loadSettings(): GameSettings {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     return {
       masterVolume: Math.round(num(parsed.masterVolume, DEFAULT_SETTINGS.masterVolume, 0, 100)),
+      lookSensitivity: num(parsed.lookSensitivity, DEFAULT_SETTINGS.lookSensitivity, 0.25, 2),
       screenShake: bool(parsed.screenShake, DEFAULT_SETTINGS.screenShake),
       graphicsQuality: parseQuality(parsed.graphicsQuality),
+      touchHandedness: parsed.touchHandedness === 'left' || parsed.touchHandedness === 'right'
+        ? parsed.touchHandedness
+        : DEFAULT_SETTINGS.touchHandedness,
+      touchOpacity: num(parsed.touchOpacity, DEFAULT_SETTINGS.touchOpacity, 0.35, 1),
       fovScale: num(parsed.fovScale, DEFAULT_SETTINGS.fovScale, 0.85, 1.2),
       cameraDistance: num(parsed.cameraDistance, DEFAULT_SETTINGS.cameraDistance, 0.85, 1.25),
       reducedMotion: typeof parsed.reducedMotion === 'boolean' ? parsed.reducedMotion : reducedDefault,
@@ -103,7 +112,6 @@ export function loadSettings(): GameSettings {
       visualAudioAlerts: bool(parsed.visualAudioAlerts, DEFAULT_SETTINGS.visualAudioAlerts),
       subtitles: bool(parsed.subtitles, DEFAULT_SETTINGS.subtitles),
       holdToToggle: bool(parsed.holdToToggle, DEFAULT_SETTINGS.holdToToggle),
-      lookSensitivity: num(parsed.lookSensitivity, DEFAULT_SETTINGS.lookSensitivity, 0.25, 2),
       invertY: bool(parsed.invertY, DEFAULT_SETTINGS.invertY),
     };
   } catch {
@@ -154,71 +162,6 @@ export function subscribeSettings(listener: SettingsListener): () => void {
   return () => {
     listeners.delete(listener);
   };
-}
-
-// ---------- Touch camera (Controls tab; touch-controls branch shares these keys) ----------
-
-export interface TouchCamSettings {
-  camSensitivity: number;
-  invertY: boolean;
-}
-
-export function isTouchDevice(): boolean {
-  try {
-    return (
-      ('ontouchstart' in window)
-      || (navigator.maxTouchPoints ?? 0) > 0
-      || window.matchMedia('(pointer: coarse)').matches
-    );
-  } catch {
-    return false;
-  }
-}
-
-function readTouchSensitivity(): number {
-  try {
-    const raw = localStorage.getItem(TOUCH_CAM_SENSITIVITY_KEY);
-    if (raw == null || raw === '') return 1;
-    const n = Number(raw);
-    return Number.isFinite(n) ? clamp(n, 0.3, 2) : 1;
-  } catch {
-    return 1;
-  }
-}
-
-function readTouchInvertY(): boolean {
-  try {
-    return localStorage.getItem(TOUCH_INVERT_Y_KEY) === '1' || localStorage.getItem(TOUCH_INVERT_Y_KEY) === 'true';
-  } catch {
-    return false;
-  }
-}
-
-export function getTouchCamSettings(): TouchCamSettings {
-  return { camSensitivity: readTouchSensitivity(), invertY: readTouchInvertY() };
-}
-
-function emitPixneeSettings(detail: TouchCamSettings): void {
-  window.dispatchEvent(new CustomEvent('pixnee:settings', { detail }));
-}
-
-export function setTouchCamSensitivity(value: number): TouchCamSettings {
-  const camSensitivity = clamp(value, 0.3, 2);
-  try {
-    localStorage.setItem(TOUCH_CAM_SENSITIVITY_KEY, String(camSensitivity));
-  } catch { /* private mode */ }
-  const next = getTouchCamSettings();
-  emitPixneeSettings(next);
-  return next;
-}
-
-export function setTouchInvertY(invertY: boolean): TouchCamSettings {
-  try {
-    localStorage.setItem(TOUCH_INVERT_Y_KEY, invertY ? '1' : '0');
-  } catch { /* private mode */ }
-  const next = getTouchCamSettings();
-  emitPixneeSettings(next);
-  return next;
 }
 
 // Apply once on module load so title screen / early UI pick up saved prefs.

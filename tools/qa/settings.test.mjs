@@ -28,10 +28,9 @@ await runTest('settings', async (browser, notes) => {
   assert(persisted === after, `screen shake did not persist (want ${after}, got ${persisted})`);
   notes.shakePersisted = persisted;
 
-  // Touch camera keys (Controls tab) — force touch detection for this page.
+  // Touch camera keys via CameraTouchSettings — force touch detection for this page.
   await page.evaluate(() => {
     Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, get: () => 5 });
-    window.ontouchstart = window.ontouchstart ?? null;
   });
   await page.getByTestId('settings-back').click();
   await page.getByTestId('title-settings').click();

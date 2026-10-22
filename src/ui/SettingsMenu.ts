@@ -4,16 +4,18 @@
  */
 import { audio } from '../audio/AudioManager.ts';
 import {
+  getCameraTouchSettings,
+  saveCameraTouchSettings,
+} from './CameraTouchSettings.ts';
+import {
   getSettings,
-  getTouchCamSettings,
-  isTouchDevice,
   saveSettings,
-  setTouchCamSensitivity,
-  setTouchInvertY,
   type GameSettings,
   type GraphicsQualitySetting,
+  type TouchHandedness,
   type UiScale,
 } from './Settings.ts';
+import { isTouchPlayDevice } from './touchDetect.ts';
 
 export type SettingsTab = 'audio' | 'visuals' | 'accessibility' | 'controls';
 
@@ -22,6 +24,8 @@ export interface SettingsMenuOptions {
   onClose: () => void;
   /** Optional stub the renderer / QualityManager can also listen to via settings. */
   onGraphicsQuality?: (quality: GraphicsQualitySetting) => void;
+  /** Pause settings → clear onboarding and replay the coach. */
+  onReplayTutorial?: () => void;
   /** When true, omit the outer overlay and mount into an existing panel host. */
   embedded?: boolean;
 }
@@ -289,6 +293,11 @@ export class SettingsMenu {
         else void document.documentElement.requestFullscreen();
       }),
     );
+    if (this.options.onReplayTutorial) {
+      this.body.append(
+        this.button('Replay tutorial', () => this.options.onReplayTutorial?.()),
+      );
+    }
   }
 
   private renderAccessibility(s: GameSettings): void {
@@ -343,27 +352,48 @@ export class SettingsMenu {
     }
     this.body.append(list);
 
-    if (isTouchDevice()) {
-      const touch = getTouchCamSettings();
+    if (isTouchPlayDevice()) {
+      const s = getSettings();
+      const touch = getCameraTouchSettings();
       const heading = document.createElement('p');
       heading.className = 'panel__kicker settings-touch-heading';
-      heading.textContent = 'Touch camera';
+      heading.textContent = 'Touch';
       this.body.append(
         heading,
+        this.selectRow(
+          'Touch layout',
+          s.touchHandedness,
+          [
+            ['right', 'Right-handed'],
+            ['left', 'Left-handed'],
+          ],
+          (v) => saveSettings({ touchHandedness: v as TouchHandedness }),
+          'settings-touch-handedness',
+        ),
+        this.rangeRow(
+          'Touch opacity',
+          s.touchOpacity,
+          0.35,
+          1,
+          0.05,
+          '',
+          (v) => saveSettings({ touchOpacity: v }),
+          'settings-touch-opacity',
+        ),
         this.rangeRow(
           'Touch camera sensitivity',
           touch.camSensitivity,
-          0.3,
+          0.25,
           2,
           0.05,
           'x',
-          (v) => setTouchCamSensitivity(v),
+          (v) => saveCameraTouchSettings({ camSensitivity: v }),
           'settings-touch-sensitivity',
         ),
         this.checkRow(
           'Touch invert look Y',
           touch.invertY,
-          (v) => setTouchInvertY(v),
+          (v) => saveCameraTouchSettings({ invertY: v }),
           'settings-touch-invert-y',
         ),
       );
