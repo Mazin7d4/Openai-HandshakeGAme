@@ -17,6 +17,10 @@ export interface GameEventMap {
   capture: { droneId: string; position: Vector3; freed: boolean };
   /** Cord crank progress changed meaningfully (0..1), or completed. */
   crank: { progress: number; position: Vector3; done: boolean };
+  /** Apron warm-up progress (cord playground). */
+  warmup: { kind: 'topple' | 'hoop'; position: Vector3; count: number };
+  /** Generic HUD toast request from gameplay systems. */
+  toast: { text: string; tone: 'pix' | 'nee' | 'good' };
   yank: { kind: 'yank' | 'sling' | 'bump'; from: DroneRole; strength: number; rescue: boolean; position: Vector3 };
 }
 

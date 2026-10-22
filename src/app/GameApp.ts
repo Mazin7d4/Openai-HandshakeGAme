@@ -165,6 +165,19 @@ export class GameApp {
           this.hud?.toast('YANK [R] TO RESCUE!', 'good');
         }
       }),
+      gameEvents.on('toast', (e) => this.hud?.toast(e.text, e.tone)),
+      gameEvents.on('warmup', (e) => {
+        if (e.kind === 'hoop') {
+          this.juice.burst('confetti', e.position, 60);
+          audio.clothesline();
+          this.cameraRig.addShake(0.25);
+          for (const drone of this.drones) drone.react('proud', 1.4);
+        } else {
+          this.juice.burst('impact', e.position, 5);
+          audio.bump();
+          if (e.count <= 3) for (const drone of this.drones) drone.react('shocked', 0.8);
+        }
+      }),
       gameEvents.on('cord-knock', (e) => {
         this.juice.burst('impact', e.position, 7);
         audio.bump();

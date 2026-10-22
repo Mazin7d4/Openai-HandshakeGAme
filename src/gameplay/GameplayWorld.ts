@@ -1,3 +1,4 @@
+import { CordPlayground } from '../level/CordPlayground.ts';
 import { Color3, Vector3, type HavokPlugin, type Scene } from '@babylonjs/core';
 import { GameAudio } from '../audio/GameAudio.ts';
 import type { GameMode } from '../app/GameMode.ts';
@@ -27,6 +28,7 @@ export class GameplayWorld {
   private readonly hack: HackSession;
   private readonly mission: MissionDirector;
   private readonly audio = new GameAudio();
+  private readonly playground: CordPlayground;
 
   constructor(
     scene: Scene,
@@ -103,6 +105,9 @@ export class GameplayWorld {
     );
     this.hack = new HackSession(scene, plugin, session, uiParent, this.audio);
     this.mission = new MissionDirector(scene, mode, session, this.grab, this.audio, uiParent, onLeave);
+    this.playground = new CordPlayground(scene);
+    const partner = mode === 'multiplayer' && session?.currentStatus.localRole === 'nee' ? 'PIX' : 'NEE';
+    this.mission.setWarmup(() => (this.playground.done ? null : this.playground.checklist(partner)));
     if (session) this.sync(session.currentStatus);
   }
 
@@ -130,6 +135,7 @@ export class GameplayWorld {
 
   update(dt: number, drones: ReadonlyMap<DroneRole, Drone>, tetherStrain = 0): void {
     this.grab.update(dt, drones);
+    this.playground.update(dt, drones);
     this.hack.update(dt, drones);
     this.mission.update(dt, drones, this.hack, this.grab, tetherStrain);
   }
@@ -172,6 +178,7 @@ export class GameplayWorld {
   recordTetherSave(): void { this.mission.recordTetherSave(); }
 
   dispose(): void {
+    this.playground.dispose();
     this.grab.dispose();
     this.hack.dispose();
     this.mission.dispose();

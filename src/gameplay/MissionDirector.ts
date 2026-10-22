@@ -44,6 +44,7 @@ export class MissionDirector {
   private clotheslines = 0;
   private readonly unsubscribe: (() => void) | null;
   private readonly scene: Scene;
+  private warmup: () => string | null = () => null;
   private routeHint = 'Enter beneath reception, then rise together through the service vent.';
 
   constructor(
@@ -285,10 +286,17 @@ export class MissionDirector {
     }
   }
 
+  /** Apron warm-up checklist provider (CordPlayground); null once done. */
+  setWarmup(provider: () => string | null): void { this.warmup = provider; }
+
+  /** Warm-up checklist line, exposed for tests. */
+  get warmupLine(): string | null { return this.warmup(); }
+
   private renderObjective(hackCount: number): void {
     if (!this.objectiveTitle || !this.objectiveDetail || !this.detectionFill) return;
+    const warm = this.state.stage === 'infiltrate' ? this.warmup() : null;
     const [title, detail] = this.state.stage === 'infiltrate'
-      ? ['A SMALL DELIVERY', this.routeHint]
+      ? warm ? ['WARM UP ON THE APRON', `${warm} · then fly in under reception`] : ['A SMALL DELIVERY', this.routeHint]
       : this.state.stage === 'hack-security'
         ? ['INSIDE MORROW', `${hackCount} / 3 access keys · ${this.routeHint}`]
         : this.state.stage === 'steal-prototype'
