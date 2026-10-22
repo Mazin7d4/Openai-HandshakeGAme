@@ -1,7 +1,8 @@
 import {
-  ImportMeshAsync, Matrix, Mesh, PBRMaterial, Quaternion, TransformNode, Vector3, type Scene,
+  ImportMeshAsync, Matrix, Mesh, PBRMaterial, TransformNode, type Scene,
 } from '@babylonjs/core';
-import '@babylonjs/loaders/glTF';
+import '@babylonjs/core/Meshes/thinInstanceMesh.js';
+import '../assets/registerGltf.ts';
 import '../assets/meshopt.ts';
 
 export type PropName = 'Sofa' | 'Chair' | 'Rack' | 'Shelving' | 'Plant' | 'PlantSmall' | 'Cooling' | 'Duct' | 'Bookshelf' | 'Monitor';
@@ -9,7 +10,7 @@ export interface PropPlacement { prop: PropName; x: number; y?: number; z: numbe
 
 /**
  * Blender-authored prop kit (tools/blender/build_props.py → public/assets/props/office-kit.glb).
- * Every prop+material part is a single source mesh; placements are GPU instances, so a prop costs one
+ * Every prop+material part is a single source mesh; placements are thin instances, so a prop costs one
  * draw call per material no matter how many times it is placed. Decorative only; collision lives in level code.
  */
 export async function loadPropKit(scene: Scene) {
@@ -27,9 +28,20 @@ export async function loadPropKit(scene: Scene) {
     }
     sources.set(node.name.slice(5), parts);
   }
-  // Source meshes stay in the scene (instances need them) but are parked far away and never rendered.
-  for (const parts of sources.values()) for (const { mesh } of parts) { mesh.setParent(null); mesh.position.y = -1000; mesh.isVisible = true; }
-  for (const root of result.meshes.filter(m => !m.parent)) if (root.name === '__root__') root.setEnabled(true);
+  // Identity transform at the origin: thin-instance matrices are world-space and replace the master draw.
+  for (const parts of sources.values()) {
+    for (const { mesh } of parts) {
+      mesh.setParent(null);
+      mesh.position.setAll(0);
+      mesh.rotation.setAll(0);
+      if (mesh.rotationQuaternion) mesh.rotationQuaternion.set(0, 0, 0, 1);
+      mesh.scaling.setAll(1);
+      mesh.isPickable = false;
+      mesh.isVisible = true;
+    }
+  }
+  for (const root of result.meshes.filter(m => !m.parent)) if (root.name === '__root__') root.setEnabled(false);
+
   let count = 0;
   const place = (p: PropPlacement) => {
     const parts = sources.get(p.prop);
@@ -38,16 +50,34 @@ export async function loadPropKit(scene: Scene) {
     // Babylon's glTF handedness conversion turns the authored kit 180° (same as the lab hero kit).
     holder.position.set(p.x, p.y ?? 0, p.z); holder.rotation.y = (p.ry ?? 0) + Math.PI;
     if (Array.isArray(p.scale)) holder.scaling.set(...p.scale); else holder.scaling.setAll(p.scale ?? 1);
-    for (const { mesh, local } of parts) {
-      const inst = mesh.createInstance(`${holder.name}-${mesh.name}`);
-      const s = new Vector3(), r = new Quaternion(), t = new Vector3();
-      local.decompose(s, r, t);
-      inst.scaling.copyFrom(s); inst.rotationQuaternion = r; inst.position.copyFrom(t);
-      inst.parent = holder; inst.isPickable = false;
-    }
     holder.computeWorldMatrix(true);
-    for (const c of holder.getChildMeshes()) { c.computeWorldMatrix(true); c.freezeWorldMatrix(); }
+    const world = holder.getWorldMatrix();
+    for (const { mesh, local } of parts) {
+      // local (authored part offset) then holder world — same as parenting an InstancedMesh.
+      mesh.thinInstanceAdd(local.multiply(world), false);
+    }
+    holder.setEnabled(false);
     return holder;
   };
-  return { place, names: [...sources.keys()] };
+
+  /** Call after all place() calls so thin-instance buffers and bounds are final. */
+  const commit = () => {
+    for (const parts of sources.values()) {
+      for (const { mesh } of parts) {
+        if (mesh.thinInstanceCount === 0) {
+          mesh.isVisible = false;
+          continue;
+        }
+        mesh.thinInstanceBufferUpdated('matrix');
+        mesh.thinInstanceRefreshBoundingInfo(true);
+        mesh.computeWorldMatrix(true);
+        mesh.freezeWorldMatrix();
+        if (mesh.material && 'freeze' in mesh.material) {
+          try { (mesh.material as { freeze: () => void }).freeze(); } catch { /* ok */ }
+        }
+      }
+    }
+  };
+
+  return { place, commit, names: [...sources.keys()] };
 }
