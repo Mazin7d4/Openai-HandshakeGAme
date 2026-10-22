@@ -9,7 +9,7 @@ import {
   type Scene,
   Vector3,
 } from '@babylonjs/core';
-import '@babylonjs/loaders/glTF';
+import '../../assets/registerGltf.ts';
 import '../../assets/meshopt.ts';
 import type { RunLayout } from '../../seed/index.ts';
 import { mixSeed, mulberry32 } from '../../seed/index.ts';
