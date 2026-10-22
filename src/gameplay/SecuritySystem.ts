@@ -9,7 +9,7 @@ import {
   type Scene,
 } from '@babylonjs/core';
 import type { GameAudio } from '../audio/GameAudio.ts';
-import type { DroneRole } from '../network/NetworkTypes.ts';
+import type { DroneRole, SecurityNetworkState } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
 import { cordState } from './Tether.ts';
 import { gameEvents } from './GameEvents.ts';
@@ -86,6 +86,12 @@ class SecurityCamera {
     return highest;
   }
 
+  /** Multiplayer: the server owns the meters; only present them. */
+  present(highest: number): number {
+    this.coneMaterial.alpha = 0.11 + highest * 0.24;
+    return highest;
+  }
+
   dispose(): void {
     this.body.material?.dispose();
     this.coneMaterial.dispose();
@@ -132,6 +138,61 @@ class PatrolDrone {
     this.stunnedFor = 3.4;
     if (at) this.mesh.position.copyFrom(at);
     gameEvents.emit('clothesline', { position: this.mesh.position.clone() });
+  }
+
+  get position(): Vector3 { return this.mesh.position; }
+
+  /**
+   * Multiplayer: the server owns position and stun. Ease toward the latest server sample
+   * (patches arrive at ~20 Hz; patrols move 3.1 u/s, so the visual lag stays under ~0.3 u).
+   * The local clothesline check still runs, but only to *propose* a stun to the server.
+   */
+  updateNetworked(
+    dt: number,
+    elapsed: number,
+    active: boolean,
+    server: { x: number; y: number; z: number; stunned: boolean } | undefined,
+    drones: ReadonlyMap<DroneRole, Drone>,
+    callbacks: SecurityCallbacks,
+    tetherStrain: number,
+  ): void {
+    this.mesh.setEnabled(active);
+    if (!server) return;
+    const dx = server.x - this.mesh.position.x;
+    const dy = server.y - this.mesh.position.y;
+    const dz = server.z - this.mesh.position.z;
+    if (!active || dx * dx + dy * dy + dz * dz > 36) {
+      this.mesh.position.set(server.x, server.y, server.z);
+    } else {
+      const k = 1 - Math.exp(-dt * 14);
+      this.mesh.position.set(this.mesh.position.x + dx * k, this.mesh.position.y + dy * k, this.mesh.position.z + dz * k);
+    }
+    if (!active) return;
+    if (server.stunned) {
+      this.material.emissiveColor.set(0.1, 0.35, 0.6);
+      this.mesh.rotation.z += dt * 7;
+      return;
+    }
+    this.mesh.rotation.z = 0;
+    this.material.emissiveColor.set(0.5, 0.08, 0.04);
+    if (callbacks.requestStun && this.cordCrosses(drones, tetherStrain) && Math.abs(elapsed - this.requested) > 0.6) {
+      this.requested = elapsed;
+      callbacks.requestStun(this.index, this.mesh.position.clone());
+    }
+  }
+
+  private cordCrosses(drones: ReadonlyMap<DroneRole, Drone>, tetherStrain: number): boolean {
+    const pix = drones.get('pix');
+    const nee = drones.get('nee');
+    if (!pix || !nee || !(tetherStrain > 0.2 || cordState.sweep > 6)) return false;
+    const path = cordState.path;
+    if (path.length > 1) {
+      for (let i = 1; i < path.length; i++) {
+        if (distanceToSegment(this.mesh.position, path[i - 1], path[i]) < 0.85) return true;
+      }
+      return false;
+    }
+    return distanceToSegment(this.mesh.position, pix.position, nee.position) < 0.85;
   }
 
   update(
@@ -211,6 +272,7 @@ export class SecuritySystem {
   private readonly patrols: PatrolDrone[];
   private elapsed = 0;
   private warningCooldown = 0;
+  private lastNetworkedAt = 0;
   private readonly callbacks: SecurityCallbacks;
   private readonly audio?: GameAudio;
   detection = 0;
@@ -227,6 +289,41 @@ export class SecuritySystem {
   }
 
   remoteStun(index: number, at: Vector3): void { this.patrols[index]?.stun(at); }
+
+  /** TEST/DEBUG: rendered patrol positions. */
+  patrolPositions(): { x: number; y: number; z: number }[] {
+    return this.patrols.map((patrol) => ({ x: patrol.position.x, y: patrol.position.y, z: patrol.position.z }));
+  }
+
+  /**
+   * Multiplayer: present server-owned security. No local detection, stuns or shoves happen here;
+   * spotted/shove outcomes arrive as server messages.
+   */
+  updateNetworked(
+    dt: number,
+    drones: ReadonlyMap<DroneRole, Drone>,
+    securityActive: boolean,
+    server: SecurityNetworkState,
+    tetherStrain: number,
+    sharedClock: number,
+  ): void {
+    this.elapsed = sharedClock;
+    this.warningCooldown = Math.max(0, this.warningCooldown - dt);
+    this.camera.setDisabled(server.cameraDisabled);
+    this.detection = this.camera.present(Math.max(server.detection.pix, server.detection.nee));
+    if (this.detection > 0.55 && this.warningCooldown <= 0) {
+      this.audio?.warning();
+      this.warningCooldown = 0.75;
+    }
+    // Ease with wall-clock time: the game loop clamps dt to 50 ms, which would make the
+    // patrols trail the server badly whenever the frame rate drops.
+    const now = performance.now();
+    const wallDt = this.lastNetworkedAt ? Math.min(0.5, (now - this.lastNetworkedAt) / 1000) : dt;
+    this.lastNetworkedAt = now;
+    this.patrols.forEach((patrol, index) => {
+      patrol.updateNetworked(wallDt, this.elapsed, securityActive, server.patrols[index], drones, this.callbacks, tetherStrain);
+    });
+  }
 
   update(
     dt: number,

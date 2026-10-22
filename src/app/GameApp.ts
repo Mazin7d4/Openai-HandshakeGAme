@@ -339,7 +339,24 @@ export class GameApp {
   }
 
   start(): void {
-    this.autopilot?.install();
+    this.autopilot?.install({
+      /** Multiplayer agreement checks: rendered + server security state on this client. */
+      security: () => this.gameplay.debugSecurity(),
+      /** Teleport a drone this client owns (multiplayer: only the local role). */
+      teleport: (role: DroneRole, x: number, y: number, z: number) => {
+        const player = this.players.find((candidate) => candidate.role === role);
+        if (!player || player.control.kind === 'remote') return false;
+        player.drone.debugTeleport(x, y, z);
+        return true;
+      },
+      /** Ask the server for a test stage (needs HANDSHAKE_TEST_HOOKS=1 on the server). */
+      debugStage: (stage: 'escape') => this.multiplayer?.debugStage(stage),
+      /** Propose a clothesline stun to the server (it validates against its own patrol + player positions). */
+      requestStun: (index: number, at?: { x: number; y: number; z: number }) => {
+        const point = at ?? this.gameplay.debugSecurity().patrols[index];
+        if (point) this.multiplayer?.requestPatrolStun({ index, x: point.x, y: point.y, z: point.z });
+      },
+    });
     window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKeyDown);
     this.engine.runRenderLoop(() => {

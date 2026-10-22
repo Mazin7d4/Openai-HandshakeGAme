@@ -57,6 +57,15 @@ export interface MissionNetworkState {
   tetherSaves: number;
 }
 
+/** Server-owned security (patrol drones + camera). Clients only render/interpolate it. */
+export interface PatrolNetworkState { x: number; y: number; z: number; stunned: boolean }
+
+export interface SecurityNetworkState {
+  patrols: PatrolNetworkState[];
+  cameraDisabled: boolean;
+  detection: Record<DroneRole, number>;
+}
+
 export interface RoomStatus {
   roomCode: string;
   started: boolean;
@@ -65,4 +74,5 @@ export interface RoomStatus {
   objects: ReadonlyMap<string, GrabbableNetworkState>;
   hack: HackNetworkState;
   mission: MissionNetworkState;
+  security: SecurityNetworkState;
 }
