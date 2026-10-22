@@ -6,7 +6,7 @@ await runTest('smoke', async (browser, notes) => {
   const errors = collectErrors(page, 'page', []);
   const t0 = Date.now();
   await page.goto(url());
-  await page.getByRole('heading', { name: 'Choose a mode' }).waitFor({ timeout: 20_000 });
+  await page.getByRole('heading', { name: 'Two drones. One cord.' }).waitFor({ timeout: 20_000 });
   notes.menuMs = Date.now() - t0;
   notes.title = await page.title();
   for (const id of ['singleplayer', 'multiplayer', 'dev-local']) assert(await page.getByTestId(id).isVisible(), `${id} button missing`);
