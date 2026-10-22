@@ -1,6 +1,48 @@
-import { defineConfig } from 'vite';
+import { readdirSync, rmSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { defineConfig, type Plugin } from 'vite';
+
+// Public URL prefix. Local dev and tests use '/'; the GitHub Pages build sets
+// BASE_PATH=/Openai-HandshakeGAme/ so every asset resolves under the repo subpath.
+function basePath(): string {
+  const raw = process.env.BASE_PATH?.trim();
+  if (!raw || raw === '/') {
+    return '/';
+  }
+  return `/${raw.replace(/^\/+|\/+$/g, '')}/`;
+}
+
+// Blender sources live next to their exported .glb files in public/ so the
+// export scripts can round-trip them; they must never ship to players.
+const SOURCE_ONLY = /\.(blend\d*|py)$/i;
+
+function stripSourceAssets(): Plugin {
+  let outDir = 'dist';
+  return {
+    name: 'strip-source-assets',
+    apply: 'build',
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir);
+    },
+    closeBundle() {
+      const walk = (dir: string): void => {
+        for (const name of readdirSync(dir)) {
+          const path = join(dir, name);
+          if (statSync(path).isDirectory()) {
+            walk(path);
+          } else if (SOURCE_ONLY.test(name)) {
+            rmSync(path);
+          }
+        }
+      };
+      walk(outDir);
+    },
+  };
+}
 
 export default defineConfig({
+  base: basePath(),
+  plugins: [stripSourceAssets()],
   optimizeDeps: {
     exclude: ['@babylonjs/havok'],
   },

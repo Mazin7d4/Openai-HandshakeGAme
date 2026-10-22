@@ -579,3 +579,18 @@ input {
 .partner-overlay.visible { display: grid; gap: 8px; justify-items: center; }
 .partner-title { margin: 0; font-weight: 800; letter-spacing: 0.14em; color: #922f3d; }
 .partner-detail { margin: 0; font-size: 14px; }
+
+/* Server wake-up overlay */
+.wake-overlay {
+  margin-top: 20px;
+  text-align: center;
+}
+.wake-title {
+  margin: 0 0 6px;
+  font-weight: 700;
+}
+.wake-detail {
+  margin: 0;
+  color: #5e6b72;
+  font-size: 14px;
+}

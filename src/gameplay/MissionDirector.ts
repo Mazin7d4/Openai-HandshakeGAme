@@ -84,7 +84,8 @@ export class MissionDirector {
     });
     const offShove = multiplayer?.onPatrolShove((m) => {
       const impulse = new Vector3(m.impulse?.x, m.impulse?.y, m.impulse?.z);
-      if ((m.role === 'pix' || m.role === 'nee') && Number.isFinite(impulse.x) && Number.isFinite(impulse.y) &&
+      // The server addresses shoves to the shoved drone's owner; ignore anything not for our own drone.
+      if (m.role === multiplayer.currentStatus.localRole && Number.isFinite(impulse.x) && Number.isFinite(impulse.y) &&
         Number.isFinite(impulse.z) && impulse.length() <= 8) {
         this.pendingShoves.push({ role: m.role, impulse });
       }
