@@ -30,6 +30,9 @@ export interface HeistAward {
 }
 
 export interface GradeFace {
+  /** Short caption under the face (Speed / Stealth / Teamwork). */
+  caption: string;
+  earned: boolean;
   mood: FaceMood;
   color: string;
   label: string;
@@ -37,29 +40,36 @@ export interface GradeFace {
 
 const PIX = '#3DDBFF';
 const NEE = '#FF6194';
-const BOTH = '#BE9162';
+/** Accent bar only (not title text) — LED hues for PIX/NEE, graphite for shared. */
+const PIX_LED = '#3DDBFF';
+const NEE_LED = '#FF6194';
+const SHARED_ACCENT = '#5C6B6A';
 
-/** Grade = three face-screens (not stars). Better runs get happier faces. */
+/** Three grade faces map to the same axes as gradeScore. */
 export function gradeFaces(stats: RunStats): GradeFace[] {
-  const stars = gradeScore(stats);
-  const moods: FaceMood[] =
-    stars >= 3 ? ['proud', 'happy', 'proud']
-      : stars === 2 ? ['happy', 'happy', 'sneaky']
-        : ['shocked', 'sneaky', 'sleepy'];
-  const labels = [`Grade face 1 of 3`, `Grade face 2 of 3`, `Grade face 3 of 3`];
-  return moods.map((mood, i) => ({
-    mood,
-    color: i === 1 ? NEE : PIX,
-    label: `${labels[i]}: ${mood}`,
+  const speed = stats.elapsedSeconds < 420;
+  const stealth = Math.round(stats.timesSpotted) <= 1;
+  const teamwork = stats.tetherSaves + stats.clotheslines >= 2;
+  const axes: Array<{ caption: string; earned: boolean; color: string; good: FaceMood; miss: FaceMood }> = [
+    { caption: 'Speed', earned: speed, color: PIX, good: 'proud', miss: 'sleepy' },
+    { caption: 'Stealth', earned: stealth, color: NEE, good: 'sneaky', miss: 'shocked' },
+    { caption: 'Teamwork', earned: teamwork, color: PIX, good: 'happy', miss: 'neutral' },
+  ];
+  return axes.map((axis) => ({
+    caption: axis.caption,
+    earned: axis.earned,
+    mood: axis.earned ? axis.good : axis.miss,
+    color: axis.earned ? axis.color : '#A7B6B5',
+    label: `${axis.caption}: ${axis.earned ? 'earned' : 'missed'}`,
   }));
 }
 
 /** Same 1–3 scale the old ★ rating used, kept so feel matches prior runs. */
 export function gradeScore(stats: RunStats): 1 | 2 | 3 {
-  const spotted = Math.round(stats.timesSpotted);
-  const bonusTime = stats.elapsedSeconds < 420;
-  const bonusHeroics = stats.tetherSaves + stats.clotheslines >= 2;
-  return (1 + (spotted <= 1 ? 1 : 0) + (bonusTime || bonusHeroics ? 1 : 0)) as 1 | 2 | 3;
+  const stealth = Math.round(stats.timesSpotted) <= 1;
+  const speed = stats.elapsedSeconds < 420;
+  const teamwork = stats.tetherSaves + stats.clotheslines >= 2;
+  return (1 + (stealth ? 1 : 0) + (speed || teamwork ? 1 : 0)) as 1 | 2 | 3;
 }
 
 export function formatRunTime(seconds: number): string {
@@ -221,11 +231,17 @@ export function pickAwards(stats: RunStats): HeistAward[] {
   return picked.slice(0, Math.max(2, Math.min(3, picked.length)));
 }
 
+/** Left accent bar colour only (LED hues). Titles use graphite ink for AA. */
+export function awardAccent(owner: HeistAward['owner']): string {
+  if (owner === 'pix') return PIX_LED;
+  if (owner === 'nee') return NEE_LED;
+  if (owner === 'both') return SHARED_ACCENT;
+  return SHARED_ACCENT;
+}
+
+/** @deprecated Prefer awardAccent for bars; titles should use graphite ink. */
 export function awardColor(owner: HeistAward['owner']): string {
-  if (owner === 'pix') return '#0A5BC2';
-  if (owner === 'nee') return '#C42A55';
-  if (owner === 'both') return BOTH;
-  return '#5C6B6A';
+  return awardAccent(owner);
 }
 
 export function quipFor(stats: RunStats): string {

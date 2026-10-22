@@ -288,14 +288,39 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 .memory-node.active { color: var(--screen); background: var(--pix); border-color: var(--pix-ink); transform: translateY(2px); box-shadow: 0 1px 0 var(--pix-ink); }
 
 /* ---------- Heist Report (oak case file) ---------- */
-.heist-report-overlay { align-content: center; justify-items: center; overflow: auto; }
+.heist-report-overlay {
+  align-content: start; justify-items: center; overflow: auto;
+  padding: 16px 24px;
+}
 .heist-report {
   width: min(520px, 100%);
-  padding: 28px 28px 24px;
+  max-height: calc(100vh - 32px);
+  margin: auto 0;
+  padding: 22px 24px 18px;
   text-align: left;
   background: var(--paper);
   border-top: 6px solid var(--oak);
-  overflow: hidden;
+  overflow: auto;
+}
+/* Play again: lock dark fill + light text (same family as title Play now). Never paper on hover/focus. */
+.heist-report__play.btn--primary,
+.heist-report__play.btn--primary:hover,
+.heist-report__play.btn--primary:focus-visible,
+.heist-report__actions .btn--primary,
+.heist-report__actions .btn--primary:hover,
+.heist-report__actions .btn--primary:focus-visible {
+  color: var(--paper);
+  background: var(--screen);
+  border-color: var(--graphite);
+  box-shadow: 0 3px 0 #000, inset 0 0 0 3px var(--screen), inset 0 0 0 4px rgba(61, 219, 255, 0.45);
+}
+.heist-report__play.btn--primary:hover,
+.heist-report__actions .btn--primary:hover { background: #1B2C2F; }
+.heist-report__play.btn--primary:focus-visible,
+.heist-report__actions .btn--primary:focus-visible {
+  outline: 3px solid var(--graphite);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 3px var(--paper), 0 3px 0 #000, inset 0 0 0 3px var(--screen), inset 0 0 0 4px var(--pix);
 }
 .heist-report__brand {
   display: flex; align-items: center; gap: 10px; margin: 0 0 10px;
@@ -313,49 +338,56 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 .heist-report__brand-cord::before { left: -4px; }
 .heist-report__brand-cord::after { right: -4px; }
 .heist-report__kicker { color: var(--oak-ink); }
-.heist-report__title { margin: 4px 0 16px; font-size: 34px; }
+.heist-report__title { margin: 2px 0 10px; font-size: 30px; }
 .heist-report__faces {
-  display: flex; align-items: center; justify-content: flex-start; gap: 14px; margin: 0 0 14px;
+  display: flex; align-items: center; justify-content: flex-start; gap: 12px; margin: 0 0 10px;
 }
 .heist-report__crew-face { display: grid; justify-items: center; gap: 4px; }
 .heist-report__crew-name { color: var(--pencil); font: 700 13px/1 var(--font-body); }
 .heist-report__crew-cord {
-  width: 48px; height: var(--cord); background: var(--graphite); border-radius: 999px; margin-bottom: 18px;
+  width: 40px; height: var(--cord); background: var(--graphite); border-radius: 999px; margin-bottom: 16px;
 }
 .heist-report__time {
-  display: inline-block; margin: 0 0 12px; padding: 10px 16px;
+  display: inline-block; margin: 0 0 8px; padding: 8px 14px;
   border-radius: var(--r-panel); color: var(--pix); background: var(--screen);
-  font: 800 40px/1 var(--font-screen); font-variant-numeric: tabular-nums;
+  font: 800 36px/1 var(--font-screen); font-variant-numeric: tabular-nums;
   font-variation-settings: 'ROND' 100; letter-spacing: 0.04em;
 }
-.heist-report__grade { display: flex; gap: 10px; margin: 0 0 16px; min-height: 48px; }
+.heist-report__grade { display: flex; gap: 12px; margin: 0 0 12px; min-height: 0; }
 .heist-report__grade-slot {
+  display: grid; justify-items: center; gap: 4px;
   opacity: 0; transform: translateY(8px) scale(0.85);
   transition: opacity var(--t-drone) var(--ease-drone), transform var(--t-drone) var(--ease-drone);
 }
 .heist-report__grade-slot.is-in { opacity: 1; transform: none; }
-.heist-report__awards { list-style: none; display: grid; gap: 8px; margin: 0 0 14px; }
+.heist-report__grade-slot.is-missed { opacity: 0.55; }
+.heist-report__grade-slot.is-missed.is-in { opacity: 0.55; }
+.heist-report__grade-caption {
+  color: var(--pencil); font: 700 12px/1.1 var(--font-body); letter-spacing: 0.02em;
+}
+.heist-report__awards { list-style: none; display: grid; gap: 6px; margin: 0 0 10px; }
 .heist-report__award {
-  display: grid; gap: 2px; padding: 10px 12px;
-  border: var(--rim); border-left: 4px solid var(--award-ink, var(--oak));
+  display: grid; gap: 2px; padding: 8px 10px;
+  border: var(--rim); border-left: 4px solid var(--award-accent, var(--graphite));
   border-radius: var(--r-control); background: var(--porcelain);
 }
 .heist-report__award strong {
-  color: var(--award-ink, var(--oak-ink)); font: 800 16px/1.2 var(--font-title); font-stretch: 112%;
+  color: var(--graphite); font: 800 16px/1.2 var(--font-title); font-stretch: 112%;
 }
-.heist-report__award span { color: var(--pencil); font-size: 15px; }
-.heist-report__quip { margin: 0 0 12px; color: var(--pencil); font-size: 16px; }
+/* Darker than --pencil so detail stays ≥4.5:1 on porcelain award chips. */
+.heist-report__award span { color: #455352; font-size: 15px; }
+.heist-report__quip { margin: 0 0 10px; color: var(--pencil); font-size: 15px; }
 .heist-report__challenge-hint {
-  margin: 0 0 12px; padding: 10px 12px; border: var(--rim); border-radius: var(--r-control);
+  margin: 0 0 10px; padding: 8px 10px; border: var(--rim); border-radius: var(--r-control);
   background: var(--warm-screen); color: var(--graphite); font-size: 14px; word-break: break-all;
 }
 .heist-report__actions {
-  display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 8px;
+  display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 4px;
 }
 .heist-report__actions .btn { min-height: 48px; }
-.heist-report__actions .btn--primary { min-height: 56px; }
+.heist-report__actions .btn--primary { min-height: 52px; }
 .heist-report__stamp {
-  position: absolute; right: 22px; top: 88px;
+  position: absolute; right: 18px; top: 72px;
   padding: 6px 10px; border: 3px solid var(--exit); border-radius: var(--r-control);
   color: var(--exit); font: 800 14px/1 var(--font-title); font-stretch: 112%;
   transform: rotate(-12deg); pointer-events: none; opacity: 0.85;
@@ -367,15 +399,32 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
   .heist-report__actions .btn--primary { grid-column: 1 / -1; }
   .heist-report__actions .btn--quiet { grid-column: 1 / -1; }
 }
+/* Laptop heights: shrink spacing so the full case file fits without clipping. */
+@media (max-height: 800px) {
+  .heist-report-overlay { padding: 12px 16px; align-content: center; }
+  .heist-report { padding: 16px 18px 14px; max-height: calc(100vh - 24px); }
+  .heist-report__brand { margin-bottom: 4px; font-size: 18px; }
+  .heist-report__title { font-size: 26px; margin-bottom: 6px; }
+  .heist-report__faces { margin-bottom: 6px; }
+  .heist-report__crew-face svg { width: 40px; height: 40px; }
+  .heist-report__time { font-size: 30px; padding: 6px 12px; margin-bottom: 6px; }
+  .heist-report__grade { margin-bottom: 8px; gap: 10px; }
+  .heist-report__grade svg { width: 32px; height: 32px; }
+  .heist-report__awards { gap: 4px; margin-bottom: 6px; }
+  .heist-report__award { padding: 6px 8px; }
+  .heist-report__quip { margin-bottom: 6px; font-size: 14px; }
+  .heist-report__stamp { top: 56px; right: 12px; font-size: 12px; }
+  .heist-report__actions .btn--primary { min-height: 48px; }
+}
 @media (max-width: 420px), (max-height: 460px) {
-  .heist-report { padding: 18px 16px 16px; }
-  .heist-report__title { font-size: 28px; margin-bottom: 10px; }
-  .heist-report__time { font-size: 32px; padding: 8px 12px; }
-  .heist-report__stamp { top: 64px; right: 12px; font-size: 12px; }
-  .heist-report__quip { font-size: 15px; }
+  .heist-report { padding: 14px 14px 12px; }
+  .heist-report__title { font-size: 24px; margin-bottom: 6px; }
+  .heist-report__time { font-size: 28px; padding: 6px 10px; }
+  .heist-report__stamp { top: 48px; right: 10px; font-size: 11px; }
+  .heist-report__quip { font-size: 14px; }
 }
 
-.heist-report__meta { display: grid; gap: 10px; margin: 0 0 14px; }
+.heist-report__meta { display: grid; gap: 8px; margin: 0 0 10px; }
 
 /* Short landscape (844×390): two columns so brand, grade, awards and actions stay on screen. */
 @media (max-height: 420px) and (min-width: 700px) {

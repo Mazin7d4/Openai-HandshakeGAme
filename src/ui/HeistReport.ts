@@ -1,7 +1,7 @@
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
 import {
-  awardColor,
+  awardAccent,
   formatRunTime,
   gradeFaces,
   pickAwards,
@@ -85,7 +85,7 @@ export class HeistReport {
     this.challengeHint = this.panel.querySelector('[data-heist="challenge-hint"]') as HTMLElement;
 
     const actions = this.panel.querySelector('.heist-report__actions')!;
-    this.playAgainBtn = button('Play again', 'btn btn--primary', 'retry-mission');
+    this.playAgainBtn = button('Play again', 'btn btn--primary heist-report__play', 'retry-mission');
     this.playAgainBtn.title = 'Play again (R)';
     this.playAgainBtn.addEventListener('click', () => this.handlers.onPlayAgain());
 
@@ -120,7 +120,7 @@ export class HeistReport {
     for (const award of pickAwards(stats)) {
       const li = document.createElement('li');
       li.className = `heist-report__award heist-report__award--${award.owner}`;
-      li.style.setProperty('--award-ink', awardColor(award.owner));
+      li.style.setProperty('--award-accent', awardAccent(award.owner));
       const title = document.createElement('strong');
       title.textContent = award.title;
       const detail = document.createElement('span');
@@ -134,13 +134,17 @@ export class HeistReport {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     faces.forEach((face, index) => {
       const slot = document.createElement('span');
-      slot.className = 'heist-report__grade-slot';
+      slot.className = `heist-report__grade-slot${face.earned ? '' : ' is-missed'}`;
       slot.append(createFaceGlyph({
         mood: face.mood,
         color: face.color,
-        size: 44,
+        size: 40,
         label: face.label,
       }));
+      const caption = document.createElement('span');
+      caption.className = 'heist-report__grade-caption';
+      caption.textContent = face.caption;
+      slot.append(caption);
       this.gradeEl.append(slot);
       if (reduced) {
         slot.classList.add('is-in');
@@ -328,19 +332,23 @@ export async function renderShareCard(stats: RunStats): Promise<Blob> {
 
   const faces = gradeFaces(stats);
   faces.forEach((face, i) => {
-    drawFaceGlyph(ctx, 320 + i * 92, 268, 72, face.mood, face.color);
+    const x = 320 + i * 100;
+    drawFaceGlyph(ctx, x, 260, 64, face.mood, face.color);
+    ctx.fillStyle = '#5C6B6A';
+    ctx.font = '700 16px "Atkinson Hyperlegible Next", sans-serif';
+    ctx.fillText(face.caption, x + 4, 344);
   });
 
-  ctx.fillStyle = '#5C6B6A';
-  ctx.font = '700 20px "Atkinson Hyperlegible Next", sans-serif';
-  let y = 400;
+  let y = 380;
   for (const award of pickAwards(stats).slice(0, 3)) {
-    ctx.fillStyle = awardColor(award.owner);
+    ctx.fillStyle = awardAccent(award.owner);
+    ctx.fillRect(64, y - 18, 4, 44);
+    ctx.fillStyle = '#1E2A2B';
     ctx.font = '800 22px Archivo, sans-serif';
-    ctx.fillText(award.title, 64, y);
-    ctx.fillStyle = '#5C6B6A';
+    ctx.fillText(award.title, 80, y);
+    ctx.fillStyle = '#455352';
     ctx.font = '600 20px "Atkinson Hyperlegible Next", sans-serif';
-    ctx.fillText(award.detail, 64, y + 28);
+    ctx.fillText(award.detail, 80, y + 28);
     y += 64;
   }
 
