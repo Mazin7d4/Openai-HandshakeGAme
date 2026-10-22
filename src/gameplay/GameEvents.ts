@@ -9,6 +9,18 @@ export interface GameEventMap {
   knockback: { droneId: string; position: Vector3 };
   /** Authored heist beats, fired identically on both clients from replicated mission state. */
   heist: { beat: 'vault' | 'pickup' | 'extract'; position: Vector3; role?: DroneRole | null };
+  /** The cord swept a free prop (knock / drag). */
+  'cord-knock': { id: string; position: Vector3 };
+  /** A thrown prop blinded the security camera. */
+  'camera-blind': { position: Vector3 };
+  /** A patrol pod grabbed a drone (capture-and-carry) or let it go. */
+  capture: { droneId: string; position: Vector3; freed: boolean };
+  /** Cord crank progress changed meaningfully (0..1), or completed. */
+  crank: { progress: number; position: Vector3; done: boolean };
+  /** Apron warm-up progress (cord playground). */
+  warmup: { kind: 'topple' | 'hoop'; position: Vector3; count: number };
+  /** Generic HUD toast request from gameplay systems. */
+  toast: { text: string; tone: 'pix' | 'nee' | 'good' };
   yank: { kind: 'yank' | 'sling' | 'bump'; from: DroneRole; strength: number; rescue: boolean; position: Vector3 };
 }
 

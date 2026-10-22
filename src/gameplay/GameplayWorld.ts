@@ -1,3 +1,4 @@
+import { CordPlayground } from '../level/CordPlayground.ts';
 import { Color3, Vector3, type HavokPlugin, type Scene } from '@babylonjs/core';
 import { GameAudio } from '../audio/GameAudio.ts';
 import type { GameMode } from '../app/GameMode.ts';
@@ -15,10 +16,20 @@ import { MissionDirector } from './MissionDirector.ts';
 import layout from '../level/heist-layout.json';
 import { dressPrototype } from '../level/PrototypeVisual.ts';
 import { dressLabCrate } from '../level/LabCrateVisual.ts';
+import { dressCargoCore, dressCoolantCell } from '../level/GrabbableVisuals.ts';
+import { addContactShadows } from '../level/ContactShadows.ts';
 
 function vec(src: { x: number; y: number; z: number }): Vector3 {
   return new Vector3(src.x, src.y, src.z);
 }
+
+const DESK_PROPS = [
+  { id: 'mug-a', label: 'Coffee Mug', color: new Color3(0.93, 0.9, 0.84), shape: 'cylinder', size: 0.55 },
+  { id: 'mug-b', label: 'Coffee Mug', color: new Color3(0.95, 0.46, 0.4), shape: 'cylinder', size: 0.55 },
+  { id: 'paper-stack', label: 'Paper Stack', color: new Color3(0.96, 0.95, 0.9), shape: 'box', size: 0.7 },
+  { id: 'cable-spool', label: 'Cable Spool', color: new Color3(0.55, 0.66, 0.58), shape: 'cylinder', size: 0.7 },
+  { id: 'snack-tin', label: 'Snack Tin', color: new Color3(0.98, 0.78, 0.3), shape: 'box', size: 0.6 },
+] as const satisfies readonly { id: keyof typeof layout.objects; label: string; color: Color3; shape: 'box' | 'cylinder' | 'sphere'; size: number }[];
 
 /** Small reusable interaction layer for the dev gameplay room. */
 export class GameplayWorld {
@@ -29,6 +40,7 @@ export class GameplayWorld {
   private readonly objects: Grabbable[];
   private runLayout: RunLayout | null;
   private readonly removeFloorStart: (() => void) | null;
+  private readonly playground: CordPlayground;
 
   constructor(
     scene: Scene,
@@ -80,10 +92,28 @@ export class GameplayWorld {
         size: 1.15,
         grabRadius: 3.2,
       }),
+      // Knockable desk/shelf props: cord-sweepable, grabbable, throwable at security.
+      ...DESK_PROPS.map((prop) => new Grabbable(scene, plugin, {
+        id: prop.id,
+        label: prop.label,
+        position: Vector3.FromArray(Object.values(layout.objects[prop.id])),
+        color: prop.color,
+        shape: prop.shape,
+        size: prop.size,
+        grabRadius: 2.2,
+      })),
     ];
     this.objects = objects;
     dressLabCrate(objects.find((object) => object.id === 'crate-blue')!.mesh, 3.6, scene);
     dressPrototype(objects.find((object) => object.id === 'prototype')!.mesh, scene);
+    dressCargoCore(objects.find((object) => object.id === 'cargo-core')!.mesh, scene);
+    dressCoolantCell(objects.find((object) => object.id === 'crate-pink')!.mesh, scene);
+    addContactShadows(scene, [
+      { mesh: objects.find((object) => object.id === 'cargo-core')!.mesh, radius: 0.75 },
+      { mesh: objects.find((object) => object.id === 'crate-blue')!.mesh, radius: 2.4 },
+      { mesh: objects.find((object) => object.id === 'crate-pink')!.mesh, radius: 0.7 },
+      { mesh: objects.find((object) => object.id === 'prototype')!.mesh, radius: 0.8 },
+    ]);
     this.grab = new GrabSystem(
       objects,
       session,
@@ -99,6 +129,9 @@ export class GameplayWorld {
     );
     this.hack = new HackSession(scene, plugin, session, uiParent, this.audio, runLayout);
     this.mission = new MissionDirector(scene, mode, session, this.grab, this.audio, uiParent, onLeave, runLayout);
+    this.playground = new CordPlayground(scene);
+    const partner = mode === 'multiplayer' && session?.currentStatus.localRole === 'nee' ? 'PIX' : 'NEE';
+    this.mission.setWarmup(() => (this.playground.done ? null : this.playground.checklist(partner)));
     // Register sinks so ClientRun.applyFloorStart can call applyRunLayout(generateRun(...), sinks).
     setLayoutSinkProvider(() => this.layoutSinks());
     // applyFloorStart already ran applyRunLayout with our sinks; keep the local ref in sync.
@@ -165,6 +198,7 @@ export class GameplayWorld {
 
   update(dt: number, drones: ReadonlyMap<DroneRole, Drone>, tetherStrain = 0): void {
     this.grab.update(dt, drones);
+    this.playground.update(dt, drones);
     this.hack.update(dt, drones);
     this.mission.update(dt, drones, this.hack, this.grab, tetherStrain);
   }
@@ -184,6 +218,18 @@ export class GameplayWorld {
 
   promptsFor(role: DroneRole, drone: Drone): string[] {
     return [...this.grab.promptsFor(role, drone), ...this.hack.promptsFor(role, drone.position)];
+  }
+
+  /** Solo companion: where its own console is, once the leader is working nearby. */
+  botObjective(role: DroneRole, leader: Vector3): Vector3 | null {
+    if (this.mission.stage !== 'hack-security') return null;
+    const station = this.hack.botStation(role);
+    if (!station || Vector3.Distance(station.position, leader) > 15) return null;
+    return station.position.add(new Vector3(0, 0.4, 0));
+  }
+
+  botWork(role: DroneRole, position: Vector3, dt: number): boolean {
+    return dt > 0 ? this.hack.botWork(role, position, dt) : (this.hack.botWork(role, position, 0), false);
   }
 
   isRoleHacking(role: DroneRole): boolean {
@@ -212,6 +258,7 @@ export class GameplayWorld {
   dispose(): void {
     this.removeFloorStart?.();
     setLayoutSinkProvider(null);
+    this.playground.dispose();
     this.grab.dispose();
     this.hack.dispose();
     this.mission.dispose();

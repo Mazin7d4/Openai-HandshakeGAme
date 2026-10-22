@@ -1,5 +1,6 @@
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
+import { challengeUrl as buildChallengeUrl } from '../../shared/run.ts';
 import {
   awardAccent,
   formatRunTime,
@@ -15,12 +16,14 @@ export interface HeistReportHandlers {
   onLeave?: () => void;
   /** Night Shift only: advance to the next seeded floor. */
   onNextFloor?: () => void;
+  /** Night Shift: restart with a fresh random seed. */
+  onNewSeed?: () => void;
   audio?: GameAudio | null;
 }
 
 /**
  * End-of-run Heist Report: oak case-file panel, face-glyph grade, funny awards,
- * Play again / Challenge a friend / Save card. Keeps the `mission-complete` test id
+ * Play again / challenge link / Save card. Keeps the `mission-complete` test id
  * so existing verifiers still find the overlay.
  */
 export class HeistReport {
@@ -31,6 +34,7 @@ export class HeistReport {
   private readonly awardsEl: HTMLElement;
   private readonly quipEl: HTMLElement;
   private readonly stampEl: HTMLElement;
+  private readonly seedEl: HTMLElement;
   private readonly challengeHint: HTMLElement;
   private readonly playAgainBtn: HTMLButtonElement;
   private stats: RunStats | null = null;
@@ -60,6 +64,7 @@ export class HeistReport {
       '<div class="heist-report__meta">',
       '<div class="heist-report__faces" data-heist="crew"></div>',
       '<p class="heist-report__time" data-heist="time">0:00</p>',
+      '<p class="heist-report__seed" data-heist="seed" hidden></p>',
       '<div class="heist-report__grade" data-heist="grade" aria-label="Heist grade"></div>',
       '</div>',
       '<ul class="heist-report__awards" data-heist="awards"></ul>',
@@ -81,23 +86,34 @@ export class HeistReport {
     );
 
     this.timeEl = this.panel.querySelector('[data-heist="time"]') as HTMLElement;
+    this.seedEl = this.panel.querySelector('[data-heist="seed"]') as HTMLElement;
     this.gradeEl = this.panel.querySelector('[data-heist="grade"]') as HTMLElement;
     this.awardsEl = this.panel.querySelector('[data-heist="awards"]') as HTMLElement;
     this.quipEl = this.panel.querySelector('[data-heist="quip"]') as HTMLElement;
     this.challengeHint = this.panel.querySelector('[data-heist="challenge-hint"]') as HTMLElement;
 
     const actions = this.panel.querySelector('.heist-report__actions')!;
-    this.playAgainBtn = button('Play again', 'btn btn--primary heist-report__play', 'retry-mission');
-    this.playAgainBtn.title = 'Play again (R)';
+    const nightShift = Boolean(handlers.onNewSeed || handlers.onNextFloor);
+    this.playAgainBtn = button(
+      nightShift ? 'Play again, same seed' : 'Play again',
+      'btn btn--primary heist-report__play',
+      'retry-mission',
+    );
+    this.playAgainBtn.title = nightShift ? 'Play again, same seed (R)' : 'Play again (R)';
     this.playAgainBtn.addEventListener('click', () => this.handlers.onPlayAgain());
 
-    const challenge = button('Challenge a friend', 'btn', 'challenge-friend');
-    challenge.addEventListener('click', () => void this.challengeFriend());
+    const challenge = button('Copy challenge link', 'btn', 'challenge-friend');
+    challenge.addEventListener('click', () => void this.copyChallengeLink());
 
     const save = button('Save card', 'btn', 'save-card');
     save.addEventListener('click', () => void this.saveCard());
 
     actions.append(this.playAgainBtn, challenge, save);
+    if (handlers.onNewSeed) {
+      const fresh = button('New seed', 'btn', 'new-seed');
+      fresh.addEventListener('click', () => handlers.onNewSeed?.());
+      actions.append(fresh);
+    }
     if (handlers.onNextFloor) {
       const next = button('Next floor', 'btn', 'next-floor');
       next.addEventListener('click', () => handlers.onNextFloor?.());
@@ -122,6 +138,15 @@ export class HeistReport {
     this.stampEl.classList.toggle('heist-report__stamp--fail', stats.outcome !== 'win');
     this.challengeHint.hidden = true;
     this.challengeHint.textContent = '';
+
+    if (stats.seed != null) {
+      this.seedEl.hidden = false;
+      this.seedEl.dataset.testid = 'report-seed';
+      this.seedEl.textContent = `Seed ${stats.seed}`;
+    } else {
+      this.seedEl.hidden = true;
+      this.seedEl.textContent = '';
+    }
 
     this.awardsEl.replaceChildren();
     for (const award of pickAwards(stats)) {
@@ -198,22 +223,26 @@ export class HeistReport {
     }
   }
 
-  private challengeUrl(): string {
-    const time = formatRunTime(this.stats?.elapsedSeconds ?? 0);
-    const url = new URL(window.location.href);
-    url.searchParams.delete('report');
-    url.searchParams.delete('autotest');
-    url.searchParams.delete('debug');
-    url.searchParams.set('beat', time);
-    return url.toString();
+  /** Builds `?seed=<code>&beat=<ms>` via shared/run.ts challengeUrl. */
+  challengeUrl(): string {
+    const base = new URL(window.location.href);
+    for (const key of ['report', 'autotest', 'debug', 'play', 'room', 'dev', 'mode']) {
+      base.searchParams.delete(key);
+    }
+    if (this.stats?.seed == null) return base.toString();
+    const ms = Math.round((this.stats.elapsedSeconds ?? 0) * 1000);
+    return buildChallengeUrl(base, {
+      seed: this.stats.seed >>> 0,
+      beat: Math.max(0, ms),
+    });
   }
 
-  private async challengeFriend(): Promise<void> {
+  private async copyChallengeLink(): Promise<void> {
     const link = this.challengeUrl();
     this.challengeHint.hidden = false;
     try {
       await navigator.clipboard.writeText(link);
-      this.challengeHint.textContent = 'Invite copied. Beat this time.';
+      this.challengeHint.textContent = 'Challenge link copied. Beat this time.';
       this.handlers.audio?.success();
     } catch {
       this.challengeHint.textContent = link;
@@ -408,5 +437,6 @@ export function demoRunStats(): RunStats {
     spottedBy: ['nee'],
     yankBy: ['pix', 'pix', 'nee', 'pix'],
     outcome: 'win',
+    seed: 123,
   };
 }

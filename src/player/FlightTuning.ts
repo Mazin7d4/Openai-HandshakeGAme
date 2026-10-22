@@ -10,4 +10,10 @@ export const FLIGHT_TUNING = {
   maxBankPitch: 0.26,
   bankResponse: 8,
   idleSpeed: 0.35,
+  /** One-shot dash added along the stick when boost is first pressed. */
+  boostBurst: 7,
+  boostBurstCooldown: 0.7,
+  /** Share of the velocity lost to a wall that comes back as a springy bounce. */
+  bounce: 0.42,
+  maxBounce: 7.5,
 };
