@@ -20,8 +20,9 @@ export class Autopilot {
   private readonly arrived = new Map<Role, boolean>();
   private readonly positions = new Map<Role, { x: number; y: number; z: number }>();
 
-  install(): void {
+  install(extras: Record<string, unknown> = {}): void {
     (window as unknown as { __autotest: unknown }).__autotest = {
+      ...extras,
       /** hold=true keeps station after arriving (resists tether drag) until stop()/next goto. */
       goto: (role: Role, x: number, y: number, z: number, tolerance = 1, hold = false) => {
         this.targets.set(role, { x, y, z, tolerance, hold });
