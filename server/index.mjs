@@ -3,6 +3,14 @@ import { schema, t } from '@colyseus/schema';
 import { createRequire } from 'node:module';
 import layout from '../src/level/heist-layout.json' with { type: 'json' };
 import { Security, createSecurityState, SecuritySim } from './security.mjs';
+import {
+  createRunState,
+  advanceFloor,
+  recordCapture,
+  isRunMode,
+  MAX_CAPTURES,
+} from '../shared/run.ts';
+import { applyRunLayout, generateRun } from '../shared/run-layout.ts';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json');
@@ -117,6 +125,20 @@ const Mission = schema(
   'Mission',
 );
 
+const Run = schema(
+  {
+    mode: t.string().default('standard'),
+    seed: t.uint32().default(0),
+    floor: t.uint16().default(1),
+    captures: t.uint8().default(0),
+    maxCaptures: t.uint8().default(MAX_CAPTURES),
+    startedAt: t.number().default(0),
+    floorTimes: t.array(t.float32),
+    ended: t.boolean().default(false),
+  },
+  'Run',
+);
+
 const HandshakeState = schema(
   {
     started: t.boolean().default(false),
@@ -125,6 +147,7 @@ const HandshakeState = schema(
     hack: Hack,
     mission: Mission,
     security: Security,
+    run: Run,
   },
   'HandshakeState',
 );
@@ -181,8 +204,10 @@ class HandshakeRoom extends Room {
   clotheslines = 0;
   createdAt = Date.now();
   disposeReason = 'disposed';
+  /** Prevents double-advancing Night Shift on the same extraction. */
+  nightshiftEscapedFloor = 0;
 
-  onCreate() {
+  onCreate(options = {}) {
     liveRooms.add(this);
 
     // Empty-room timeout: disconnect if nobody joins within EMPTY_ROOM_SECONDS
@@ -208,6 +233,7 @@ class HandshakeRoom extends Room {
       const radius = { 'cargo-core': 3.3, 'crate-blue': 4.8, 'crate-pink': 3, prototype: 3.2 }[id];
       this.state.objects.set(id, createGrabbable(id, position.x, position.y, position.z, radius));
     }
+    this.initRun(options);
     this.onMessage('snapshot', (client, message) => {
       this.applySnapshot(client.sessionId, message);
     });
@@ -221,6 +247,7 @@ class HandshakeRoom extends Room {
     this.onMessage('mission-retry', () => this.resetMission());
     this.onMessage('tether-yank', (client, message) => this.relayTetherYank(client, message));
     this.onMessage('patrol-stun', (client, message) => this.stunPatrol(client, message));
+    this.onMessage('run-capture', (client) => this.handleCapture(client.sessionId));
     if (TEST_HOOKS) {
       console.log('[handshake] TEST HOOKS enabled');
       this.onMessage('debug-stage', (client, m) => {
@@ -230,12 +257,92 @@ class HandshakeRoom extends Room {
           this.state.mission.securityActive = true;
         }
       });
+      this.onMessage('debug-run-escape', () => this.handleEscape());
+      this.onMessage('debug-run-capture', (client) => this.handleCapture(client.sessionId));
     }
     this.setSimulationInterval((deltaMs) => {
       this.updateHack();
       this.updateMission();
       this.updateSecurity(deltaMs / 1000);
     });
+  }
+
+  initRun(options = {}) {
+    const mode = isRunMode(options.mode) ? options.mode : 'standard';
+    const seedOpt = typeof options.seed === 'number' && Number.isFinite(options.seed)
+      ? options.seed >>> 0
+      : undefined;
+    const initial = createRunState({ mode, seed: seedOpt });
+    const run = this.state.run;
+    run.mode = initial.mode;
+    run.seed = initial.seed;
+    run.floor = initial.floor;
+    run.captures = initial.captures;
+    run.maxCaptures = initial.maxCaptures;
+    run.startedAt = initial.startedAt;
+    run.ended = false;
+    run.floorTimes.clear();
+    console.log(`[handshake] room ${this.roomId} run mode=${run.mode} seed=${run.seed} floor=${run.floor}`);
+    this.beginFloor();
+  }
+
+  /**
+   * Hook point for the future seed-driven layout generator.
+   * Emits `floor-start` so clients (and tests) can apply the same layout.
+   */
+  beginFloor() {
+    const { seed, floor } = this.state.run;
+    // Generator seam: replaced on the prod-seed branch. Keep this as the only call site.
+    applyRunLayout(generateRun(seed, floor));
+    this.broadcast('floor-start', { seed, floor });
+  }
+
+  /** Night Shift: successful extraction → next floor + next seed. */
+  handleEscape() {
+    const run = this.state.run;
+    if (run.mode !== 'nightshift' || run.ended) return;
+    if (this.nightshiftEscapedFloor === run.floor) return;
+    this.nightshiftEscapedFloor = run.floor;
+    const next = advanceFloor(
+      {
+        mode: run.mode,
+        seed: run.seed,
+        floor: run.floor,
+        captures: run.captures,
+        maxCaptures: run.maxCaptures,
+        startedAt: run.startedAt,
+        floorTimes: Array.from(run.floorTimes),
+      },
+      this.state.mission.elapsedSeconds,
+    );
+    run.floor = next.floor;
+    run.seed = next.seed;
+    run.floorTimes.clear();
+    for (const t of next.floorTimes) run.floorTimes.push(t);
+    this.resetMission();
+    this.beginFloor();
+  }
+
+  /** Night Shift: capture → increment; end the run at maxCaptures. */
+  handleCapture(sessionId) {
+    if (!this.state.players.has(sessionId)) return;
+    const run = this.state.run;
+    if (run.mode !== 'nightshift' || run.ended) return;
+    const result = recordCapture({
+      mode: run.mode,
+      seed: run.seed,
+      floor: run.floor,
+      captures: run.captures,
+      maxCaptures: run.maxCaptures,
+      startedAt: run.startedAt,
+      floorTimes: Array.from(run.floorTimes),
+    });
+    run.captures = result.state.captures;
+    if (result.ended) {
+      run.ended = true;
+      this.state.mission.securityActive = false;
+      this.broadcast('run-ended', { reason: 'captures', captures: run.captures });
+    }
   }
 
   onJoin(client) {
@@ -487,6 +594,9 @@ class HandshakeRoom extends Room {
         mission.extracted = true;
         mission.stage = 'complete';
         mission.securityActive = false;
+        if (this.state.run.mode === 'nightshift') {
+          this.handleEscape();
+        }
       }
     }
   }

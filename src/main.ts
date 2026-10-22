@@ -9,6 +9,12 @@ import { MultiplayerSession } from './network/MultiplayerSession.ts';
 import type { RoomStatus } from './network/NetworkTypes.ts';
 import { RECONNECT_GRACE_SECONDS } from './network/ReconnectionToken.ts';
 import { pingServer, wakeServer } from './network/ServerEndpoint.ts';
+import {
+  getRunState,
+  readUrlRunOptions,
+  startLocalRun,
+  clearRunState,
+} from './run/ClientRun.ts';
 import './style.css';
 
 function roomInviteUrl(code: string): string {
@@ -170,7 +176,7 @@ async function createRoom(): Promise<void> {
   panel.append(status);
   if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void createRoom(); }))) return;
   try {
-    const session = await MultiplayerSession.createRoom();
+    const session = await MultiplayerSession.createRoom(readUrlRunOptions());
     showLobby(session);
   } catch (error) {
     status.textContent = errorMessage(error);
@@ -208,7 +214,7 @@ function showJoinRoom(prefill?: string): void {
       return;
     }
     try {
-      const session = await MultiplayerSession.joinRoom(code);
+      const session = await MultiplayerSession.joinRoom(code, readUrlRunOptions());
       showLobby(session);
     } catch (error: unknown) {
       status.textContent = errorMessage(error);
@@ -286,21 +292,39 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
     boot.style.setProperty('--boot-progress', `${(bootIndex + 1) / bootSteps.length}`);
   }, 1400);
 
+  // Solo / offline: same shared run module, never contacts the server.
+  if (!session && (mode === 'singleplayer' || mode === 'dev-local')) {
+    startLocalRun(readUrlRunOptions());
+  }
+
   let removeStatus: (() => void) | null = null;
+  const runHud = element('aside', 'network-hud');
+  runHud.dataset.testid = 'run-hud';
+  const paintRunHud = (base = '') => {
+    const run = getRunState();
+    if (!run) {
+      runHud.textContent = base;
+      return;
+    }
+    const parts = [base, `Floor ${run.floor}`, run.seedCode].filter(Boolean);
+    if (run.mode !== 'standard') parts.push(run.mode.toUpperCase());
+    runHud.textContent = parts.join(' · ');
+  };
+  root.append(runHud);
+  paintRunHud();
+
   if (session) {
-    const networkHud = element('aside', 'network-hud');
+    const networkHud = runHud;
     networkHud.dataset.testid = 'network-hud';
-    root.append(networkHud);
     const updateHud = (status: RoomStatus) => {
       const localRole = status.localRole?.toUpperCase() ?? 'PLAYER';
       const partnerRole = status.localRole === 'pix' ? 'nee' : 'pix';
       const partner = status.players.get(partnerRole);
       const partnerDisconnected = !partner || partner.connected === false;
-      networkHud.textContent = `${status.roomCode} · ${localRole}`;
+      let base = `${status.roomCode} · ${localRole}`;
+      if (partnerDisconnected) base += ' · Partner disconnected';
       networkHud.classList.toggle('partner-disconnected', partnerDisconnected);
-      if (partnerDisconnected) {
-        networkHud.textContent += ' · Partner disconnected';
-      }
+      paintRunHud(base);
     };
     removeStatus = session.onStatus(updateHud);
 
@@ -363,6 +387,7 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
       multiplayer: session,
       onLeaveGame: () => {
         removeStatus?.();
+        clearRunState();
         game?.dispose();
         game = null;
         showMainMenu();
@@ -393,7 +418,7 @@ async function bootFromInviteLink(): Promise<boolean> {
     return true;
   }
 
-  const resumed = await MultiplayerSession.resumeRoom(code);
+  const resumed = await MultiplayerSession.resumeRoom(code, readUrlRunOptions().beat);
   if (resumed) {
     status.textContent = resumed.currentStatus.started
       ? 'Seat restored. Returning to the match…'

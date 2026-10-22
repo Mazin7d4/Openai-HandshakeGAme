@@ -10,6 +10,7 @@ import { SecuritySystem } from './SecuritySystem.ts';
 import layout from '../level/heist-layout.json';
 import { updateHeistPresentation } from '../level/PrototypeHeist.ts';
 import { gameEvents } from './GameEvents.ts';
+import { getRunState, localEscape, localCapture } from '../run/ClientRun.ts';
 
 const VAULT = new Vector3(layout.objects.prototype.x, layout.objects.prototype.y, layout.objects.prototype.z);
 const EXTRACTION = new Vector3(layout.extraction.x, layout.extraction.y, layout.extraction.z);
@@ -300,6 +301,16 @@ export class MissionDirector {
     if (this.state.stage === 'complete') return;
     this.state = { ...this.state, stage: 'complete', extracted: true, securityActive: false };
     this.audio.stopAlarm();
+    // Solo Night Shift: advance floor/seed via the shared run module (no server).
+    if (!this.multiplayer && getRunState()?.mode === 'nightshift') {
+      localEscape(this.state.elapsedSeconds);
+    }
+  }
+
+  /** Solo / offline Night Shift capture (test + future fail path). */
+  reportCapture(): void {
+    if (this.multiplayer || getRunState()?.mode !== 'nightshift') return;
+    localCapture();
   }
 
   private beginAlarm(): void {

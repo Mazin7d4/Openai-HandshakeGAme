@@ -1,6 +1,13 @@
 import { Client, CloseCode, type Room } from '@colyseus/sdk';
 import { reportStabilityIssue } from '../dev/StabilityDiagnostics.ts';
 import {
+  applyFloorStart,
+  setBeatTarget,
+  syncNetworkRun,
+} from '../run/ClientRun.ts';
+import type { FloorStartPayload, RunMode } from '../../shared/run.ts';
+import { isRunMode } from '../../shared/run.ts';
+import {
   clearReconnectionToken,
   loadReconnectionToken,
   RECONNECT_GRACE_SECONDS,
@@ -15,6 +22,7 @@ import type {
   HackNetworkState,
   MissionNetworkState,
   RoomStatus,
+  RunNetworkState,
   SecurityNetworkState,
 } from './NetworkTypes.ts';
 
@@ -48,6 +56,17 @@ interface SchemaPlayer {
   tetherPull: number;
 }
 
+interface SchemaRun {
+  mode: string;
+  seed: number;
+  floor: number;
+  captures: number;
+  maxCaptures: number;
+  startedAt: number;
+  floorTimes: ArrayLike<number> & Iterable<number>;
+  ended: boolean;
+}
+
 interface SchemaRoomState {
   started: boolean;
   players: Map<string, SchemaPlayer>;
@@ -55,6 +74,7 @@ interface SchemaRoomState {
   hack: SchemaHack;
   mission: SchemaMission;
   security?: SchemaSecurity;
+  run?: SchemaRun;
 }
 
 interface SchemaSecurity {
@@ -113,6 +133,24 @@ const EMPTY_MISSION: MissionNetworkState = {
 };
 
 const EMPTY_SECURITY: SecurityNetworkState = { patrols: [], cameraDisabled: false, detection: { pix: 0, nee: 0 } };
+
+const EMPTY_RUN: RunNetworkState = {
+  mode: 'standard',
+  seed: 0,
+  floor: 1,
+  captures: 0,
+  maxCaptures: 3,
+  startedAt: 0,
+  floorTimes: [],
+  ended: false,
+};
+
+export interface CreateRoomOptions {
+  seed?: number;
+  mode?: RunMode;
+  /** Challenge beat target in ms (client-only; not sent to the server). */
+  beat?: number;
+}
 
 function copyPlayer(player: SchemaPlayer): DroneNetworkState {
   return {
@@ -177,6 +215,7 @@ export class MultiplayerSession {
   private readonly patrolListeners = new Set<(message: PatrolStunMessage) => void>();
   private readonly shoveListeners = new Set<(message: PatrolShoveMessage) => void>();
   private readonly spottedListeners = new Set<(role: DroneRole) => void>();
+  private readonly floorStartListeners = new Set<(payload: FloorStartPayload) => void>();
   private readonly players = new Map<DroneRole, DroneNetworkState>();
   private readonly objects = new Map<string, GrabbableNetworkState>();
   private status: RoomStatus;
@@ -186,10 +225,13 @@ export class MultiplayerSession {
   private disposed = false;
   private reconnectDeadlineMs: number | null = null;
   private manualReconnectInFlight = false;
+  /** Last applied floor key so reconnect / first sync still fires the layout hook once. */
+  private lastFloorKey: string | null = null;
 
-  private constructor(room: Room<unknown, SchemaRoomState>) {
+  private constructor(room: Room<unknown, SchemaRoomState>, beat?: number) {
     this.room = room;
     this.roomCode = room.roomId.toUpperCase();
+    if (beat != null) setBeatTarget(beat);
     this.status = {
       roomCode: this.roomCode,
       started: false,
@@ -199,46 +241,52 @@ export class MultiplayerSession {
       hack: EMPTY_HACK,
       mission: EMPTY_MISSION,
       security: EMPTY_SECURITY,
+      run: EMPTY_RUN,
     };
     this.bindRoom(room);
     this.persistToken();
     this.readState(room.state);
   }
 
-  static async createRoom(): Promise<MultiplayerSession> {
+  static async createRoom(options: CreateRoomOptions = {}): Promise<MultiplayerSession> {
     const client = new Client(serverEndpoint());
-    const room = await client.create<SchemaRoomState>('handshake');
-    return new MultiplayerSession(room);
+    const createOptions: { seed?: number; mode?: RunMode } = {};
+    if (typeof options.seed === 'number' && Number.isFinite(options.seed)) {
+      createOptions.seed = options.seed >>> 0;
+    }
+    if (options.mode) createOptions.mode = options.mode;
+    const room = await client.create<SchemaRoomState>('handshake', createOptions);
+    return new MultiplayerSession(room, options.beat);
   }
 
-  static async joinRoom(code: string): Promise<MultiplayerSession> {
+  static async joinRoom(code: string, options: CreateRoomOptions = {}): Promise<MultiplayerSession> {
     const normalized = code.trim().toUpperCase();
     const existing = loadReconnectionToken(normalized);
     if (existing) {
       try {
-        return await MultiplayerSession.reconnect(existing);
+        return await MultiplayerSession.reconnect(existing, options.beat);
       } catch {
         clearReconnectionToken(normalized);
       }
     }
     const client = new Client(serverEndpoint());
     const room = await client.joinById<SchemaRoomState>(normalized);
-    return new MultiplayerSession(room);
+    return new MultiplayerSession(room, options.beat);
   }
 
   /** Resume a seat with a stored Colyseus reconnection token (page refresh / rejoin link). */
-  static async reconnect(token: string): Promise<MultiplayerSession> {
+  static async reconnect(token: string, beat?: number): Promise<MultiplayerSession> {
     const client = new Client(serverEndpoint());
     const room = await client.reconnect<SchemaRoomState>(token);
-    return new MultiplayerSession(room);
+    return new MultiplayerSession(room, beat);
   }
 
   /** Try sessionStorage token for a room code; returns null if missing or expired. */
-  static async resumeRoom(code: string): Promise<MultiplayerSession | null> {
+  static async resumeRoom(code: string, beat?: number): Promise<MultiplayerSession | null> {
     const token = loadReconnectionToken(code);
     if (!token) return null;
     try {
-      return await MultiplayerSession.reconnect(token);
+      return await MultiplayerSession.reconnect(token, beat);
     } catch {
       clearReconnectionToken(code);
       return null;
@@ -358,6 +406,23 @@ export class MultiplayerSession {
     this.room.send('debug-stage', { stage });
   }
 
+  /** TEST-ONLY: Night Shift escape → advance floor/seed (HANDSHAKE_TEST_HOOKS=1). */
+  debugRunEscape(): void {
+    this.room.send('debug-run-escape');
+  }
+
+  /** TEST-ONLY: Night Shift capture (HANDSHAKE_TEST_HOOKS=1). */
+  debugRunCapture(): void {
+    this.room.send('debug-run-capture');
+  }
+
+  onFloorStart(listener: (payload: FloorStartPayload) => void): () => void {
+    this.floorStartListeners.add(listener);
+    return () => {
+      this.floorStartListeners.delete(listener);
+    };
+  }
+
   /** Ask the server to stun a patrol; it arbitrates and broadcasts 'patrol-stunned' to both clients. */
   requestPatrolStun(message: PatrolStunMessage): void {
     this.room.send('patrol-stun', message);
@@ -428,6 +493,9 @@ export class MultiplayerSession {
       const role = roleOrNull(message?.role ?? '');
       if (role) for (const listener of this.spottedListeners) listener(role);
     });
+    room.onMessage('floor-start', (message: FloorStartPayload) => {
+      this.handleFloorStart(message);
+    });
     room.onReconnect(() => {
       this.networkState = 'connected';
       this.reconnectDeadlineMs = null;
@@ -460,14 +528,16 @@ export class MultiplayerSession {
   private async handleLeave(code: number): Promise<void> {
     if (this.disposed) return;
 
-    const canRetry =
-      code === CloseCode.FAILED_TO_RECONNECT
-      || code === CloseCode.ABNORMAL_CLOSURE
-      || code === 1001
-      || code === 1005
-      || code === 1006;
+    // SDK auto-retries only a few codes (1001/1005/1006/4010) via onDrop.
+    // Other unexpected closes (e.g. QA's socket.close(4999), or FAILED_TO_RECONNECT
+    // after the SDK exhausts retries) land here as onLeave — still reclaim the seat
+    // while the server grace window is open. Only consented / shutdown closes skip.
+    const intentional =
+      code === CloseCode.CONSENTED
+      || code === CloseCode.NORMAL_CLOSURE
+      || code === CloseCode.SERVER_SHUTDOWN;
 
-    if (canRetry && !this.manualReconnectInFlight) {
+    if (!intentional && !this.manualReconnectInFlight) {
       const recovered = await this.tryManualReconnect();
       if (recovered) return;
     }
@@ -564,6 +634,12 @@ export class MultiplayerSession {
           detection: { pix: state.security.detectionPix, nee: state.security.detectionNee },
         }
       : EMPTY_SECURITY;
+    const run = this.copyRun(state.run);
+    syncNetworkRun(run);
+    // Reconnect / first join: apply layout hook from room state (deduped by seed:floor).
+    if (state.run) {
+      this.handleFloorStart({ seed: run.seed, floor: run.floor }, true);
+    }
     this.status = {
       roomCode: this.roomCode,
       started: state.started,
@@ -573,8 +649,37 @@ export class MultiplayerSession {
       hack,
       mission,
       security,
+      run,
     };
     this.emit();
+  }
+
+  private copyRun(run: SchemaRun | undefined): RunNetworkState {
+    if (!run) return EMPTY_RUN;
+    const mode: RunMode = isRunMode(run.mode) ? run.mode : 'standard';
+    return {
+      mode,
+      seed: (run.seed >>> 0),
+      floor: run.floor,
+      captures: run.captures,
+      maxCaptures: run.maxCaptures || 3,
+      startedAt: run.startedAt,
+      floorTimes: Array.from(run.floorTimes ?? [], (value) => Number(value)),
+      ended: run.ended === true,
+    };
+  }
+
+  private handleFloorStart(message: FloorStartPayload, fromState = false): void {
+    if (!message || !Number.isFinite(message.seed) || !Number.isFinite(message.floor)) return;
+    const key = `${message.seed >>> 0}:${message.floor}`;
+    if (fromState && this.lastFloorKey === key) return;
+    if (!fromState && this.lastFloorKey === key) {
+      // Duplicate event after state sync — still notify session listeners once per key only.
+      return;
+    }
+    this.lastFloorKey = key;
+    applyFloorStart({ seed: message.seed >>> 0, floor: message.floor });
+    for (const listener of this.floorStartListeners) listener(message);
   }
 
   private emit(): void {
