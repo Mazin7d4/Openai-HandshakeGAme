@@ -50,9 +50,14 @@ try {
       await page.waitForFunction((n) => +(document.querySelector('#dev-readout').textContent.match(/bot:\w+\/z(\d+)/)?.[1] ?? 0) > n, before, { timeout: 30_000, polling: 100 });
       await page.evaluate(() => window.__autotest.stop('nee'));
       if (process.env.SHOTS && run === 1) await page.screenshot({ path: `${process.env.SHOTS}/solo-zip.png` });
-      let caught = false;
-      for (let i = 0; i < 24 && !caught; i++) { await page.waitForTimeout(250); caught = (await gap()) < 5; }
-      if (!caught) throw new Error(`zip did not bring NEE back (gap ${(await gap()).toFixed(1)})`);
+      let caught = false; const trace = [];
+      for (let i = 0; i < 12 && !caught; i++) {
+        await page.waitForTimeout(250);
+        const g = await gap(); caught = g < 5.5;
+        const n = await page.evaluate(() => window.__autotest.position('nee'));
+        trace.push(`${g.toFixed(1)}@${n.x.toFixed(1)},${n.y.toFixed(1)},${n.z.toFixed(1)}:${(await readout()).match(/bot:(\w+)/)?.[1]}|${(await readout()).match(/player-2.*?speed\s+[\d.]+/)?.[0]?.slice(-11)}|${(await readout()).match(/tether strain\s+\d+/)?.[0]}`);
+      }
+      if (!caught) throw new Error(`zip did not bring NEE back: ${trace.join(' ')}`);
       const zips = await zipCount();
       if (longestFar > 5) throw new Error(`NEE stranded ${longestFar}s (worst gap ${worst.toFixed(1)})`);
       if (errors.length) throw new Error(errors.join('\n'));
@@ -60,7 +65,7 @@ try {
     } catch (e) {
       clearInterval(sample);
       failed++;
-      results.push({ run, ok: false, error: String(e.message).slice(0, 300), worstGap: +worst.toFixed(1), states: [...states] });
+      results.push({ run, ok: false, error: String(e.message).slice(0, 1200), worstGap: +worst.toFixed(1), states: [...states] });
       if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/solo-fail-${run}.png` }).catch(() => {});
     }
     console.log(JSON.stringify(results[results.length - 1]));

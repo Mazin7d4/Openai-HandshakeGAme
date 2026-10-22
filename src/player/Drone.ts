@@ -73,6 +73,9 @@ function shortestAngle(from: number, to: number): number {
  * Frame order: steer() for every drone, then any constraints (tether),
  * then commit() for every drone, then scene.render(), then postPhysics().
  */
+/** Companion zip-along-cord glide speed (m/s). */
+const ZIP_SPEED = 16;
+
 export class Drone implements CameraSubject {
   readonly id: string;
   readonly root: Mesh;
@@ -282,9 +285,12 @@ export class Drone implements CameraSubject {
       this.endZip();
       return true;
     }
+    // Kinematic glide (teleport-stepped body), so nothing — furniture or cord — can pin it.
     const to = this.zipPath[0].subtract(this.root.position);
-    const speed = Math.min(16, to.length() / Math.max(dt, 1e-3));
-    this.flight.velocity.copyFrom(to.normalize().scaleInPlace(speed));
+    const step = Math.min(ZIP_SPEED * dt, to.length());
+    this.root.position.addInPlace(to.normalize().scaleInPlace(step));
+    this.flight.velocity.setAll(0);
+    this.lockUpright();
     return true;
   }
 
