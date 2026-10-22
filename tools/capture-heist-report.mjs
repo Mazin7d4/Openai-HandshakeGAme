@@ -41,8 +41,14 @@ try {
     await page.getByTestId('mission-complete').waitFor({ state: 'visible', timeout: 15_000 });
     // Let grade faces land (3 × 220ms + buffer).
     await page.waitForTimeout(900);
+    await page.evaluate(() => {
+      const overlay = document.querySelector('[data-testid="mission-complete"]');
+      if (overlay instanceof HTMLElement) overlay.scrollTop = 0;
+      const panel = overlay?.querySelector('.heist-report');
+      if (panel instanceof HTMLElement) panel.scrollTop = 0;
+    });
     const file = join(outDir, `heist-report-${vp.name}.png`);
-    await page.screenshot({ path: file, fullPage: true });
+    await page.locator('.heist-report').screenshot({ path: file });
     paths.push(file);
     console.log('wrote', file);
     await page.close();
