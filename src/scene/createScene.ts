@@ -13,6 +13,7 @@ import {
   Vector3,
 } from '@babylonjs/core';
 import { createStudioEnvironment } from './studioEnvironment.ts';
+import { initialTier, QualityManager } from './Quality.ts';
 
 /** `?scale=N` renders at 1/N resolution (low-end GPUs, software-render CI); `?lowfx` drops glow. */
 const params = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
@@ -20,14 +21,20 @@ export const renderScale = Math.min(6, Math.max(1, Number(params.get('scale')) |
 export const lowFx = params.has('lowfx');
 
 export function createEngine(canvas: HTMLCanvasElement): Engine {
-  const engine = new Engine(canvas, !lowFx, {
+  // MSAA can only be chosen at context creation: weak devices (auto low tier) start without it.
+  const aa = !lowFx && initialTier() !== 'low';
+  const engine = new Engine(canvas, aa, {
     adaptToDeviceRatio: renderScale === 1,
-    antialias: !lowFx,
+    antialias: aa,
     powerPreference: 'high-performance',
   });
   if (renderScale > 1) engine.setHardwareScalingLevel(renderScale);
   return engine;
 }
+
+const qualityManagers = new WeakMap<Scene, QualityManager>();
+/** The scene's automatic quality tier manager (see Quality.ts). */
+export function getQuality(scene: Scene): QualityManager | undefined { return qualityManagers.get(scene); }
 
 export function createScene(engine: Engine): Scene {
   const scene = new Scene(engine);
@@ -88,10 +95,12 @@ export function createScene(engine: Engine): Scene {
     refreshCasters(fx, fz);
   });
 
+  let glow: GlowLayer | null = null;
   if (!lowFx) {
-    const glow = new GlowLayer('glow', scene, { blurKernelSize: 32 });
+    glow = new GlowLayer('glow', scene, { blurKernelSize: 32 });
     glow.intensity = 0.22;
   }
+  qualityManagers.set(scene, new QualityManager(scene, { sun, shadows, glow }));
 
   // Shared soft daylight reflections on painted surfaces, glass, metal and drones.
   scene.environmentTexture = createStudioEnvironment(scene);

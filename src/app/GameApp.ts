@@ -24,6 +24,7 @@ import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import { enableHavok } from '../physics/enableHavok.ts';
 import { createEngine, createScene } from '../scene/createScene.ts';
 import { GameHud } from '../ui/GameHud.ts';
+import { saveSettings } from '../ui/Settings.ts';
 import type { GameMode } from './GameMode.ts';
 
 export interface GameAppOptions {
@@ -122,11 +123,8 @@ export class GameApp {
       ? new GameHud(hudParent, {
           onResume: () => this.setPaused(false),
           onLeave: () => onLeaveGame?.(),
-          onGraphicsQuality: (quality) => {
-            this.engine.setHardwareScalingLevel(
-              quality === 'low' ? 1.5 : quality === 'medium' ? 1 : 0.75,
-            );
-          },
+          // QualityManager (scene/Quality.ts) listens to this setting; AUTO re-enables the governor.
+          onGraphicsQuality: (quality) => { saveSettings({ graphicsQuality: quality }); },
           onInteract: () => this.triggerHudAction('interact'),
           onGrabDrop: () => this.triggerHudAction('grabDrop'),
           onThrow: () => this.triggerHudAction('throwObject'),
