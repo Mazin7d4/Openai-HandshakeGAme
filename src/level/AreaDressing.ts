@@ -27,11 +27,11 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   };
   const mustard = make('mustard-felt', '#D9A441', 0.92);
   const teal = make('teal-fabric', '#2F7F86', 0.9);
-  const pink = make('pink-polymer', '#E58FA8', 0.38);
+  const pink = make('sand-polymer', '#D6C2A4', 0.42); // was pink: NEE owns pink/coral
   const yellow = make('safety-yellow', '#F0C230', 0.55);
   const white = make('whiteboard', '#F7F6F1', 0.18);
-  const cyanLed = make('cyan-led', '#7FE6F0', 0.4, 0, '#3FC9DA');
-  const amberLed = make('amber-led', '#FFC27A', 0.4, 0, '#E3943A');
+  const cyanLed = make('status-led-warm', '#F4EFE6', 0.4, 0, '#D8CBB2'); // was cyan: PIX owns cyan
+  const amberLed = make('status-led-soft', '#E6E1D6', 0.4, 0, '#9E978A'); // was amber: amber = security only
   const copper = make('copper-pipe', '#C27F55', 0.35, 0.9);
   const cable = make('cable-rubber', '#1E2528', 0.7);
 

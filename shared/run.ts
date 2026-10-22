@@ -26,6 +26,8 @@ export interface RunCreateOptions {
 export interface FloorStartPayload {
   seed: number;
   floor: number;
+  /** Present when mirrored from room state / floor-start (Night Shift remix gate). */
+  mode?: RunMode;
 }
 
 const UINT32 = 0xffffffff;

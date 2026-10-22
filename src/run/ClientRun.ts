@@ -16,7 +16,13 @@ import {
   type RunState,
   type UrlRunOptions,
 } from '../../shared/run.ts';
-import { applyRunLayout, generateRun } from '../../shared/run-layout.ts';
+import {
+  applyRunLayout,
+  generateRun,
+  setRunSeedGetter,
+  type ApplyRunLayoutTargets,
+  type RunLayout,
+} from '../seed/index.ts';
 
 export interface ClientRunSnapshot {
   mode: RunMode;
@@ -31,13 +37,15 @@ export interface ClientRunSnapshot {
   ended: boolean;
 }
 
-type FloorStartListener = (payload: FloorStartPayload) => void;
+type FloorStartListener = (payload: FloorStartPayload, layout: RunLayout | null) => void;
+type LayoutSinkProvider = () => ApplyRunLayoutTargets | null | undefined;
 
 let snapshot: ClientRunSnapshot | null = null;
 let localState: RunState | null = null;
 let beatTarget: number | null = null;
 let ended = false;
 const floorListeners = new Set<FloorStartListener>();
+let layoutSinkProvider: LayoutSinkProvider | null = null;
 
 function toSnapshot(state: RunState): ClientRunSnapshot {
   return {
@@ -59,6 +67,11 @@ export function getRunState(): ClientRunSnapshot | null {
   return snapshot;
 }
 
+/** GameplayWorld registers sinks so floor-start can call applyRunLayout(generateRun(...), sinks). */
+export function setLayoutSinkProvider(provider: LayoutSinkProvider | null): void {
+  layoutSinkProvider = provider;
+}
+
 export function onFloorStart(listener: FloorStartListener): () => void {
   floorListeners.add(listener);
   return () => {
@@ -67,26 +80,34 @@ export function onFloorStart(listener: FloorStartListener): () => void {
 }
 
 /**
- * Hook point: apply the (future) seed-driven layout, then notify listeners.
- * Call whenever the floor seed changes (solo start, multiplayer floor-start, reconnect restore).
+ * Hook point for seed-driven layout.
+ * Night Shift only remixed; standard/daily keep the handcrafted level.
+ * Call on solo start, multiplayer floor-start, and reconnect restore.
  */
-export function applyFloorStart(payload: FloorStartPayload): void {
-  applyRunLayout(generateRun(payload.seed, payload.floor));
-  for (const listener of floorListeners) listener(payload);
+export function applyFloorStart(payload: FloorStartPayload): RunLayout | null {
+  const mode = payload.mode ?? snapshot?.mode ?? localState?.mode ?? 'standard';
+  let layout: RunLayout | null = null;
+  if (mode === 'nightshift') {
+    layout = generateRun(payload.seed, payload.floor);
+    const sinks = layoutSinkProvider?.() ?? undefined;
+    applyRunLayout(layout, sinks ?? undefined);
+  }
+  for (const listener of floorListeners) listener({ ...payload, mode }, layout);
+  return layout;
 }
 
 export function readUrlRunOptions(search = window.location.search): UrlRunOptions {
   return runOptionsFromSearch(search);
 }
 
-/** Start a local (solo / offline) run from URL options. Does not contact the server. */
-export function startLocalRun(options?: UrlRunOptions): ClientRunSnapshot {
-  const fromUrl = options ?? readUrlRunOptions();
+/** Start a local (solo / offline) run. Does not contact the server. */
+export function startLocalRun(options?: UrlRunOptions & { mode?: RunMode }): ClientRunSnapshot {
+  const fromUrl = { ...readUrlRunOptions(), ...options };
   beatTarget = fromUrl.beat ?? null;
   ended = false;
   localState = createRunState({ seed: fromUrl.seed, mode: fromUrl.mode });
   snapshot = toSnapshot(localState);
-  applyFloorStart({ seed: localState.seed, floor: localState.floor });
+  applyFloorStart({ seed: localState.seed, floor: localState.floor, mode: localState.mode });
   return snapshot;
 }
 
@@ -121,7 +142,7 @@ export function localEscape(floorTimeSeconds = 0): ClientRunSnapshot | null {
   if (!localState || localState.mode !== 'nightshift' || ended) return snapshot;
   localState = advanceFloor(localState, floorTimeSeconds);
   snapshot = toSnapshot(localState);
-  applyFloorStart({ seed: localState.seed, floor: localState.floor });
+  applyFloorStart({ seed: localState.seed, floor: localState.floor, mode: localState.mode });
   return snapshot;
 }
 
@@ -154,6 +175,12 @@ export function challengeUrl(options: ChallengeUrlOptions, base = window.locatio
 export function dailyUrl(options?: { date?: Date | string }, base = window.location.href): string {
   return buildDailyUrl(base, options);
 }
+
+// Register as the getRunSeed() backing store for Night Shift / HUD.
+setRunSeedGetter(() => {
+  if (!snapshot) return null;
+  return { seed: snapshot.seed, floor: snapshot.floor };
+});
 
 export {
   formatSeed,

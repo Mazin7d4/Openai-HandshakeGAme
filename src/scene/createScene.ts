@@ -1,4 +1,4 @@
-import type { AbstractMesh } from '@babylonjs/core';
+import type { AbstractMesh, Mesh } from '@babylonjs/core';
 import {
   Color3,
   Color4,
@@ -13,6 +13,7 @@ import {
   Vector3,
 } from '@babylonjs/core';
 import { createStudioEnvironment } from './studioEnvironment.ts';
+import { initialTier, QualityManager } from './Quality.ts';
 
 /** `?scale=N` renders at 1/N resolution (low-end GPUs, software-render CI); `?lowfx` drops glow. */
 const params = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
@@ -20,14 +21,28 @@ export const renderScale = Math.min(6, Math.max(1, Number(params.get('scale')) |
 export const lowFx = params.has('lowfx');
 
 export function createEngine(canvas: HTMLCanvasElement): Engine {
-  const engine = new Engine(canvas, !lowFx, {
+  // MSAA can only be chosen at context creation: weak devices (auto low tier) start without it.
+  const aa = !lowFx && initialTier() !== 'low';
+  const engine = new Engine(canvas, aa, {
     adaptToDeviceRatio: renderScale === 1,
-    antialias: !lowFx,
+    antialias: aa,
     powerPreference: 'high-performance',
   });
   if (renderScale > 1) engine.setHardwareScalingLevel(renderScale);
   return engine;
 }
+
+const GLOW_NAMES = /^(p01-core|p01-core-halo|alarm-beacon-lamp|alarm-beacon-beam|security-camera|security-drone-\d+-eye|instrument-screen|.*-beacon)$/;
+/** Glow include-list: core, screens, face-screens, security lenses, alarm/objective beacons. */
+function isGlowMesh(mesh: AbstractMesh): boolean {
+  if (GLOW_NAMES.test(mesh.name)) return true;
+  // Mascot face-screens: the drone GLB's 'Screen' material carries the animated face texture.
+  return mesh.material?.name === 'Screen' && !!(mesh.material as { emissiveTexture?: unknown }).emissiveTexture;
+}
+
+const qualityManagers = new WeakMap<Scene, QualityManager>();
+/** The scene's automatic quality tier manager (see Quality.ts). */
+export function getQuality(scene: Scene): QualityManager | undefined { return qualityManagers.get(scene); }
 
 export function createScene(engine: Engine): Scene {
   const scene = new Scene(engine);
@@ -88,10 +103,22 @@ export function createScene(engine: Engine): Scene {
     refreshCasters(fx, fz);
   });
 
+  let glow: GlowLayer | null = null;
   if (!lowFx) {
-    const glow = new GlowLayer('glow', scene, { blurKernelSize: 32 });
-    glow.intensity = 0.22;
+    // Glow discipline (ANTI_VIBECODED): include-list only (face-screens, lenses, beacons, the core).
+    // An unfiltered GlowLayer re-draws every emissive mesh and blooms props into neon.
+    glow = new GlowLayer('glow', scene, { blurKernelSize: 16, mainTextureRatio: 0.5 });
+    glow.intensity = 0.5;
+    const layer = glow;
+    const pending: AbstractMesh[] = [];
+    scene.onNewMeshAddedObservable.add((mesh) => pending.push(mesh));
+    // Materials are assigned after creation, so classify on the next frame.
+    scene.onBeforeRenderObservable.add(() => {
+      if (pending.length === 0) return;
+      for (const mesh of pending.splice(0)) if (isGlowMesh(mesh)) layer.addIncludedOnlyMesh(mesh as Mesh);
+    });
   }
+  qualityManagers.set(scene, new QualityManager(scene, { sun, shadows, glow }));
 
   // Shared soft daylight reflections on painted surfaces, glass, metal and drones.
   scene.environmentTexture = createStudioEnvironment(scene);

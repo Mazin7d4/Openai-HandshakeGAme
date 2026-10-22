@@ -1,1 +1,1 @@
-export type GameMode = 'multiplayer' | 'singleplayer' | 'dev-local';
+export type GameMode = 'multiplayer' | 'singleplayer' | 'dev-local' | 'night-shift';

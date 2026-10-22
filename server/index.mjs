@@ -10,7 +10,7 @@ import {
   isRunMode,
   MAX_CAPTURES,
 } from '../shared/run.ts';
-import { applyRunLayout, generateRun } from '../shared/run-layout.ts';
+import { applyRunLayout, generateRun } from '../shared/seed/index.mjs';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json');
@@ -45,8 +45,19 @@ const MAX_WORLD_COORDINATE = 200;
 const MAX_PLAYER_SPEED = 28;
 const MAX_OBJECT_SPEED = 32;
 const TERMINAL_RANGE = 5;
-const TERMINALS = layout.terminals;
-const EXTRACTION = layout.extraction;
+/** Mutable per-room world sinks filled by applyRunLayout (defaults match heist-layout.json). */
+function createWorldSinks() {
+  return {
+    spawn: { x: layout.spawn.x, y: layout.spawn.y, z: layout.spawn.z },
+    extraction: { x: layout.extraction.x, y: layout.extraction.y, z: layout.extraction.z },
+    terminals: {
+      'terminal-a': { ...layout.terminals['terminal-a'] },
+      'terminal-b': { ...layout.terminals['terminal-b'] },
+      'terminal-c': { ...layout.terminals['terminal-c'] },
+    },
+    infiltrationZ: layout.infiltrationZ,
+  };
+}
 
 const Vec3 = schema(
   {
@@ -206,6 +217,8 @@ class HandshakeRoom extends Room {
   disposeReason = 'disposed';
   /** Prevents double-advancing Night Shift on the same extraction. */
   nightshiftEscapedFloor = 0;
+  world = createWorldSinks();
+  runLayout = null;
 
   onCreate(options = {}) {
     liveRooms.add(this);
@@ -287,14 +300,15 @@ class HandshakeRoom extends Room {
   }
 
   /**
-   * Hook point for the future seed-driven layout generator.
-   * Emits `floor-start` so clients (and tests) can apply the same layout.
+   * Floor hook: Night Shift remixed layout via applySeedFloor; other modes stay handcrafted.
+   * Always emits `floor-start` so clients (and reconnect) apply the same seed/floor.
    */
   beginFloor() {
-    const { seed, floor } = this.state.run;
-    // Generator seam: replaced on the prod-seed branch. Keep this as the only call site.
-    applyRunLayout(generateRun(seed, floor));
-    this.broadcast('floor-start', { seed, floor });
+    const { seed, floor, mode } = this.state.run;
+    if (mode === 'nightshift') {
+      this.applySeedFloor(seed, floor);
+    }
+    this.broadcast('floor-start', { seed, floor, mode });
   }
 
   /** Night Shift: successful extraction → next floor + next seed. */
@@ -357,9 +371,9 @@ class HandshakeRoom extends Room {
     player.playerId = client.sessionId;
     player.role = role;
     player.connected = true;
-    player.position.x = role === 'pix' ? -1.6 : 1.6;
-    player.position.y = layout.spawn.y;
-    player.position.z = layout.spawn.z;
+    player.position.x = this.world.spawn.x + (role === 'pix' ? -1.6 : 1.6);
+    player.position.y = this.world.spawn.y;
+    player.position.z = this.world.spawn.z;
     this.state.players.set(client.sessionId, player);
     this.state.started = this.state.players.size === 2;
     if (this.state.started && this._lonelyTimeout) {
@@ -508,7 +522,7 @@ class HandshakeRoom extends Room {
     const player = this.state.players.get(sessionId);
     const stationId = message?.stationId;
     const fields = this.stationFields(stationId);
-    const position = TERMINALS[stationId];
+    const position = this.world.terminals[stationId];
     if (
       !player ||
       !fields ||
@@ -532,7 +546,7 @@ class HandshakeRoom extends Room {
       !player ||
       !fields ||
       this.state.hack[fields.owner] !== player.role ||
-      distance(player.position, TERMINALS[stationId]) > TERMINAL_RANGE
+      distance(player.position, this.world.terminals[stationId]) > TERMINAL_RANGE
     ) return;
     this.state.hack[fields.complete] = true;
     this.state.hack[fields.owner] = '';
@@ -559,7 +573,7 @@ class HandshakeRoom extends Room {
       const role = this.state.hack[field];
       if (!role) continue;
       const player = Array.from(this.state.players.values()).find((candidate) => candidate.role === role);
-      if (!player?.connected || distance(player.position, TERMINALS[stationId]) > TERMINAL_RANGE) {
+      if (!player?.connected || distance(player.position, this.world.terminals[stationId]) > TERMINAL_RANGE) {
         this.state.hack[field] = '';
       }
     }
@@ -577,7 +591,7 @@ class HandshakeRoom extends Room {
     const mission = this.state.mission;
     mission.elapsedSeconds = (Date.now() - this.missionStartedAt) / 1000;
     const players = Array.from(this.state.players.values());
-    if (mission.stage === 'infiltrate' && players.some((player) => player.position.z > layout.infiltrationZ)) {
+    if (mission.stage === 'infiltrate' && players.some((player) => player.position.z > this.world.infiltrationZ)) {
       mission.stage = 'hack-security';
     }
     if (mission.stage === 'hack-security' && this.state.hack.doorOpen) {
@@ -587,10 +601,11 @@ class HandshakeRoom extends Room {
     mission.prototypeHeldBy = prototype?.heldBy ?? '';
     if (mission.alarm && prototype?.heldBy) {
       const carrier = players.find((player) => player.role === prototype.heldBy);
+      const extraction = this.world.extraction;
       const bothNear = players.length === 2 && players.every(
-        (player) => distance(player.position, EXTRACTION) <= 5.5,
+        (player) => distance(player.position, extraction) <= 5.5,
       );
-      if (carrier && distance(carrier.position, EXTRACTION) <= 4.5 && bothNear) {
+      if (carrier && distance(carrier.position, extraction) <= 4.5 && bothNear) {
         mission.extracted = true;
         mission.stage = 'complete';
         mission.securityActive = false;
@@ -669,12 +684,29 @@ class HandshakeRoom extends Room {
     });
   }
 
+  /**
+   * Night Shift only: build enemies/security from generateRun → applyRunLayout.
+   * Called from beginFloor on room create and each floor advance.
+   */
+  applySeedFloor(seed, floor = 0) {
+    const run = generateRun(seed >>> 0, Math.max(0, floor | 0));
+    this.runLayout = run;
+    applyRunLayout(run, {
+      spawn: this.world.spawn,
+      extraction: this.world.extraction,
+      terminals: this.world.terminals,
+      objects: this.state.objects,
+      security: this.securitySim,
+    });
+    return run;
+  }
+
   /** Server-arbitrated clothesline: validate claim, then let SecuritySim own the stun. */
   stunPatrol(client, message) {
     if (!this.state.players.has(client.sessionId) || !message || typeof message !== 'object') return;
     if (!this.state.mission.securityActive) return;
     const index = Math.round(finite(message.index, -1));
-    if (index !== 0 && index !== 1) return;
+    if (index < 0 || index >= this.state.security.patrols.length) return;
     const p = this.securitySim.patrolPosition(index);
     if (!p) return;
 
@@ -734,9 +766,10 @@ class HandshakeRoom extends Room {
     if (prototype) {
       prototype.heldBy = '';
       prototype.mode = 'free';
-      prototype.position.x = layout.objects.prototype.x;
-      prototype.position.y = layout.objects.prototype.y;
-      prototype.position.z = layout.objects.prototype.z;
+      const loot = this.runLayout?.loot ?? layout.objects.prototype;
+      prototype.position.x = loot.x;
+      prototype.position.y = loot.y;
+      prototype.position.z = loot.z;
       prototype.velocity.x = 0;
       prototype.velocity.y = 0;
       prototype.velocity.z = 0;

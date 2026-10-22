@@ -636,9 +636,9 @@ export class MultiplayerSession {
       : EMPTY_SECURITY;
     const run = this.copyRun(state.run);
     syncNetworkRun(run);
-    // Reconnect / first join: apply layout hook from room state (deduped by seed:floor).
+    // Reconnect / first join: apply layout hook from room state (deduped by seed:floor:mode).
     if (state.run) {
-      this.handleFloorStart({ seed: run.seed, floor: run.floor }, true);
+      this.handleFloorStart({ seed: run.seed, floor: run.floor, mode: run.mode }, true);
     }
     this.status = {
       roomCode: this.roomCode,
@@ -672,17 +672,14 @@ export class MultiplayerSession {
     };
   }
 
-  private handleFloorStart(message: FloorStartPayload, fromState = false): void {
+  private handleFloorStart(message: FloorStartPayload, _fromState = false): void {
     if (!message || !Number.isFinite(message.seed) || !Number.isFinite(message.floor)) return;
-    const key = `${message.seed >>> 0}:${message.floor}`;
-    if (fromState && this.lastFloorKey === key) return;
-    if (!fromState && this.lastFloorKey === key) {
-      // Duplicate event after state sync — still notify session listeners once per key only.
-      return;
-    }
+    const mode = message.mode ?? this.status.run?.mode ?? 'standard';
+    const key = `${message.seed >>> 0}:${message.floor}:${mode}`;
+    if (this.lastFloorKey === key) return;
     this.lastFloorKey = key;
-    applyFloorStart({ seed: message.seed >>> 0, floor: message.floor });
-    for (const listener of this.floorStartListeners) listener(message);
+    applyFloorStart({ seed: message.seed >>> 0, floor: message.floor, mode });
+    for (const listener of this.floorStartListeners) listener({ ...message, mode });
   }
 
   private emit(): void {
