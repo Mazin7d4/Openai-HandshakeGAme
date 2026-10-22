@@ -38,10 +38,22 @@ try {
         await page.waitForFunction(() => window.__autotest.arrived('pix'), null, { timeout: 90_000, polling: 250 });
       }
       // PIX parks at its desk console; NEE should go crack the signal console herself.
-      await page.waitForFunction(() => /NEE CRACKED/.test(document.querySelector('[data-testid="juice-toasts"]')?.textContent ?? ''), null, { timeout: 45_000, polling: 250 });
+      await page.waitForFunction(() => /CONSOLE CRACKED/.test(document.querySelector('[data-testid="juice-toasts"]')?.textContent ?? ''), null, { timeout: 45_000, polling: 250 });
       clearInterval(sample);
       if (process.env.SHOTS && run === 1) await page.screenshot({ path: `${process.env.SHOTS}/solo-nee-cracked.png` });
-      const zips = +((await readout()).match(/bot:\w+\/z(\d+)/)?.[1] ?? 0);
+      const zipCount = async () => +((await readout()).match(/bot:\w+\/z(\d+)/)?.[1] ?? 0);
+      // Strand her on purpose: wedge NEE at the console while PIX flies back up the vent.
+      const before = await zipCount();
+      const at = await page.evaluate(() => window.__autotest.position('nee'));
+      await page.evaluate((p) => window.__autotest.goto('nee', p.x, p.y, p.z, 0.4, true), at);
+      await page.evaluate(() => window.__autotest.goto('pix', -4, 6.5, -42, 1, true));
+      await page.waitForFunction((n) => +(document.querySelector('#dev-readout').textContent.match(/bot:\w+\/z(\d+)/)?.[1] ?? 0) > n, before, { timeout: 30_000, polling: 100 });
+      await page.evaluate(() => window.__autotest.stop('nee'));
+      if (process.env.SHOTS && run === 1) await page.screenshot({ path: `${process.env.SHOTS}/solo-zip.png` });
+      let caught = false;
+      for (let i = 0; i < 24 && !caught; i++) { await page.waitForTimeout(250); caught = (await gap()) < 5; }
+      if (!caught) throw new Error(`zip did not bring NEE back (gap ${(await gap()).toFixed(1)})`);
+      const zips = await zipCount();
       if (longestFar > 5) throw new Error(`NEE stranded ${longestFar}s (worst gap ${worst.toFixed(1)})`);
       if (errors.length) throw new Error(errors.join('\n'));
       results.push({ run, ok: true, secs: Math.round((Date.now() - t0) / 1000), worstGap: +worst.toFixed(1), longestFar, zips, states: [...states] });

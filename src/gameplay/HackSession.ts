@@ -141,7 +141,7 @@ export class HackSession {
       this.setOwner(station.id, null);
       this.doorOpen = this.allComplete();
       this.audio?.success();
-      gameEvents.emit('toast', { text: `${role === 'nee' ? 'NEE' : 'PIX'} CRACKED ${station.label}`, tone: role });
+      gameEvents.emit('toast', { text: `${station.label} CRACKED!`, tone: role });
     }
     return true;
   }
