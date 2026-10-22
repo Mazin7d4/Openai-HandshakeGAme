@@ -15,6 +15,12 @@ import { nextFloorSeed, stashRunSeed } from '../seed/index.ts';
 import { clearRunIntent, formatBeatMs, getRunInfo, prepareRun } from '../net/runInfo.ts';
 import { updateHeistPresentation } from '../level/PrototypeHeist.ts';
 import { gameEvents } from './GameEvents.ts';
+import { byInput } from '../ui/inputHints.ts';
+
+export interface WarmupStep {
+  label: string;
+  done: boolean;
+}
 
 const FRESH_STATE: MissionNetworkState = {
   stage: 'infiltrate', alarm: false, securityActive: false, prototypeHeldBy: null,
@@ -59,7 +65,8 @@ export class MissionDirector {
   private readonly securityHistory: { t: number; p: { x: number; y: number; z: number }[] }[] = [];
   private readonly unsubscribe: (() => void) | null;
   private readonly scene: Scene;
-  private warmup: () => string | null = () => null;
+  private warmup: () => WarmupStep[] | null = () => null;
+  private lastWarmupKey: string | null = null;
   private routeHint = 'Enter beneath reception, then rise together through the service vent.';
   private vault = new Vector3(layout.objects.prototype.x, layout.objects.prototype.y, layout.objects.prototype.z);
   private extraction = new Vector3(layout.extraction.x, layout.extraction.y, layout.extraction.z);
@@ -122,7 +129,7 @@ export class MissionDirector {
       objective.className = 'mission-objective';
       objective.dataset.testid = 'mission-objective';
       const kicker = document.createElement('span');
-      kicker.textContent = 'PROTOTYPE THEFT';
+      kicker.textContent = 'Prototype theft';
       this.objectiveTitle = document.createElement('h2');
       this.objectiveDetail = document.createElement('p');
       const detection = document.createElement('div');
@@ -404,26 +411,57 @@ export class MissionDirector {
   }
 
   /** Apron warm-up checklist provider (CordPlayground); null once done. */
-  setWarmup(provider: () => string | null): void { this.warmup = provider; }
+  setWarmup(provider: () => WarmupStep[] | null): void { this.warmup = provider; }
 
   /** Warm-up checklist line, exposed for tests. */
-  get warmupLine(): string | null { return this.warmup(); }
+  get warmupLine(): string | null {
+    const items = this.warmup();
+    return items ? items.map((step) => step.label).join(' · ') : null;
+  }
   get stage(): string { return this.state.stage; }
 
   private renderObjective(hackCount: number): void {
     if (!this.objectiveTitle || !this.objectiveDetail || !this.detectionFill) return;
     const warm = this.state.stage === 'infiltrate' ? this.warmup() : null;
     const [title, detail] = this.state.stage === 'infiltrate'
-      ? warm ? ['Warm up on the apron', `${warm} · then fly in under reception`] : ['Sneak in under reception', this.routeHint]
+      ? warm ? ['Warm up on the apron', ''] : ['Sneak in under reception', this.routeHint]
       : this.state.stage === 'hack-security'
         ? ['Crack the office consoles', `${hackCount} / 3 access keys · ${this.routeHint}`]
         : this.state.stage === 'steal-prototype'
-          ? ['Grab the prototype', 'The vault is open. Rise to the display cradle; [E] to carry the core.']
+          ? [
+              'Grab the prototype',
+              'The vault is open. Rise to the display cradle; ' +
+                byInput({
+                  keyboard: '[E] to carry the core.',
+                  touch: 'tap Grab to carry the core.',
+                  gamepad: 'grab to carry the core.',
+                }),
+            ]
           : this.state.stage === 'escape'
-            ? ['Get out through the west vent', 'Main shutter sealed! West relief vent is open. Heavy Lab Crate is jamming the relief vent - haul it clear together. Follow green floor lights; throw loose objects at patrols. Both drones must reach Pickup / 01.']
+            ? [
+                'Get out through the west vent',
+                'Main shutter sealed! West relief vent is open. Heavy Lab Crate is jamming the relief vent - haul it clear together. Follow green floor lights; throw loose objects at patrols. Both drones must reach Pickup / 01.',
+              ]
             : ['Prototype secured', 'Extraction complete'];
     this.objectiveTitle.textContent = title;
-    this.objectiveDetail.textContent = detail;
+    if (warm) {
+      const key = warm.map((step) => `${step.label}:${step.done}`).join('|');
+      if (this.lastWarmupKey !== key) {
+        this.lastWarmupKey = key;
+        this.objectiveDetail.replaceChildren();
+        for (const step of warm) {
+          const span = document.createElement('span');
+          span.className = 'warmup-step';
+          span.dataset.done = String(step.done);
+          span.textContent = step.label;
+          this.objectiveDetail.appendChild(span);
+        }
+        this.objectiveDetail.appendChild(document.createTextNode(' · then fly in under reception'));
+      }
+    } else {
+      this.lastWarmupKey = null;
+      this.objectiveDetail.textContent = detail;
+    }
     this.detectionFill.style.width = `${Math.round(this.security.detection * 100)}%`;
     this.objective?.classList.toggle('alarm', this.state.alarm);
   }

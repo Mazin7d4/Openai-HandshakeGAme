@@ -37,7 +37,7 @@ export class MemoryTraceView implements HackMinigameView {
     this.overlay.dataset.testid = 'memory-trace';
     const panel = document.createElement('section');
     panel.className = 'hack-panel';
-    panel.innerHTML = `<p class="menu-kicker"></p><h2>MEMORY TRACE</h2><p class="hack-help">Watch the pulse route, then repeat it. Mistakes replay the same round.</p>`;
+    panel.innerHTML = `<p class="menu-kicker"></p><h2>Memory trace</h2><p class="hack-help">Watch the pulse route, then repeat it. Mistakes replay the same round.</p>`;
     panel.querySelector('.menu-kicker')!.textContent = stationLabel;
     const board = document.createElement('div');
     board.className = 'memory-board';
@@ -57,7 +57,7 @@ export class MemoryTraceView implements HackMinigameView {
     this.cancelButton = document.createElement('button');
     this.cancelButton.type = 'button';
     this.cancelButton.className = 'hack-cancel';
-    this.cancelButton.textContent = 'CANCEL';
+    this.cancelButton.textContent = 'Cancel';
     this.cancelButton.addEventListener('click', this.cancel);
     panel.append(board, this.status, this.cancelButton);
     this.overlay.append(panel);
@@ -86,13 +86,13 @@ export class MemoryTraceView implements HackMinigameView {
     }
     this.overlay.dataset.sequence = this.sequence.join(',');
     this.overlay.dataset.rounds = String(ROUNDS);
-    this.status.textContent = `TRACE ${this.round + 1} / ${ROUNDS} — WATCH`;
+    this.status.textContent = `Trace ${this.round + 1} / ${ROUNDS} — watch`;
     this.sequence.forEach((node, index) => {
       this.schedule(() => this.flash(node), 500 + index * 430);
     });
     this.schedule(() => {
       this.accepting = true;
-      this.status.textContent = `TRACE ${this.round + 1} / ${ROUNDS} — REPEAT`;
+      this.status.textContent = `Trace ${this.round + 1} / ${ROUNDS} — repeat`;
     }, 650 + this.sequence.length * 430);
   }
 
@@ -102,7 +102,7 @@ export class MemoryTraceView implements HackMinigameView {
     if (index !== this.sequence[this.inputIndex]) {
       this.accepting = false;
       this.overlay.classList.add('failure');
-      this.status.textContent = 'TRACE LOST — REPLAYING';
+      this.status.textContent = 'Trace lost — replaying';
       this.audio?.fail();
       this.schedule(() => {
         this.overlay.classList.remove('failure');
@@ -117,7 +117,7 @@ export class MemoryTraceView implements HackMinigameView {
     this.audio?.success();
     if (this.round >= ROUNDS) {
       this.overlay.classList.add('success');
-      this.status.textContent = 'MEMORY TRACE VERIFIED';
+      this.status.textContent = 'Memory trace verified';
       this.schedule(this.complete, 650);
     } else {
       this.schedule(() => this.startRound(), 650);
