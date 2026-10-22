@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.6"
+  },
   "scripts": {
     "build:kit": "bash tools/blender/kit/build-kit.sh",
     "dev": "node tools/dev.mjs",
