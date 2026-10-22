@@ -86,11 +86,15 @@ function errorMessage(error: unknown): string {
 }
 
 function showMainMenu(): void {
+  const beat = new URLSearchParams(window.location.search).get('beat');
+  const blurb = beat && /^\d+:\d{2}$/.test(beat)
+    ? `A friend finished in ${beat}. Can you beat it?`
+    : 'Fly a pair of tethered drones through a sleepy office and lift the core from the vault.';
   const shell = menuShell();
   shell.classList.add('menu-shell--title');
   const panel = element('section', 'panel menu-panel title-panel');
   panel.append(wordmark(), element('h2', 'title-tagline', 'Two drones. One cord.'));
-  panel.append(element('p', 'panel__body menu-subtitle', 'Fly a pair of tethered drones through a sleepy office and lift the core from the vault.'));
+  panel.append(element('p', 'panel__body menu-subtitle', blurb));
   const play = menuButton('', 'singleplayer', showSinglePlayer, 'btn--primary');
   play.classList.add('btn--hero');
   play.append(element('span', 'btn__label', 'Play now'), element('span', 'btn__hint', 'Solo · you fly PIX'));
@@ -382,7 +386,43 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   }
 }
 
-showMainMenu();
+/** Dev / screenshot hook: `?report` mounts the Heist Report with demo stats (no Havok boot). */
+async function showHeistReportDemo(): Promise<void> {
+  const shell = menuShell();
+  shell.classList.add('heist-report-demo');
+  root.replaceChildren(shell);
+  const { HeistReport, demoRunStats } = await import('./ui/HeistReport.ts');
+  const report = new HeistReport(shell, {
+    onPlayAgain: () => {
+      const next = new URL(window.location.href);
+      next.searchParams.delete('report');
+      next.searchParams.set('play', 'solo');
+      window.location.href = next.toString();
+    },
+    onLeave: () => {
+      const next = new URL(window.location.href);
+      next.searchParams.delete('report');
+      window.location.href = next.toString();
+    },
+  });
+  report.show(demoRunStats());
+  (window as unknown as { __heistReport?: unknown }).__heistReport = {
+    show: (stats?: Parameters<typeof report.show>[0]) => report.show(stats ?? demoRunStats()),
+    hide: () => report.hide(),
+    visible: () => report.visible,
+  };
+}
+
+const bootParams = new URLSearchParams(window.location.search);
+if (bootParams.has('report')) {
+  void showHeistReportDemo();
+} else if (bootParams.get('play') === 'solo') {
+  void startGame('singleplayer');
+  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+} else {
+  showMainMenu();
+  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+}
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
@@ -390,5 +430,3 @@ if (import.meta.hot) {
     game = null;
   });
 }
-
-setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);

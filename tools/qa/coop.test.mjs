@@ -25,6 +25,18 @@ await runTest('coop', async (browser, notes) => {
   notes.pixMovedOnGuest = +moved.toFixed(2);
   assert(moved > 0.5, `guest did not see PIX move (moved ${moved.toFixed(2)})`);
   const issues = compareWorld(h, g);
+  notes.securityPresent = Boolean(h.security && g.security);
+  assert(notes.securityPresent, 'window.__autotest.security() missing on a client (server-owned security not wired?)');
+  // With HANDSHAKE_TEST_HOOKS=1 on the server (QA_HOOKS=1), also force escape so patrols are active.
+  if (process.env.QA_HOOKS === '1') {
+    await host.evaluate(() => window.__autotest.debugStage('escape'));
+    await Promise.all([host, guest].map((p) => p.waitForFunction(() => window.__autotest.security().securityActive, null, { timeout: 10_000 })));
+    await host.waitForTimeout(1500);
+    const [h2, g2] = await Promise.all([worldState(host), worldState(guest)]);
+    issues.push(...compareWorld(h2, g2).map((s) => `escape: ${s}`));
+    notes.escapeSecurity = h2.security;
+    await shot(host, 'coop-escape-host');
+  }
   notes.agreement = issues;
   notes.patrolsTracked = h.patrols.length;
   await shot(host, 'coop-host'); await shot(guest, 'coop-guest');
