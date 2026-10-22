@@ -1,8 +1,8 @@
 // (a) Boot smoke: menu renders, no console errors, single-player boots and the canvas draws.
-import { runTest, url, assert, collectErrors, shot, waitForGame, canvasHasContent } from './lib.mjs';
+import { runTest, url, assert, collectErrors, shot, waitForGame, canvasHasContent, openPage, closePage } from './lib.mjs';
 
 await runTest('smoke', async (browser, notes) => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const { page } = await openPage(browser, { viewport: { width: 1280, height: 720 } });
   const errors = collectErrors(page, 'page', []);
   const t0 = Date.now();
   await page.goto(url());
@@ -19,11 +19,12 @@ await runTest('smoke', async (browser, notes) => {
   const t1 = Date.now();
   await waitForGame(page);
   notes.bootMs = Date.now() - t1;
-  await page.waitForTimeout(2500);
+  for (let i = 0; i < 40 && !(await canvasHasContent(page)); i++) await page.waitForTimeout(250);
   assert(await canvasHasContent(page), 'canvas looks blank');
   notes.controlsCard = await page.getByTestId('controls-card').isVisible().catch(() => false);
   notes.objective = (await page.getByTestId('mission-objective').innerText().catch(() => '')).slice(0, 120);
   await shot(page, 'smoke-ingame');
   notes.errors = errors;
   assert(errors.length === 0, `console/page errors:\n${errors.join('\n')}`);
+  await closePage(page);
 });

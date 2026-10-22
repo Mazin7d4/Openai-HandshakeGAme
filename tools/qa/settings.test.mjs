@@ -1,8 +1,8 @@
 // Settings persist across reload: change a value, reload, confirm it stuck.
-import { runTest, url, assert, collectErrors, shot } from './lib.mjs';
+import { runTest, url, assert, collectErrors, shot, openPage, closePage } from './lib.mjs';
 
 await runTest('settings', async (browser, notes) => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const { page } = await openPage(browser, { viewport: { width: 1280, height: 720 } });
   const errors = collectErrors(page, 'settings', []);
   await page.goto(url());
   await page.getByTestId('title-settings').waitFor({ timeout: 20_000 });
@@ -54,4 +54,5 @@ await runTest('settings', async (browser, notes) => {
 
   notes.errors = errors;
   assert(errors.length === 0, `console/page errors:\n${errors.join('\n')}`);
+  await closePage(page);
 });

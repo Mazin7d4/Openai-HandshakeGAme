@@ -1,6 +1,9 @@
 import { readdirSync, rmSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { defineConfig, type Plugin } from 'vite';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { defineConfig, searchForWorkspaceRoot, type Plugin } from 'vite';
+
+const rootDir = dirname(fileURLToPath(import.meta.url));
 
 // Public URL prefix. Local dev and tests use '/'; the GitHub Pages build sets
 // BASE_PATH=/Openai-HandshakeGAme/ so every asset resolves under the repo subpath.
@@ -43,6 +46,13 @@ function stripSourceAssets(): Plugin {
 export default defineConfig({
   base: basePath(),
   plugins: [stripSourceAssets()],
+  server: {
+    fs: {
+      // Parent of the package root so symlinked/hoisted node_modules can serve
+      // HavokPhysics.wasm via /@fs/… (otherwise Vite 403s and Night Shift boot hangs).
+      allow: [searchForWorkspaceRoot(rootDir), resolve(rootDir, '..')],
+    },
+  },
   optimizeDeps: {
     exclude: ['@babylonjs/havok'],
   },
