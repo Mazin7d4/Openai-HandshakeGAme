@@ -1,5 +1,11 @@
-import { Client, type Room } from '@colyseus/sdk';
+import { Client, CloseCode, type Room } from '@colyseus/sdk';
 import { reportStabilityIssue } from '../dev/StabilityDiagnostics.ts';
+import {
+  clearReconnectionToken,
+  loadReconnectionToken,
+  RECONNECT_GRACE_SECONDS,
+  storeReconnectionToken,
+} from './ReconnectionToken.ts';
 import { serverEndpoint } from './ServerEndpoint.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import type {
@@ -152,11 +158,20 @@ function copyObject(object: SchemaObject): GrabbableNetworkState {
   };
 }
 
+function configureAutoReconnect(room: Room): void {
+  // Cover the server grace window with SDK retries before falling back to manual reconnect.
+  room.reconnection.minUptime = 0;
+  room.reconnection.maxRetries = 24;
+  room.reconnection.delay = 250;
+  room.reconnection.minDelay = 250;
+  room.reconnection.maxDelay = 2_000;
+}
+
 /** Colyseus room lifecycle and snapshot relay kept outside the gameplay classes. */
 export class MultiplayerSession {
   readonly roomCode: string;
 
-  private readonly room: Room<unknown, SchemaRoomState>;
+  private room: Room<unknown, SchemaRoomState>;
   private readonly listeners = new Set<StatusListener>();
   private readonly yankListeners = new Set<(message: TetherYankMessage) => void>();
   private readonly patrolListeners = new Set<(message: PatrolStunMessage) => void>();
@@ -169,11 +184,11 @@ export class MultiplayerSession {
   private readonly lastObjectSendAt = new Map<string, number>();
   private networkState = 'connected';
   private disposed = false;
+  private reconnectDeadlineMs: number | null = null;
+  private manualReconnectInFlight = false;
 
   private constructor(room: Room<unknown, SchemaRoomState>) {
     this.room = room;
-    room.reconnection.minUptime = 0;
-    room.reconnection.maxDelay = 2_000;
     this.roomCode = room.roomId.toUpperCase();
     this.status = {
       roomCode: this.roomCode,
@@ -185,43 +200,8 @@ export class MultiplayerSession {
       mission: EMPTY_MISSION,
       security: EMPTY_SECURITY,
     };
-
-    room.onStateChange((state) => {
-      try {
-        this.readState(state);
-      } catch (error) {
-        reportStabilityIssue('network', 'Failed to apply a Colyseus state update.', error);
-      }
-    });
-    room.onMessage('tether-yanked', (message: TetherYankMessage) => {
-      for (const listener of this.yankListeners) listener(message);
-    });
-    room.onMessage('patrol-stunned', (message: PatrolStunMessage) => {
-      for (const listener of this.patrolListeners) listener(message);
-    });
-    room.onMessage('patrol-shove', (message: PatrolShoveMessage) => {
-      for (const listener of this.shoveListeners) listener(message);
-    });
-    room.onMessage('security-spotted', (message: { role?: string }) => {
-      const role = roleOrNull(message?.role ?? '');
-      if (role) for (const listener of this.spottedListeners) listener(role);
-    });
-    room.onReconnect(() => {
-      this.networkState = 'connected';
-      this.readState(room.state);
-    });
-    room.onDrop(() => {
-      this.networkState = 'reconnecting';
-    });
-    room.onError((code, message) => {
-      this.networkState = 'error';
-      reportStabilityIssue('network', `Colyseus error ${code}: ${message ?? 'unknown error'}`);
-    });
-    room.onLeave(() => {
-      this.networkState = 'disconnected';
-      this.status = { ...this.status, started: false };
-      this.emit();
-    });
+    this.bindRoom(room);
+    this.persistToken();
     this.readState(room.state);
   }
 
@@ -232,9 +212,37 @@ export class MultiplayerSession {
   }
 
   static async joinRoom(code: string): Promise<MultiplayerSession> {
+    const normalized = code.trim().toUpperCase();
+    const existing = loadReconnectionToken(normalized);
+    if (existing) {
+      try {
+        return await MultiplayerSession.reconnect(existing);
+      } catch {
+        clearReconnectionToken(normalized);
+      }
+    }
     const client = new Client(serverEndpoint());
-    const room = await client.joinById<SchemaRoomState>(code.trim().toUpperCase());
+    const room = await client.joinById<SchemaRoomState>(normalized);
     return new MultiplayerSession(room);
+  }
+
+  /** Resume a seat with a stored Colyseus reconnection token (page refresh / rejoin link). */
+  static async reconnect(token: string): Promise<MultiplayerSession> {
+    const client = new Client(serverEndpoint());
+    const room = await client.reconnect<SchemaRoomState>(token);
+    return new MultiplayerSession(room);
+  }
+
+  /** Try sessionStorage token for a room code; returns null if missing or expired. */
+  static async resumeRoom(code: string): Promise<MultiplayerSession | null> {
+    const token = loadReconnectionToken(code);
+    if (!token) return null;
+    try {
+      return await MultiplayerSession.reconnect(token);
+    } catch {
+      clearReconnectionToken(code);
+      return null;
+    }
   }
 
   get currentStatus(): RoomStatus {
@@ -243,6 +251,12 @@ export class MultiplayerSession {
 
   get connectionState(): string {
     return this.networkState;
+  }
+
+  /** Seconds left in the local reconnect attempt window, or null when not reconnecting. */
+  get reconnectSecondsLeft(): number | null {
+    if (this.reconnectDeadlineMs == null) return null;
+    return Math.max(0, Math.ceil((this.reconnectDeadlineMs - Date.now()) / 1000));
   }
 
   onStatus(listener: StatusListener): () => void {
@@ -270,6 +284,9 @@ export class MultiplayerSession {
   publish(snapshot: PlayerSnapshot): void {
     const now = performance.now();
     if (now - this.lastSendAt < SEND_INTERVAL_MS || !this.status.localRole) {
+      return;
+    }
+    if (this.networkState !== 'connected') {
       return;
     }
     this.lastSendAt = now;
@@ -372,9 +389,130 @@ export class MultiplayerSession {
     if (this.disposed) return;
     this.disposed = true;
     this.networkState = 'disposed';
+    this.reconnectDeadlineMs = null;
     this.listeners.clear();
+    clearReconnectionToken(this.roomCode);
     this.room.removeAllListeners();
     await this.room.leave(true);
+  }
+
+  /** TEST-ONLY (?autotest): force an unexpected socket close so reconnect can be exercised. */
+  dropConnectionForTest(): void {
+    this.reconnectDeadlineMs ??= Date.now() + RECONNECT_GRACE_SECONDS * 1000;
+    this.networkState = 'reconnecting';
+    this.emit();
+    // 4010 MAY_TRY_RECONNECT is an allowed browser close code that the SDK retries on,
+    // and the server treats as an unexpected drop (seat held via allowReconnection).
+    this.room.connection.close(CloseCode.MAY_TRY_RECONNECT, 'autotest-drop');
+  }
+
+  private bindRoom(room: Room<unknown, SchemaRoomState>): void {
+    configureAutoReconnect(room);
+    room.onStateChange((state) => {
+      try {
+        this.readState(state);
+      } catch (error) {
+        reportStabilityIssue('network', 'Failed to apply a Colyseus state update.', error);
+      }
+    });
+    room.onMessage('tether-yanked', (message: TetherYankMessage) => {
+      for (const listener of this.yankListeners) listener(message);
+    });
+    room.onMessage('patrol-stunned', (message: PatrolStunMessage) => {
+      for (const listener of this.patrolListeners) listener(message);
+    });
+    room.onMessage('patrol-shove', (message: PatrolShoveMessage) => {
+      for (const listener of this.shoveListeners) listener(message);
+    });
+    room.onMessage('security-spotted', (message: { role?: string }) => {
+      const role = roleOrNull(message?.role ?? '');
+      if (role) for (const listener of this.spottedListeners) listener(role);
+    });
+    room.onReconnect(() => {
+      this.networkState = 'connected';
+      this.reconnectDeadlineMs = null;
+      this.persistToken();
+      this.readState(room.state);
+      this.emit();
+    });
+    room.onDrop(() => {
+      if (this.disposed) return;
+      this.networkState = 'reconnecting';
+      this.reconnectDeadlineMs ??= Date.now() + RECONNECT_GRACE_SECONDS * 1000;
+      this.emit();
+    });
+    room.onError((code, message) => {
+      this.networkState = 'error';
+      reportStabilityIssue('network', `Colyseus error ${code}: ${message ?? 'unknown error'}`);
+      this.emit();
+    });
+    room.onLeave((code) => {
+      void this.handleLeave(code);
+    });
+  }
+
+  private persistToken(): void {
+    if (this.room.reconnectionToken) {
+      storeReconnectionToken(this.roomCode, this.room.reconnectionToken);
+    }
+  }
+
+  private async handleLeave(code: number): Promise<void> {
+    if (this.disposed) return;
+
+    const canRetry =
+      code === CloseCode.FAILED_TO_RECONNECT
+      || code === CloseCode.ABNORMAL_CLOSURE
+      || code === 1001
+      || code === 1005
+      || code === 1006;
+
+    if (canRetry && !this.manualReconnectInFlight) {
+      const recovered = await this.tryManualReconnect();
+      if (recovered) return;
+    }
+
+    this.networkState = 'disconnected';
+    this.reconnectDeadlineMs = null;
+    clearReconnectionToken(this.roomCode);
+    this.status = { ...this.status, started: false };
+    this.emit();
+  }
+
+  private async tryManualReconnect(): Promise<boolean> {
+    const deadline = this.reconnectDeadlineMs ?? (Date.now() + RECONNECT_GRACE_SECONDS * 1000);
+    this.reconnectDeadlineMs = deadline;
+    this.networkState = 'reconnecting';
+    this.manualReconnectInFlight = true;
+    this.emit();
+
+    const token = loadReconnectionToken(this.roomCode) ?? this.room.reconnectionToken;
+    if (!token) {
+      this.manualReconnectInFlight = false;
+      return false;
+    }
+
+    const client = new Client(serverEndpoint());
+    while (!this.disposed && Date.now() < deadline) {
+      try {
+        const next = await client.reconnect<SchemaRoomState>(token);
+        this.room.removeAllListeners();
+        this.room = next;
+        this.bindRoom(next);
+        this.networkState = 'connected';
+        this.reconnectDeadlineMs = null;
+        this.persistToken();
+        this.readState(next.state);
+        this.manualReconnectInFlight = false;
+        this.emit();
+        return true;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 750));
+      }
+    }
+
+    this.manualReconnectInFlight = false;
+    return false;
   }
 
   private readState(state: SchemaRoomState): void {

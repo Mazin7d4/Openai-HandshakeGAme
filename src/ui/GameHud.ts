@@ -2,13 +2,18 @@ import type { GameMode } from '../app/GameMode.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
 import { controlIcon, keycaps } from './ControlGlyphs.ts';
 import { clearOnboardingDone } from './OnboardingCoach.ts';
-import { getSettings, saveSettings, type TouchHandedness } from './Settings.ts';
+import {
+  getSettings,
+  saveSettings,
+  type GraphicsQualitySetting,
+  type TouchHandedness,
+} from './Settings.ts';
 import { isTouchPlayDevice } from './touchDetect.ts';
 
 export interface GameHudOptions {
   onResume: () => void;
   onLeave: () => void;
-  onGraphicsQuality: (quality: 'low' | 'medium' | 'high') => void;
+  onGraphicsQuality: (quality: GraphicsQualitySetting) => void;
   onInteract: () => void;
   onGrabDrop: () => void;
   onThrow: () => void;
@@ -241,15 +246,15 @@ export class GameHud {
     row.className = 'settings-row';
     row.append(document.createTextNode('Graphics quality'));
     const select = document.createElement('select');
-    for (const value of ['low', 'medium', 'high'] as const) {
+    for (const value of ['auto', 'low', 'medium', 'high'] as const) {
       const option = document.createElement('option');
       option.value = value;
       option.textContent = value[0].toUpperCase() + value.slice(1);
-      option.selected = value === 'high';
+      option.selected = value === settings.graphicsQuality;
       select.append(option);
     }
     select.addEventListener('change', () => {
-      this.options.onGraphicsQuality(select.value as 'low' | 'medium' | 'high');
+      this.options.onGraphicsQuality(select.value as GraphicsQualitySetting);
     });
     row.append(select);
 

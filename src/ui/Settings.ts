@@ -1,9 +1,11 @@
 export type TouchHandedness = 'right' | 'left';
+export type GraphicsQualitySetting = 'auto' | 'low' | 'medium' | 'high';
 
 export interface GameSettings {
   masterVolume: number; // 0..100
   lookSensitivity: number; // 0.25..2
   screenShake: boolean;
+  graphicsQuality: GraphicsQualitySetting;
   /** Stick on the left (right) or right (left-handed). */
   touchHandedness: TouchHandedness;
   /** On-screen control opacity 0.35..1. */
@@ -16,6 +18,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   masterVolume: 80,
   lookSensitivity: 1.0,
   screenShake: true,
+  graphicsQuality: 'auto',
   touchHandedness: 'right',
   touchOpacity: 0.85,
 };
@@ -40,6 +43,9 @@ export function loadSettings(): GameSettings {
       screenShake: typeof parsed?.screenShake === 'boolean'
         ? parsed.screenShake
         : DEFAULT_SETTINGS.screenShake,
+      graphicsQuality: ['auto', 'low', 'medium', 'high'].includes(parsed?.graphicsQuality)
+        ? parsed.graphicsQuality
+        : DEFAULT_SETTINGS.graphicsQuality,
       touchHandedness: parsed?.touchHandedness === 'left' || parsed?.touchHandedness === 'right'
         ? parsed.touchHandedness
         : DEFAULT_SETTINGS.touchHandedness,
