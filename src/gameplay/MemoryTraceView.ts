@@ -78,7 +78,7 @@ export class MemoryTraceView implements HackMinigameView {
   private startRound(): void {
     this.accepting = false;
     this.inputIndex = 0;
-    const length = 3 + this.round;
+    const length = 2 + this.round;
     if (this.sequence.length !== length) {
       const previous = this.sequence[this.sequence.length - 1] ?? Math.floor(Math.random() * NODE_COUNT);
       this.sequence.push((previous + 1 + Math.floor(Math.random() * (NODE_COUNT - 1))) % NODE_COUNT);

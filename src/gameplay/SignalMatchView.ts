@@ -110,7 +110,7 @@ export class SignalMatchView implements HackMinigameView {
     this.meter.style.width = `${Math.round(closeness * 100)}%`;
     this.status.textContent = closeness > 0.9 ? 'Lock almost stable' : closeness > 0.65 ? 'Signal converging' : 'Searching…';
     audio.play('hackTick', { progress: closeness });
-    if (Math.abs(frequency - this.targetFrequency) <= 4 && Math.abs(amplitude - this.targetAmplitude) <= 4) {
+    if (Math.abs(frequency - this.targetFrequency) <= 6 && Math.abs(amplitude - this.targetAmplitude) <= 6) {
       this.completed = true;
       this.overlay.classList.add('success');
       this.status.textContent = 'Signal locked';

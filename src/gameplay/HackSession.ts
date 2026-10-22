@@ -29,7 +29,7 @@ function terminalPos(
 
 /** Owns station proximity, minigame lifetime, completion state and the shared door target. */
 /** Seconds the CPU partner needs on its own console. */
-const BOT_HACK_SECONDS = 5;
+const BOT_HACK_SECONDS = 3.5;
 
 export class HackSession {
   readonly stations: readonly HackStation[];
