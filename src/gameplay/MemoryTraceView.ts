@@ -1,5 +1,6 @@
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { HackMinigameView } from './HackMinigame.ts';
+import { audio } from '../audio/AudioManager.ts';
 
 const NODE_COUNT = 6;
 
@@ -24,11 +25,11 @@ export class MemoryTraceView implements HackMinigameView {
     stationLabel: string,
     complete: () => void,
     cancel: () => void,
-    audio?: GameAudio,
+    gameAudio?: GameAudio,
   ) {
     this.complete = complete;
     this.cancel = cancel;
-    this.audio = audio;
+    this.audio = gameAudio;
     this.overlay = document.createElement('div');
     this.overlay.className = 'hack-overlay';
     this.overlay.dataset.testid = 'memory-trace';
@@ -59,6 +60,7 @@ export class MemoryTraceView implements HackMinigameView {
     panel.append(board, this.status, this.cancelButton);
     this.overlay.append(panel);
     parent.append(this.overlay);
+    audio.play('hackStart');
     this.startRound();
   }
 
@@ -98,7 +100,7 @@ export class MemoryTraceView implements HackMinigameView {
       this.accepting = false;
       this.overlay.classList.add('failure');
       this.status.textContent = 'TRACE LOST — REPLAYING';
-      this.audio?.warning();
+      this.audio?.fail();
       this.schedule(() => {
         this.overlay.classList.remove('failure');
         this.startRound();

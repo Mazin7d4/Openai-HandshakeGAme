@@ -1,5 +1,6 @@
 import { Vector3, type Engine, type Scene } from '@babylonjs/core';
 import { AssetLoader } from '../assets/AssetLoader.ts';
+import { audio as audioHub } from '../audio/AudioManager.ts';
 import { CinematicCamera } from '../camera/CinematicCamera.ts';
 import { BotControlSource } from '../control/BotControlSource.ts';
 import type { DroneControlSource } from '../control/DroneControlSource.ts';
@@ -24,6 +25,7 @@ import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import { enableHavok } from '../physics/enableHavok.ts';
 import { createEngine, createScene } from '../scene/createScene.ts';
 import { GameHud } from '../ui/GameHud.ts';
+import { saveSettings } from '../ui/Settings.ts';
 import type { GameMode } from './GameMode.ts';
 
 export interface GameAppOptions {
@@ -122,11 +124,8 @@ export class GameApp {
       ? new GameHud(hudParent, {
           onResume: () => this.setPaused(false),
           onLeave: () => onLeaveGame?.(),
-          onGraphicsQuality: (quality) => {
-            this.engine.setHardwareScalingLevel(
-              quality === 'low' ? 1.5 : quality === 'medium' ? 1 : 0.75,
-            );
-          },
+          // QualityManager (scene/Quality.ts) listens to this setting; AUTO re-enables the governor.
+          onGraphicsQuality: (quality) => { saveSettings({ graphicsQuality: quality }); },
           onInteract: () => this.triggerHudAction('interact'),
           onGrabDrop: () => this.triggerHudAction('grabDrop'),
           onThrow: () => this.triggerHudAction('throwObject'),
@@ -150,7 +149,7 @@ export class GameApp {
     this.unsubscribers.push(
       gameEvents.on('impact', (e) => {
         this.juice.burst('impact', e.position, 6 + Math.min(16, e.strength * 1.4));
-        audio.impact(Math.min(1, e.strength / 12));
+        audio.impact(Math.min(1, e.strength / 12), e.position);
         if (isLocalDrone(e.droneId)) this.cameraRig.addShake(Math.min(0.4, e.strength * 0.03));
       }),
       gameEvents.on('boost', (e) => {
@@ -177,7 +176,7 @@ export class GameApp {
         switch (e.beat) {
           case 'vault':
             this.juice.burst('zap', pos, 40);
-            audio.success();
+            audioHub.play('vaultOpen', { position: pos });
             this.cameraRig.beat(pos, 2.4);
             this.cameraRig.addShake(0.12);
             for (const drone of this.drones) drone.react('happy', 2);
@@ -469,6 +468,7 @@ export class GameApp {
     this.tether.updateVisual();
     this.cameraRig.update(dt, this.drones, this.gameplay.cameraContext);
     this.devOrbit?.update(this.drones);
+    this.updateAudio();
     this.devReadout?.update(
       this.snapshots,
       this.tether.currentStrain,
@@ -499,6 +499,23 @@ export class GameApp {
       );
     }
   }
+
+  /** Camera as the audio listener, plus a thruster hum per drone (the partner's is spatialised). */
+  private updateAudio(): void {
+    const camera = this.scene.activeCamera;
+    if (camera) audioHub.setListener(camera.globalPosition, camera.getDirection(Vector3.Right()));
+    const local = this.hudRole();
+    const dt = Math.max(1e-3, this.engine.getDeltaTime() / 1000);
+    for (const player of this.players) {
+      // Speed from position change so remote (replicated) drones hum correctly too.
+      const p = player.drone.position;
+      const last = this.audioLastPos.get(player.role);
+      const speed = last ? Math.min(30, Vector3.Distance(p, last) / dt) : 0;
+      if (last) last.copyFrom(p); else this.audioLastPos.set(player.role, p.clone());
+      audioHub.setDroneMotion(player.role, speed, p, player.role === local);
+    }
+  }
+  private readonly audioLastPos = new Map<DroneRole, Vector3>();
 
   private hudRole(): DroneRole {
     return this.mode === 'dev-local'

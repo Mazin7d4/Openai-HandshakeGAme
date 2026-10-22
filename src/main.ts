@@ -10,6 +10,10 @@ import type { RoomStatus } from './network/NetworkTypes.ts';
 import { RECONNECT_GRACE_SECONDS } from './network/ReconnectionToken.ts';
 import { pingServer, wakeServer } from './network/ServerEndpoint.ts';
 import './style.css';
+import { audio } from './audio/AudioManager.ts';
+
+// Unlock-on-first-gesture, menu UI sounds and M to mute; sound files load lazily once the page is idle.
+audio.install();
 
 function roomInviteUrl(code: string): string {
   const url = new URL(window.location.href);

@@ -2,7 +2,10 @@ export interface GameSettings {
   masterVolume: number; // 0..100
   lookSensitivity: number; // 0.25..2
   screenShake: boolean;
+  graphicsQuality: GraphicsQualitySetting;
 }
+
+export type GraphicsQualitySetting = 'auto' | 'low' | 'medium' | 'high';
 
 const STORAGE_KEY = 'handshake.settings';
 
@@ -10,6 +13,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   masterVolume: 80,
   lookSensitivity: 1.0,
   screenShake: true,
+  graphicsQuality: 'auto',
 };
 
 type SettingsListener = (settings: GameSettings) => void;
@@ -32,6 +36,9 @@ export function loadSettings(): GameSettings {
       screenShake: typeof parsed?.screenShake === 'boolean'
         ? parsed.screenShake
         : DEFAULT_SETTINGS.screenShake,
+      graphicsQuality: ['auto', 'low', 'medium', 'high'].includes(parsed?.graphicsQuality)
+        ? parsed.graphicsQuality
+        : DEFAULT_SETTINGS.graphicsQuality,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
