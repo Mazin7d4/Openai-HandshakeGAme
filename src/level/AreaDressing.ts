@@ -34,6 +34,8 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   const amberLed = make('status-led-soft', '#E6E1D6', 0.4, 0, '#9E978A'); // was amber: amber = security only
   const copper = make('copper-pipe', '#C27F55', 0.35, 0.9);
   const cable = make('cable-rubber', '#1E2528', 0.7);
+  const apronWainscot = make('apron-wainscot', '#CFC9BB', 0.85);
+  const cork = make('cork', '#B98E62', 0.95);
 
   const groups = new Map<Material, Mesh[]>();
   const add = (mesh: Mesh, material: Material) => {
@@ -67,6 +69,128 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
     box(x, 13.14, z, len - 0.3, 0.04, 0.85, p.light);
     for (const dx of [-len / 2 + 0.6, len / 2 - 0.6]) box(x + dx, 13.8, z, 0.03, 0.9, 0.03, cable);
   };
+
+  // ---------- 00 DELIVERY APRON ----------
+  // Base trims: oak skirting board (0.5 tall, 0.12 deep) and brushed-alu chair rail at y≈4.2
+  // on all apron wall faces, skipping the doorway gap and the spine opening.
+  // South wall (inner face z=-66.7):
+  box(0, 0.25, -66.62, 37.4, 0.5, 0.12, p.wood);
+  box(0, 4.2, -66.62, 37.4, 0.12, 0.12, p.metal);
+  // East wall (inner face x=18.7):
+  box(18.62, 0.25, -60.975, 0.12, 0.5, 11.45, p.wood);
+  box(18.62, 4.2, -60.975, 0.12, 0.12, 11.45, p.metal);
+  // North entry wall (inner face z=-55.25):
+  // East of doorway gap x[-6..3]:
+  box(10.85, 0.25, -55.33, 15.7, 0.5, 0.12, p.wood);
+  box(10.85, 4.2, -55.33, 15.7, 0.12, 0.12, p.metal);
+  // West of doorway gap up to spine opening at x=-12:
+  box(-9.0, 0.25, -55.33, 6.0, 0.5, 0.12, p.wood);
+  box(-9.0, 4.2, -55.33, 6.0, 0.12, 0.12, p.metal);
+  // West wall (inner face x=-18.7) south of existing spine trim at z=-60:
+  box(-18.62, 0.25, -63.35, 0.12, 0.5, 6.7, p.wood);
+  box(-18.62, 4.2, -63.35, 0.12, 0.12, 6.7, p.metal);
+
+  // Lower wainscot panels (apron-wainscot #CFC9BB, roughness 0.85) 0.06 deep from floor to chair rail (y=4.2)
+  // on south and east walls, split into 6-unit panels with 0.1 graphite shadow gaps.
+  // South wall: 6 panels across 37.16 span (-18.58 to 18.58), 5 shadow gaps of 0.1.
+  const southPanelW = 6.11;
+  const southGapW = 0.1;
+  for (let i = 0; i < 6; i++) {
+    const px = -15.525 + i * (southPanelW + southGapW);
+    box(px, 2.1, -66.65, southPanelW, 4.2, 0.06, apronWainscot);
+    if (i < 5) {
+      const gx = -12.42 + i * (southPanelW + southGapW);
+      box(gx, 2.1, -66.655, southGapW, 4.2, 0.05, p.dark);
+    }
+  }
+  // East wall: 2 panels across 11.37 span (-66.62 to -55.25), 1 shadow gap of 0.1.
+  const eastPanelW = 5.635;
+  const eastGapW = 0.1;
+  for (let i = 0; i < 2; i++) {
+    const pz = -63.74 + i * (eastPanelW + eastGapW);
+    box(18.65, 2.1, pz, 0.06, 4.2, eastPanelW, apronWainscot);
+    if (i === 0) {
+      box(18.655, 2.1, -60.935, 0.05, 4.2, eastGapW, p.dark);
+    }
+  }
+
+  // Wall-mounted everyday props:
+  // Round wall clock on south wall high (y≈10):
+  const clockRim = CreateTorus('dress', { diameter: 1.6, thickness: 0.12, tessellation: 32 }, scene);
+  clockRim.position.set(0, 10, -66.62); clockRim.rotation.x = Math.PI / 2; add(clockRim, p.dark);
+  cyl(0, 10, -66.64, 0.04, 1.48, 1.48, white, 32).rotation.x = Math.PI / 2;
+  const hHand = box(0.12, 10.12, -66.60, 0.04, 0.36, 0.02, p.dark);
+  hHand.rotation.z = -Math.PI / 4;
+  const mHand = box(-0.16, 10.20, -66.59, 0.03, 0.52, 0.02, p.dark);
+  mHand.rotation.z = Math.PI / 3;
+  cyl(0, 10, -66.58, 0.04, 0.08, 0.08, p.dark, 12).rotation.x = Math.PI / 2;
+
+  // Two wall sconces with p.light diffusers on the south wall (symmetric at x=±8):
+  for (const sx of [-8, 8]) {
+    box(sx, 7.5, -66.66, 0.5, 0.8, 0.04, p.metal);
+    box(sx, 7.5, -66.52, 0.1, 0.1, 0.24, p.metal);
+    box(sx, 7.5, -66.35, 0.5, 0.6, 0.16, p.metal);
+    box(sx, 7.81, -66.35, 0.46, 0.04, 0.14, p.light);
+    box(sx, 7.19, -66.35, 0.46, 0.04, 0.14, p.light);
+    box(sx, 7.5, -66.26, 0.46, 0.28, 0.03, p.light);
+  }
+
+  // Fire extinguisher on alu bracket beside the entry (north wall, east of doorway at x=3.8):
+  box(3.8, 3.0, -55.28, 0.3, 1.2, 0.04, p.metal);
+  box(3.8, 3.1, -55.45, 0.55, 0.06, 0.35, p.metal);
+  cyl(3.8, 2.9, -55.55, 1.3, 0.52, 0.52, p.dark);
+  cyl(3.8, 3.6, -55.55, 0.12, 0.32, 0.52, p.dark);
+  cyl(3.8, 2.9, -55.55, 0.48, 0.54, 0.54, white); // paper-white label band
+  box(3.8, 3.75, -55.55, 0.14, 0.18, 0.18, p.metal);
+  box(3.8, 3.86, -55.50, 0.06, 0.04, 0.30, p.metal);
+  box(4.02, 3.25, -55.55, 0.05, 0.9, 0.05, cable);
+  cyl(4.02, 2.7, -55.55, 0.2, 0.06, 0.1, p.dark);
+
+  // Light switch plate and thermostat by doorway (north wall, west of doorway at x=-6.8):
+  box(-6.8, 3.2, -55.28, 0.35, 0.5, 0.04, p.paint);
+  box(-6.8, 3.2, -55.31, 0.14, 0.22, 0.03, white);
+  box(-6.8, 3.2, -55.33, 0.14, 0.02, 0.01, p.dark);
+  box(-6.8, 3.8, -55.28, 0.48, 0.48, 0.04, white);
+  cyl(-6.8, 3.8, -55.31, 0.03, 0.4, 0.4, p.metal, 24).rotation.x = Math.PI / 2;
+  cyl(-6.8, 3.8, -55.33, 0.02, 0.3, 0.3, p.dark, 24).rotation.x = Math.PI / 2;
+  box(-6.8, 3.8, -55.345, 0.1, 0.03, 0.01, p.light);
+
+  // Cork notice board with paper sheets and push pins on the east wall:
+  box(18.64, 6.0, -58.5, 0.08, 2.1, 3.3, p.wood);
+  box(18.62, 6.0, -58.5, 0.06, 1.9, 3.1, cork);
+  box(18.575, 6.4, -59.3, 0.015, 0.65, 0.5, white);
+  box(18.575, 6.3, -58.5, 0.015, 0.75, 0.55, white);
+  box(18.575, 6.35, -57.8, 0.015, 0.6, 0.5, yellow, 0.08);
+  box(18.575, 5.5, -59.1, 0.015, 0.5, 0.7, white);
+  box(18.575, 5.45, -58.1, 0.015, 0.45, 0.45, white, -0.06);
+  cyl(18.555, 6.68, -59.3, 0.03, 0.04, 0.04, p.dark, 8).rotation.z = Math.PI / 2;
+  cyl(18.555, 6.62, -58.5, 0.03, 0.04, 0.04, yellow, 8).rotation.z = Math.PI / 2;
+  cyl(18.555, 6.60, -57.8, 0.03, 0.04, 0.04, p.metal, 8).rotation.z = Math.PI / 2;
+  cyl(18.555, 5.70, -59.1, 0.03, 0.04, 0.04, p.dark, 8).rotation.z = Math.PI / 2;
+  cyl(18.555, 5.63, -58.1, 0.03, 0.04, 0.04, yellow, 8).rotation.z = Math.PI / 2;
+
+  // Wall-mounted parcel shelf with 3 cardboard boxes (mustard/oak tones) high on east wall (y≈7.5):
+  box(18.0, 7.5, -63.5, 1.36, 0.08, 4.5, p.metal);
+  for (const bz of [-65.0, -62.0]) {
+    box(18.65, 7.0, bz, 0.06, 0.9, 0.12, p.metal);
+    box(18.05, 7.42, bz, 1.25, 0.08, 0.12, p.metal);
+    const brace = box(18.3, 7.15, bz, 0.85, 0.06, 0.1, p.metal);
+    brace.rotation.z = -Math.PI / 4;
+  }
+  box(18.0, 7.94, -64.7, 1.0, 0.8, 1.1, mustard);
+  box(18.0, 7.95, -64.7, 1.02, 0.06, 0.15, p.paint);
+  box(18.0, 8.04, -63.4, 1.1, 1.0, 1.3, p.wood);
+  box(18.0, 8.05, -63.4, 1.12, 0.06, 0.16, mustard);
+  box(18.0, 7.89, -62.1, 0.9, 0.7, 0.9, mustard);
+  box(18.0, 7.90, -62.1, 0.92, 0.05, 0.12, p.paint);
+
+  // Floor: painted floor tape (white, 0.15 wide, y=0.02) framing the apron 1.5 units in from the walls,
+  // with a gap at the doorway x[-6..3].
+  box(0, 0.02, -65.2, 34.4, 0.02, 0.15, white); // south line (z = -66.7 + 1.5)
+  box(17.2, 0.02, -60.975, 0.15, 0.02, 8.45, white); // east line (x = 18.7 - 1.5)
+  box(10.1, 0.02, -56.75, 14.2, 0.02, 0.15, white); // north line east of doorway
+  box(-11.6, 0.02, -56.75, 11.2, 0.02, 0.15, white); // north line west of doorway
+  box(-17.2, 0.02, -60.975, 0.15, 0.02, 8.45, white); // west line (x = -18.7 + 1.5)
 
   // ---------- 01 RECEPTION ----------
   kit.place({ prop: 'Plant', x: 15.5, z: -52, scale: 1.05 }); kit.place({ prop: 'Plant', x: -9.5, z: -52.5, scale: 0.8 });
@@ -188,7 +312,7 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
     merged.push(m);
   }
   // Freeze static dressing materials whose properties do not change at runtime.
-  for (const mat of [mustard, teal, pink, yellow, white, cyanLed, amberLed, copper, cable, glow]) mat.freeze();
+  for (const mat of [mustard, teal, pink, yellow, white, cyanLed, amberLed, copper, cable, glow, apronWainscot, cork]) mat.freeze();
   return merged;
 }
 

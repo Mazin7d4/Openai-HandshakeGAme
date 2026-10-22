@@ -14,6 +14,8 @@ import { MissionDirector } from './MissionDirector.ts';
 import layout from '../level/heist-layout.json';
 import { dressPrototype } from '../level/PrototypeVisual.ts';
 import { dressLabCrate } from '../level/LabCrateVisual.ts';
+import { dressCargoCore, dressCoolantCell } from '../level/GrabbableVisuals.ts';
+import { addContactShadows } from '../level/ContactShadows.ts';
 
 function vec(src: { x: number; y: number; z: number }): Vector3 {
   return new Vector3(src.x, src.y, src.z);
@@ -82,6 +84,14 @@ export class GameplayWorld {
     this.objects = objects;
     dressLabCrate(objects.find((object) => object.id === 'crate-blue')!.mesh, 3.6, scene);
     dressPrototype(objects.find((object) => object.id === 'prototype')!.mesh, scene);
+    dressCargoCore(objects.find((object) => object.id === 'cargo-core')!.mesh, scene);
+    dressCoolantCell(objects.find((object) => object.id === 'crate-pink')!.mesh, scene);
+    addContactShadows(scene, [
+      { mesh: objects.find((object) => object.id === 'cargo-core')!.mesh, radius: 0.75 },
+      { mesh: objects.find((object) => object.id === 'crate-blue')!.mesh, radius: 2.4 },
+      { mesh: objects.find((object) => object.id === 'crate-pink')!.mesh, radius: 0.7 },
+      { mesh: objects.find((object) => object.id === 'prototype')!.mesh, radius: 0.8 },
+    ]);
     this.grab = new GrabSystem(
       objects,
       session,
