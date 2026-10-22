@@ -4,7 +4,7 @@ import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 
 const RAW = process.argv[2] ?? process.env.APP_URL ?? 'http://127.0.0.1:5173/';
-const APP_URL = RAW + (RAW.includes('?') ? '&' : '?') + 'autotest&stage=escape';
+const APP_URL = RAW + (RAW.includes('?') ? '&' : '?') + 'autotest&capture&stage=escape';
 const SHOTS = process.env.SHOTS;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 const assert = (c, m) => { if (!c) throw new Error(m); };

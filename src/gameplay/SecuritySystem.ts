@@ -24,6 +24,9 @@ const ALERT_BEAT = 0.45;
 /** Capture-and-carry: never a game over; the partner yanks you free (or struggle / throw). */
 const CARRY_POINT = new Vector3(0, 3.5, 10);
 const CARRY_MAX = 4.5;
+/** Route checks (?autotest) skip captures unless they opt in with &capture. */
+const CAPTURE_ENABLED = typeof window === 'undefined' || !new URLSearchParams(window.location.search).has('autotest')
+  || new URLSearchParams(window.location.search).has('capture');
 const CAMERA_BLIND = 8;
 
 interface SecurityCallbacks {
@@ -367,7 +370,7 @@ class PatrolDrone {
     }
     if (nearest && this.alertBeat <= 0 && this.dazedFor <= 0 && range < 1.55) {
       const victim = nearest[1];
-      if (this.captureCooldown <= 0 && !victim.isCaptured) {
+      if (CAPTURE_ENABLED && this.captureCooldown <= 0 && !victim.isCaptured) {
         // GOTCHA: grab and start hauling toward the lab holding pen.
         this.carrying = victim;
         this.carryFor = 0;
