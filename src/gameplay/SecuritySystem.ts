@@ -17,6 +17,13 @@ import { gameEvents } from './GameEvents.ts';
 const CAMERA_RANGE = 10;
 const CAMERA_HALF_ANGLE = Math.PI / 5;
 
+const SECURITY_AMBER = Color3.FromHexString('#FFB84D');
+const CAMERA_BODY_EMISSIVE_ACTIVE = SECURITY_AMBER.scale(0.3);
+const CAMERA_BODY_EMISSIVE_DISABLED = new Color3(0.05, 0.05, 0.05);
+const CAMERA_CONE_EMISSIVE = SECURITY_AMBER.scale(0.35);
+const DRONE_BODY_EMISSIVE = new Color3(0.04, 0.04, 0.04);
+const DRONE_EYE_STUNNED = new Color3(0.18, 0.18, 0.18);
+
 interface SecurityCallbacks {
   onSpotted: (role: DroneRole) => void;
   /** Multiplayer: route a clothesline through the server instead of stunning locally. */
@@ -39,7 +46,7 @@ class SecurityCamera {
     this.body.position.copyFrom(this.origin);
     const bodyMaterial = new StandardMaterial('security-camera-material', scene);
     bodyMaterial.diffuseColor = new Color3(0.12, 0.16, 0.18);
-    bodyMaterial.emissiveColor = new Color3(0.3, 0.05, 0.04);
+    bodyMaterial.emissiveColor.copyFrom(CAMERA_BODY_EMISSIVE_ACTIVE);
     this.body.material = bodyMaterial;
     this.cone = CreateCylinder('security-camera-cone', {
       height: CAMERA_RANGE,
@@ -50,8 +57,8 @@ class SecurityCamera {
     this.cone.position.copyFrom(this.origin).addInPlace(this.forward.scale(CAMERA_RANGE / 2));
     this.cone.rotation.x = Math.PI / 2;
     this.coneMaterial = new StandardMaterial('security-camera-cone-material', scene);
-    this.coneMaterial.diffuseColor = new Color3(1, 0.26, 0.16);
-    this.coneMaterial.emissiveColor = new Color3(0.55, 0.06, 0.03);
+    this.coneMaterial.diffuseColor.copyFrom(SECURITY_AMBER);
+    this.coneMaterial.emissiveColor.copyFrom(CAMERA_CONE_EMISSIVE);
     this.coneMaterial.alpha = 0.16;
     this.coneMaterial.backFaceCulling = false;
     this.cone.material = this.coneMaterial;
@@ -62,7 +69,7 @@ class SecurityCamera {
     this.disabled = disabled;
     this.cone.setEnabled(!disabled);
     const material = this.body.material as StandardMaterial;
-    material.emissiveColor = disabled ? new Color3(0.04, 0.28, 0.14) : new Color3(0.3, 0.05, 0.04);
+    material.emissiveColor.copyFrom(disabled ? CAMERA_BODY_EMISSIVE_DISABLED : CAMERA_BODY_EMISSIVE_ACTIVE);
   }
 
   update(dt: number, drones: ReadonlyMap<DroneRole, Drone>, onSpotted: (role: DroneRole) => void): number {
@@ -103,6 +110,7 @@ class SecurityCamera {
 class PatrolDrone {
   private readonly mesh: Mesh;
   private readonly material: StandardMaterial;
+  private readonly eyeMaterial: StandardMaterial;
   private readonly velocity = new Vector3();
   private stunnedFor = 0;
   private shoveCooldown = 0;
@@ -125,10 +133,13 @@ class PatrolDrone {
     this.mesh.position.set(index === 0 ? -4 : 4, 2.2, 10 + index * 3);
     this.material = new StandardMaterial(`security-drone-${index}-material`, scene);
     this.material.diffuseColor = new Color3(0.16, 0.19, 0.21);
-    this.material.emissiveColor = new Color3(0.5, 0.08, 0.04);
+    this.material.emissiveColor.copyFrom(DRONE_BODY_EMISSIVE);
     this.mesh.material = this.material;
+    this.eyeMaterial = new StandardMaterial(`security-drone-${index}-eye-material`, scene);
+    this.eyeMaterial.disableLighting = true;
+    this.eyeMaterial.emissiveColor.copyFrom(SECURITY_AMBER);
     const eye = CreateCylinder(`security-drone-${index}-eye`, { height: 0.5, diameter: 0.16, tessellation: 12 }, scene);
-    eye.parent = this.mesh; eye.rotation.z = Math.PI / 2; eye.position.set(0, 0, 0.66); eye.material = this.material;
+    eye.parent = this.mesh; eye.rotation.z = Math.PI / 2; eye.position.set(0, 0, 0.66); eye.material = this.eyeMaterial;
     eye.isPickable = false;
     this.mesh.setEnabled(false);
   }
@@ -169,12 +180,12 @@ class PatrolDrone {
     }
     if (!active) return;
     if (server.stunned) {
-      this.material.emissiveColor.set(0.1, 0.35, 0.6);
+      this.eyeMaterial.emissiveColor.copyFrom(DRONE_EYE_STUNNED);
       this.mesh.rotation.z += dt * 7;
       return;
     }
     this.mesh.rotation.z = 0;
-    this.material.emissiveColor.set(0.5, 0.08, 0.04);
+    this.eyeMaterial.emissiveColor.copyFrom(SECURITY_AMBER);
     if (callbacks.requestStun && this.cordCrosses(drones, tetherStrain) && Math.abs(elapsed - this.requested) > 0.6) {
       this.requested = elapsed;
       callbacks.requestStun(this.index, this.mesh.position.clone());
@@ -208,11 +219,11 @@ class PatrolDrone {
     this.stunnedFor = Math.max(0, this.stunnedFor - dt);
     this.shoveCooldown = Math.max(0, this.shoveCooldown - dt);
     if (this.stunnedFor > 0) {
-      this.material.emissiveColor.set(0.1, 0.35, 0.6);
+      this.eyeMaterial.emissiveColor.copyFrom(DRONE_EYE_STUNNED);
       this.mesh.rotation.z += dt * 7;
       return;
     }
-    this.material.emissiveColor.set(0.5, 0.08, 0.04);
+    this.eyeMaterial.emissiveColor.copyFrom(SECURITY_AMBER);
     if (callbacks.hasFastObjectNear(this.mesh.position, 1.65)) {
       this.stunnedFor = 3.2;
       return;
@@ -262,6 +273,7 @@ class PatrolDrone {
 
   dispose(): void {
     this.material.dispose();
+    this.eyeMaterial.dispose();
     this.mesh.dispose();
   }
 }
