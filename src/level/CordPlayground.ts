@@ -98,7 +98,7 @@ export class CordPlayground {
     this.meshes.push(hoop, post, label(scene, 'SLINGSHOT HOOP', 'stretch the cord, then [R]', HOOP.add(new Vector3(0, HOOP_RADIUS + 0.75, 0)), 2.6));
     (globalThis as { __playground?: CordPlayground }).__playground = this; // test/debug probe
     this.offYank = gameEvents.on('yank', (e) => {
-      if (e.kind === 'yank' && !this.state.yank) { this.state.yank = true; this.progress('yank'); }
+      if (e.kind === 'yank' && !this.state.yank && e.position.z < -52) { this.state.yank = true; this.progress('yank'); }
     });
   }
 

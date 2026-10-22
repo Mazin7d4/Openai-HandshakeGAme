@@ -68,6 +68,9 @@ export class GameApp {
   /** TEST-ONLY (?autotest): position-targeted steering for deterministic verifiers. */
   private readonly autopilot = Autopilot.enabled ? new Autopilot() : null;
   private paused = false;
+  /** Clothesline payoff: brief slow-motion beat (scales gameplay dt and the physics step). */
+  private slowMo = 0;
+  private timeScale = 1;
   private readonly juice: Juice;
   private readonly moves: TetherMoves;
   private readonly unsubscribers: (() => void)[] = [];
@@ -108,6 +111,11 @@ export class GameApp {
   ) {
     this.engine = engine;
     this.scene = scene;
+    {
+      const physicsScene = scene as unknown as { _advancePhysicsEngineStep?: (step: number) => void };
+      const step = physicsScene._advancePhysicsEngineStep?.bind(scene);
+      if (step) physicsScene._advancePhysicsEngineStep = (ms: number) => step(ms * this.timeScale);
+    }
     this.assets = assets;
     this.players = players;
     this.drones = players.map((p) => p.drone);
@@ -166,6 +174,26 @@ export class GameApp {
         }
       }),
       gameEvents.on('toast', (e) => this.hud?.toast(e.text, e.tone)),
+      gameEvents.on('camera-blind', (e) => {
+        this.juice.burst('impact', e.position, 16);
+        audio.bump();
+        this.hud?.toast('CAMERA BLINDED!', 'good');
+      }),
+      gameEvents.on('capture', (e) => {
+        const mine = isLocalDrone(e.droneId);
+        const name = this.players.find((p) => p.drone.id === e.droneId)?.role === 'nee' ? 'NEE' : 'PIX';
+        if (e.freed) {
+          this.juice.burst('yank', e.position, 18);
+          audio.bump();
+          this.hud?.toast(mine ? 'FREE!' : `${name} IS FREE!`, 'good');
+          for (const drone of this.drones) drone.react('proud', 1);
+        } else {
+          this.juice.burst('impact', e.position, 12);
+          audio.clothesline();
+          if (mine) this.cameraRig.addShake(0.3);
+          this.hud?.toast(mine ? 'GRABBED! MASH [SHIFT] OR WAIT FOR A YANK' : `${name} GRABBED! YANK [R]`, 'good');
+        }
+      }),
       gameEvents.on('warmup', (e) => {
         if (e.kind === 'hoop') {
           this.juice.burst('confetti', e.position, 60);
@@ -184,9 +212,12 @@ export class GameApp {
       }),
       gameEvents.on('clothesline', (e) => {
         this.juice.burst('zap', e.position, 34);
+        this.juice.burst('confetti', e.position, 40);
         audio.clothesline();
         this.cameraRig.addShake(0.45);
-        for (const drone of this.drones) drone.react('proud', 1.2);
+        this.cameraRig.kickFov(0.1);
+        this.slowMo = 0.45;
+        for (const drone of this.drones) drone.react('proud', 1.6);
         this.hud?.toast('CLOTHESLINED!', 'good');
       }),
       gameEvents.on('heist', (e) => {
@@ -398,7 +429,10 @@ export class GameApp {
 
   private tick(): void {
     if (this.paused) return;
-    const dt = Math.min(this.engine.getDeltaTime() / 1000, 0.05);
+    const realDt = Math.min(this.engine.getDeltaTime() / 1000, 0.05);
+    this.slowMo = Math.max(0, this.slowMo - realDt);
+    this.timeScale = this.slowMo > 0 ? 0.3 : 1;
+    const dt = realDt * this.timeScale;
     const basis = this.cameraRig.getPlanarBasis();
     const faceGameplayCamera = this.devOrbit?.isActive !== true;
     const droneByRole = new Map<DroneRole, Drone>();

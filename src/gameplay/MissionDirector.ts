@@ -69,6 +69,7 @@ export class MissionDirector {
         ? (index, at) => multiplayer.requestPatrolStun({ index, x: at.x, y: at.y, z: at.z })
         : undefined,
     }, audio);
+    grab.setAimTargets(() => this.security.aimTargets());
     const offStun = multiplayer?.onPatrolStunned((m) => {
       this.clotheslines = m.clotheslines ?? this.clotheslines + 1;
       this.security.remoteStun(m.index, new Vector3(m.x, m.y, m.z));

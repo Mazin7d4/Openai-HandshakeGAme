@@ -95,17 +95,44 @@ export class GrabSystem {
     return true;
   }
 
+  private aimTargets: () => readonly Vector3[] = () => [];
+
   handleThrow(role: DroneRole, drone: Drone): boolean {
     const held = this.objects.find((object) => object.heldBy === role);
     if (!held) return false;
     this.throwVelocity.copyFrom(drone.velocity);
     drone.getThrowDirection(this.aimDirection);
+    this.assistAim(held.position);
     this.throwVelocity.addInPlace(this.aimDirection.scale(THROW_SPEED));
     this.throwVelocity.y += THROW_LIFT;
     this.placeForRelease(held, drone, this.aimDirection, true);
     this.release(role, held, this.releasePosition, this.throwVelocity, true);
     this.onThrow?.(held.id, role);
     return true;
+  }
+
+  /** Security targets (patrol pods, the camera lens) that throws gently home in on. */
+  setAimTargets(provider: () => readonly Vector3[]): void {
+    this.aimTargets = provider;
+  }
+
+  /** Bend the throw toward a security target roughly in front (generous cone, 22 m). */
+  private assistAim(from: Vector3): void {
+    let best: Vector3 | null = null;
+    let bestDot = Math.cos(0.5);
+    for (const target of this.aimTargets()) {
+      const to = target.subtract(from);
+      const distance = to.length();
+      if (distance < 1 || distance > 22) continue;
+      to.scaleInPlace(1 / distance);
+      const dot = Vector3.Dot(to, this.aimDirection);
+      if (dot > bestDot) { bestDot = dot; best = to; }
+    }
+    if (!best) return;
+    // Aim a touch low: THROW_LIFT arcs it back up into the target.
+    best.y -= 0.08;
+    Vector3.LerpToRef(this.aimDirection, best, 0.8, this.aimDirection);
+    this.aimDirection.normalize();
   }
 
   update(dt: number, drones: ReadonlyMap<DroneRole, Drone>): void {

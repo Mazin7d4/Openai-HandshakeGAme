@@ -13,9 +13,18 @@ import type { DroneRole } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
 import { cordState } from './Tether.ts';
 import { gameEvents } from './GameEvents.ts';
+import { SecurityEmote, type SecurityMood } from './SecurityEmote.ts';
 
 const CAMERA_RANGE = 10;
 const CAMERA_HALF_ANGLE = Math.PI / 5;
+/** Patrol readability: '?' inside SUSPECT_RANGE, '!' (with a short alert beat) inside CHASE_RANGE. */
+const SUSPECT_RANGE = 13;
+const CHASE_RANGE = 9;
+const ALERT_BEAT = 0.45;
+/** Capture-and-carry: never a game over; the partner yanks you free (or struggle / throw). */
+const CARRY_POINT = new Vector3(0, 3.5, 10);
+const CARRY_MAX = 4.5;
+const CAMERA_BLIND = 8;
 
 interface SecurityCallbacks {
   onSpotted: (role: DroneRole) => void;
@@ -33,6 +42,8 @@ class SecurityCamera {
   private readonly meters = new Map<DroneRole, number>();
   private alertCooldown = 0;
   private disabled = false;
+  private blindFor = 0;
+  private readonly emote: SecurityEmote;
 
   constructor(scene: Scene) {
     this.body = CreateSphere('security-camera', { diameter: 0.75, segments: 12 }, scene);
@@ -56,22 +67,38 @@ class SecurityCamera {
     this.coneMaterial.backFaceCulling = false;
     this.cone.material = this.coneMaterial;
     this.cone.isPickable = false;
+    this.emote = new SecurityEmote(scene, this.body, 'security-camera');
   }
 
   setDisabled(disabled: boolean): void {
     this.disabled = disabled;
-    this.cone.setEnabled(!disabled);
+    this.cone.setEnabled(!disabled && this.blindFor <= 0);
     const material = this.body.material as StandardMaterial;
     material.emissiveColor = disabled ? new Color3(0.04, 0.28, 0.14) : new Color3(0.3, 0.05, 0.04);
   }
 
-  update(dt: number, drones: ReadonlyMap<DroneRole, Drone>, onSpotted: (role: DroneRole) => void): number {
+  update(
+    dt: number,
+    drones: ReadonlyMap<DroneRole, Drone>,
+    onSpotted: (role: DroneRole) => void,
+    hasFastObjectNear: (point: Vector3, radius: number) => boolean,
+  ): number {
     this.alertCooldown = Math.max(0, this.alertCooldown - dt);
+    // A thrown prop smacking the lens blinds the camera for a while.
+    if (!this.disabled && this.blindFor <= 0 && hasFastObjectNear(this.origin, 1.7)) {
+      this.blindFor = CAMERA_BLIND;
+      gameEvents.emit('camera-blind', { position: this.origin.clone() });
+    }
+    const wasBlind = this.blindFor > 0;
+    this.blindFor = Math.max(0, this.blindFor - dt);
+    if (wasBlind) this.cone.setEnabled(!this.disabled && this.blindFor <= 0);
+    this.body.rotation.y = this.blindFor > 0 ? Math.sin(performance.now() / 90) * 0.25 : 0;
+    const blind = this.disabled || this.blindFor > 0;
     let highest = 0;
     for (const [role, drone] of drones) {
       const relative = drone.position.subtract(this.origin);
       const distance = relative.length();
-      const inside = !this.disabled && distance < CAMERA_RANGE && distance > 0.1 &&
+      const inside = !blind && distance < CAMERA_RANGE && distance > 0.1 &&
         Vector3.Dot(relative.scale(1 / distance), this.forward) > Math.cos(CAMERA_HALF_ANGLE);
       const next = Math.max(0, Math.min(1, (this.meters.get(role) ?? 0) + dt * (inside ? 0.72 : -1.2)));
       this.meters.set(role, next);
@@ -83,10 +110,23 @@ class SecurityCamera {
       }
     }
     this.coneMaterial.alpha = 0.11 + highest * 0.24;
+    const mood: SecurityMood = this.disabled ? 'off' : this.blindFor > 0 ? 'stunned'
+      : highest > 0.6 ? 'chase' : highest > 0.08 ? 'suspicious' : 'patrol';
+    this.emote.set(mood);
+    this.emote.update(dt);
     return highest;
   }
 
+  get aimPoint(): Vector3 | null {
+    return this.disabled || this.blindFor > 0 ? null : this.origin;
+  }
+
+  get blinded(): boolean {
+    return this.blindFor > 0;
+  }
+
   dispose(): void {
+    this.emote.dispose();
     this.body.material?.dispose();
     this.coneMaterial.dispose();
     this.body.dispose();
@@ -103,6 +143,14 @@ class PatrolDrone {
   private phase: number;
   private readonly index: number;
   private requested = 0;
+  private readonly emote: SecurityEmote;
+  private mood: SecurityMood = 'off';
+  private alertBeat = 0;
+  private carrying: Drone | null = null;
+  private carryFor = 0;
+  private strainFor = 0;
+  private captureCooldown = 0;
+  private dazedFor = 0;
 
   constructor(scene: Scene, index: number) {
     this.phase = index * Math.PI;
@@ -124,11 +172,34 @@ class PatrolDrone {
     const eye = CreateCylinder(`security-drone-${index}-eye`, { height: 0.5, diameter: 0.16, tessellation: 12 }, scene);
     eye.parent = this.mesh; eye.rotation.z = Math.PI / 2; eye.position.set(0, 0, 0.66); eye.material = this.material;
     eye.isPickable = false;
+    this.emote = new SecurityEmote(scene, this.mesh, `security-drone-${index}`);
     this.mesh.setEnabled(false);
+  }
+
+  /** Let go of a carried drone. `freedBy` explains why (for the toast + juice). */
+  private release(freedBy: 'yank' | 'struggle' | 'strain' | 'stun' | 'timeout'): void {
+    const drone = this.carrying;
+    if (!drone) return;
+    drone.setCaptured(null);
+    this.carrying = null;
+    this.captureCooldown = 3;
+    this.dazedFor = freedBy === 'stun' ? 0 : 1.1;
+    if (freedBy !== 'timeout') {
+      const kick = drone.position.subtract(this.mesh.position); kick.y = 0;
+      if (kick.lengthSquared() > 0.01) this.mesh.position.subtractInPlace(kick.normalize().scale(0.8));
+    }
+    gameEvents.emit('capture', { droneId: drone.id, position: drone.position.clone(), freed: true });
+  }
+
+  private setMood(mood: SecurityMood, dt: number): void {
+    this.mood = mood;
+    this.emote.set(mood);
+    this.emote.update(dt);
   }
 
   /** Authoritative stun (server broadcast in multiplayer, or local in solo). */
   stun(at?: Vector3): void {
+    this.release('stun');
     this.stunnedFor = 3.4;
     if (at) this.mesh.position.copyFrom(at);
     gameEvents.emit('clothesline', { position: this.mesh.position.clone() });
@@ -143,27 +214,62 @@ class PatrolDrone {
     tetherStrain: number,
   ): void {
     this.mesh.setEnabled(active);
-    if (!active) return;
+    if (!active) {
+      this.release('timeout');
+      this.mood = 'off';
+      return;
+    }
     this.stunnedFor = Math.max(0, this.stunnedFor - dt);
     this.shoveCooldown = Math.max(0, this.shoveCooldown - dt);
+    this.captureCooldown = Math.max(0, this.captureCooldown - dt);
+    this.dazedFor = Math.max(0, this.dazedFor - dt);
     if (this.stunnedFor > 0) {
       this.material.emissiveColor.set(0.1, 0.35, 0.6);
       this.mesh.rotation.z += dt * 7;
+      this.setMood('stunned', dt);
       return;
     }
+    this.mesh.rotation.z *= Math.max(0, 1 - dt * 8);
     this.material.emissiveColor.set(0.5, 0.08, 0.04);
     if (callbacks.hasFastObjectNear(this.mesh.position, 1.65)) {
+      this.release('stun');
       this.stunnedFor = 3.2;
+      gameEvents.emit('toast', { text: 'BONK!', tone: 'good' });
       return;
+    }
+    if (this.carrying) {
+      this.updateCarry(dt, tetherStrain);
+      if (this.carrying) { this.setMood('carrying', dt); return; }
     }
     const roles = [...drones.entries()];
     const nearest = roles.sort((a, b) =>
       Vector3.DistanceSquared(a[1].position, this.mesh.position) -
       Vector3.DistanceSquared(b[1].position, this.mesh.position))[0];
+    const range = nearest ? Vector3.Distance(nearest[1].position, this.mesh.position) : Infinity;
     let target = new Vector3(Math.sin(elapsed * 0.55 + this.phase) * 5, 2.2, 10 + Math.cos(elapsed * 0.55 + this.phase) * 4);
-    if (nearest && Vector3.Distance(nearest[1].position, this.mesh.position) < 9) target = nearest[1].position;
+    let speed = 3.1;
+    let mood: SecurityMood = 'patrol';
+    if (this.dazedFor > 0) {
+      mood = 'stunned'; speed = 0.6;
+    } else if (nearest && range < CHASE_RANGE) {
+      // '!' beat: freeze for a moment when we first notice, then give chase.
+      if (this.mood !== 'chase') this.alertBeat = ALERT_BEAT;
+      mood = 'chase';
+      target = nearest[1].position;
+    } else if (nearest && range < SUSPECT_RANGE) {
+      // '?': drift toward the noise, slowly.
+      mood = 'suspicious';
+      target = Vector3.Lerp(target, nearest[1].position, 0.5);
+      speed = 1.6;
+    }
+    this.setMood(mood, dt);
+    this.alertBeat = Math.max(0, this.alertBeat - dt);
+    if (this.alertBeat > 0) {
+      this.mesh.position.y += Math.sin(this.alertBeat * 40) * 0.02; // little startle hop
+      speed = 0;
+    }
     this.velocity.copyFrom(target).subtractInPlace(this.mesh.position);
-    if (this.velocity.lengthSquared() > 0.05) this.velocity.normalize().scaleInPlace(3.1);
+    if (this.velocity.lengthSquared() > 0.05) this.velocity.normalize().scaleInPlace(speed);
     this.mesh.position.addInPlace(this.velocity.scale(dt));
     const pix = drones.get('pix');
     const nee = drones.get('nee');
@@ -191,15 +297,57 @@ class PatrolDrone {
         return;
       }
     }
-    if (nearest && this.shoveCooldown <= 0 && Vector3.Distance(nearest[1].position, this.mesh.position) < 1.55) {
-      const shove = nearest[1].position.subtract(this.mesh.position).normalize().scaleInPlace(4.2);
-      shove.y = 1.2;
-      nearest[1].knockback(shove);
-      this.shoveCooldown = 1.2;
+    if (nearest && this.alertBeat <= 0 && this.dazedFor <= 0 && range < 1.55) {
+      const victim = nearest[1];
+      if (this.captureCooldown <= 0 && !victim.isCaptured) {
+        // GOTCHA: grab and start hauling toward the lab holding pen.
+        this.carrying = victim;
+        this.carryFor = 0;
+        this.strainFor = 0;
+        victim.struggles = 0;
+        victim.setCaptured(Vector3.Zero());
+        gameEvents.emit('capture', { droneId: victim.id, position: victim.position.clone(), freed: false });
+      } else if (this.shoveCooldown <= 0) {
+        const shove = victim.position.subtract(this.mesh.position).normalize().scaleInPlace(4.2);
+        shove.y = 1.2;
+        victim.knockback(shove);
+        this.shoveCooldown = 1.2;
+      }
     }
   }
 
+  private updateCarry(dt: number, tetherStrain: number): void {
+    const drone = this.carrying!;
+    this.carryFor += dt;
+    this.strainFor = tetherStrain > 0.85 ? this.strainFor + dt : 0;
+    if (drone.yankedRecently > 0) return this.release('yank');
+    if (drone.struggles >= 3) return this.release('struggle');
+    if (this.strainFor > 0.6) return this.release('strain');
+    if (this.carryFor > CARRY_MAX) return this.release('timeout');
+    const to = CARRY_POINT.subtract(this.mesh.position);
+    if (to.lengthSquared() > 0.2) this.mesh.position.addInPlace(to.normalize().scale(2.2 * dt));
+    // Hang the captive just under the pod; the drone's own steer follows this pull.
+    const hold = this.mesh.position.add(new Vector3(0, -0.95, 0));
+    const pull = hold.subtract(drone.position).scaleInPlace(6);
+    if (pull.length() > 9) pull.normalize().scaleInPlace(9);
+    drone.setCaptured(pull);
+    this.mesh.rotation.z = Math.sin(this.carryFor * 9) * 0.12; // straining wobble
+  }
+
+  get isCarrying(): boolean { return this.carrying !== null; }
+
+  get captiveId(): string | null { return this.carrying?.id ?? null; }
+
+  /** Throw-assist target while this pod is active and not already knocked out. */
+  get aimPoint(): Vector3 | null {
+    return this.mesh.isEnabled() && this.stunnedFor <= 0 ? this.mesh.position : null;
+  }
+
+  get currentMood(): SecurityMood { return this.mood; }
+
   dispose(): void {
+    this.release('timeout');
+    this.emote.dispose();
     this.material.dispose();
     this.mesh.dispose();
   }
@@ -224,6 +372,7 @@ export class SecuritySystem {
     this.audio = audio;
     this.camera = new SecurityCamera(scene);
     this.patrols = [new PatrolDrone(scene, 0), new PatrolDrone(scene, 1)];
+    (globalThis as { __security?: SecuritySystem }).__security = this; // test/debug probe
   }
 
   remoteStun(index: number, at: Vector3): void { this.patrols[index]?.stun(at); }
@@ -240,7 +389,7 @@ export class SecuritySystem {
     this.elapsed = sharedClock ?? this.elapsed + dt;
     this.warningCooldown = Math.max(0, this.warningCooldown - dt);
     this.camera.setDisabled(cameraDisabled);
-    this.detection = this.camera.update(dt, drones, this.callbacks.onSpotted);
+    this.detection = this.camera.update(dt, drones, this.callbacks.onSpotted, this.callbacks.hasFastObjectNear);
     if (this.detection > 0.55 && this.warningCooldown <= 0) {
       this.audio?.warning();
       this.warningCooldown = 0.75;
@@ -250,7 +399,25 @@ export class SecuritySystem {
     }
   }
 
+  /** Where assisted throws should home in (active patrols, a watching camera). */
+  aimTargets(): Vector3[] {
+    return [this.camera.aimPoint, ...this.patrols.map((p) => p.aimPoint)].filter((p): p is Vector3 => p !== null);
+  }
+
+  /** Readable state for tests and the HUD. */
+  get debug(): { camera: boolean; patrols: SecurityMood[]; carrying: boolean; captive: string | null; aimTargets: number } {
+    return {
+      camera: this.camera.blinded,
+      patrols: this.patrols.map((p) => p.currentMood),
+      carrying: this.patrols.some((p) => p.isCarrying),
+      captive: this.patrols.find((p) => p.captiveId)?.captiveId ?? null,
+      aimTargets: this.aimTargets().length,
+    };
+  }
+
   dispose(): void {
+    const probe = globalThis as { __security?: SecuritySystem };
+    if (probe.__security === this) delete probe.__security;
     this.camera.dispose();
     for (const patrol of this.patrols) patrol.dispose();
   }

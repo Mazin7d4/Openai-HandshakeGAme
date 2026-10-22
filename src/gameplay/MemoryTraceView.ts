@@ -2,8 +2,10 @@ import type { GameAudio } from '../audio/GameAudio.ts';
 import type { HackMinigameView } from './HackMinigame.ts';
 
 const NODE_COUNT = 6;
+/** Run-length trim (5-7 min target): two traces of 3 then 4 nodes. */
+const ROUNDS = 2;
 
-/** Simon-style trace with three short, forgiving rounds. */
+/** Simon-style trace with short, forgiving rounds. */
 export class MemoryTraceView implements HackMinigameView {
   private readonly overlay: HTMLDivElement;
   private readonly nodes: HTMLButtonElement[] = [];
@@ -81,13 +83,14 @@ export class MemoryTraceView implements HackMinigameView {
       while (this.sequence.length < length) this.sequence.push(Math.floor(Math.random() * NODE_COUNT));
     }
     this.overlay.dataset.sequence = this.sequence.join(',');
-    this.status.textContent = `TRACE ${this.round + 1} / 3 — WATCH`;
+    this.overlay.dataset.rounds = String(ROUNDS);
+    this.status.textContent = `TRACE ${this.round + 1} / ${ROUNDS} — WATCH`;
     this.sequence.forEach((node, index) => {
       this.schedule(() => this.flash(node), 500 + index * 430);
     });
     this.schedule(() => {
       this.accepting = true;
-      this.status.textContent = `TRACE ${this.round + 1} / 3 — REPEAT`;
+      this.status.textContent = `TRACE ${this.round + 1} / ${ROUNDS} — REPEAT`;
     }, 650 + this.sequence.length * 430);
   }
 
@@ -110,7 +113,7 @@ export class MemoryTraceView implements HackMinigameView {
     this.accepting = false;
     this.round += 1;
     this.audio?.success();
-    if (this.round >= 3) {
+    if (this.round >= ROUNDS) {
       this.overlay.classList.add('success');
       this.status.textContent = 'MEMORY TRACE VERIFIED';
       this.schedule(this.complete, 650);
