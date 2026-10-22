@@ -75,7 +75,7 @@ export class HeistReport {
 
     this.stampEl = document.createElement('span');
     this.stampEl.className = 'heist-report__stamp';
-    this.stampEl.textContent = 'EXTRACTED';
+    this.stampEl.textContent = 'Extracted';
     this.panel.append(this.stampEl);
 
     const crew = this.panel.querySelector('[data-heist="crew"]')!;
@@ -134,7 +134,7 @@ export class HeistReport {
     this.clearGradeTimers();
     this.timeEl.textContent = formatRunTime(stats.elapsedSeconds);
     this.quipEl.textContent = quipFor(stats);
-    this.stampEl.textContent = stats.outcome === 'win' ? 'EXTRACTED' : 'BUSTED';
+    this.stampEl.textContent = stats.outcome === 'win' ? 'Extracted' : 'Busted';
     this.stampEl.classList.toggle('heist-report__stamp--fail', stats.outcome !== 'win');
     this.challengeHint.hidden = true;
     this.challengeHint.textContent = '';
@@ -397,7 +397,8 @@ export async function renderShareCard(stats: RunStats): Promise<Blob> {
   ctx.lineWidth = 3;
   roundRectPath(ctx, -90, -36, 180, 56, 8);
   ctx.stroke();
-  ctx.fillText(stats.outcome === 'win' ? 'EXTRACTED' : 'BUSTED', -78, 8);
+  // Visual stamp stays uppercase; DOM accessible name uses sentence case + CSS.
+  ctx.fillText((stats.outcome === 'win' ? 'Extracted' : 'Busted').toUpperCase(), -78, 8);
   ctx.restore();
 
   return new Promise((resolve, reject) => {

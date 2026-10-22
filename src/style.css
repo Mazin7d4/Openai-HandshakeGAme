@@ -494,6 +494,7 @@ html[data-reduced-motion='1'] *::after {
   position: absolute; right: 18px; top: 72px;
   padding: 6px 10px; border: 3px solid var(--exit); border-radius: var(--r-control);
   color: var(--exit); font: 800 14px/1 var(--font-title); font-stretch: 112%;
+  letter-spacing: 0.14em; text-transform: uppercase;
   transform: rotate(-12deg); pointer-events: none; opacity: 0.85;
 }
 .heist-report__stamp--fail { border-color: var(--alarm); color: var(--alarm); }
