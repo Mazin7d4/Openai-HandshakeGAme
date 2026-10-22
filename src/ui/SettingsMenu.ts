@@ -28,6 +28,8 @@ export interface SettingsMenuOptions {
   onReplayTutorial?: () => void;
   /** When true, omit the outer overlay and mount into an existing panel host. */
   embedded?: boolean;
+  /** Night Shift: read-only seed shown under the Settings title. */
+  runSeed?: number | null;
 }
 
 const TABS: { id: SettingsTab; label: string }[] = [
@@ -159,7 +161,15 @@ export class SettingsMenu {
     back.dataset.testid = 'settings-back';
     back.addEventListener('click', () => this.options.onClose());
 
-    this.panel.append(heading, this.tablist, this.body, back);
+    this.panel.append(heading);
+    if (options.runSeed != null) {
+      const seed = document.createElement('p');
+      seed.className = 'pause-seed settings-seed';
+      seed.dataset.testid = 'settings-seed';
+      seed.textContent = `Seed ${options.runSeed}`;
+      this.panel.append(seed);
+    }
+    this.panel.append(this.tablist, this.body, back);
     parent.append(this.root);
     window.addEventListener('keydown', this.onKeyDown, true);
     this.setTab('audio');
