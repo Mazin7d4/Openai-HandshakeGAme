@@ -20,9 +20,41 @@ await runTest('mobile', async (browser, notes) => {
     await shot(page, `mobile-${label}-ingame`);
     const touch = await page.evaluate(() => {
       const hits = [...document.querySelectorAll('*')].filter((el) => /joystick|stick|touch|dpad|virtual/i.test(`${el.className} ${el.id} ${el.dataset?.testid ?? ''}`));
-      return { touchUiElements: hits.length, maxTouchPoints: navigator.maxTouchPoints };
+      return {
+        touchUiElements: hits.length,
+        maxTouchPoints: navigator.maxTouchPoints,
+        joystick: !!document.querySelector('[data-testid="touch-joystick"]'),
+        actions: ['touch-jump', 'touch-grab', 'touch-yank', 'touch-hack', 'touch-pause']
+          .map((id) => !!document.querySelector(`[data-testid="${id}"]`)),
+      };
     });
-    // Does a one-finger drag do anything? (camera needs two fingers per FIRST_MISSION)
+    assert(touch.joystick, `${label}: touch joystick missing`);
+    assert(touch.actions.every(Boolean), `${label}: touch action buttons missing ${JSON.stringify(touch.actions)}`);
+    // Landscape: drag the virtual joystick and confirm the local drone moves.
+    if (label === 'landscape') {
+      const before = (await worldState(page)).players['player-1'];
+      const joy = await page.getByTestId('touch-joystick').boundingBox();
+      assert(joy, 'joystick box missing');
+      const cdp = await ctx.newCDPSession(page);
+      const ox = joy.x + joy.width * 0.45;
+      const oy = joy.y + joy.height * 0.55;
+      const pt = (x, y) => [{ x, y, radiusX: 12, radiusY: 12, force: 0.5, id: 1 }];
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt(ox, oy) });
+      for (let i = 1; i <= 12; i++) {
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchMove',
+          touchPoints: pt(ox, oy - i * 10),
+        });
+        await page.waitForTimeout(50);
+      }
+      await page.waitForTimeout(700);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      const after = (await worldState(page)).players['player-1'];
+      const moved = before && after ? Math.hypot(after.x - before.x, after.z - before.z) : 0;
+      notes.joystickMoved = +moved.toFixed(2);
+      assert(moved > 0.35, `joystick did not move drone (Δ=${moved})`);
+      await shot(page, 'mobile-landscape-joystick');
+    }
     notes[label] = { menu, game, touch };
     await ctx.close();
   }

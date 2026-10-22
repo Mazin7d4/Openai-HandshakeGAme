@@ -1,6 +1,9 @@
 import type { GameMode } from '../app/GameMode.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
+import { controlIcon, keycaps } from './ControlGlyphs.ts';
+import { clearOnboardingDone } from './OnboardingCoach.ts';
 import { getSettings, saveSettings } from './Settings.ts';
+import { isTouchPlayDevice } from './touchDetect.ts';
 
 export interface GameHudOptions {
   onResume: () => void;
@@ -10,38 +13,8 @@ export interface GameHudOptions {
   onGrabDrop: () => void;
   onThrow: () => void;
   onYank?: () => void;
-}
-
-// One drawn icon style for every control glyph: 24px grid, 2px graphite stroke, round caps, no fills.
-const ICONS: Record<string, string> = {
-  fly: '<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>',
-  updown: '<path d="M8 4v16M8 4L5 7M8 4l3 3M16 20V4M16 20l-3-3M16 20l3-3"/>',
-  boost: '<path d="M5 6l6 6-6 6M12 6l6 6-6 6"/>',
-  hack: '<path d="M9 3v5M15 3v5M6 8h12v4a6 6 0 0 1-12 0zM12 18v3"/>',
-  grab: '<path d="M12 3v5M7 8h10M7 8l-2 6 3 4M17 8l2 6-3 4"/>',
-  yank: '<path d="M3 8h4M17 8h4M7 8c0 9 10 9 10 0"/><path d="M12 15v5M9 18l3 3 3-3"/>',
-  pause: '<path d="M9 6v12M15 6v12"/>',
-};
-function icon(name: string): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.classList.add('glyph');
-  svg.innerHTML = ICONS[name] ?? '';
-  return svg;
-}
-/** Keycaps for a binding like "W A S D" or "Space / Ctrl"; "/" becomes a quiet separator. */
-function keycaps(binding: string): HTMLElement {
-  const group = document.createElement('span');
-  group.className = 'keys';
-  for (const part of binding.split(' ')) {
-    if (part === '/') { group.append(Object.assign(document.createElement('span'), { className: 'keys__or', textContent: 'or' })); continue; }
-    const cap = document.createElement('kbd');
-    cap.className = 'keycap';
-    cap.textContent = part;
-    group.append(cap);
-  }
-  return group;
+  /** Settings → Replay tutorial. */
+  onReplayTutorial?: () => void;
 }
 
 /** Lightweight contextual HUD and pause/settings/controls navigation. */
@@ -53,6 +26,7 @@ export class GameHud {
   private readonly options: GameHudOptions;
   private readonly controlsCard: HTMLDivElement;
   private readonly toastLayer: HTMLDivElement;
+  private readonly touch: boolean;
   private controlsTimer = 0;
   private paused = false;
   private promptKey = '';
@@ -76,6 +50,7 @@ export class GameHud {
 
   constructor(parent: HTMLElement, options: GameHudOptions) {
     this.options = options;
+    this.touch = isTouchPlayDevice();
     this.prompt = document.createElement('div');
     this.prompt.className = 'interaction-prompt';
     this.prompt.dataset.testid = 'interaction-prompt';
@@ -88,6 +63,7 @@ export class GameHud {
     this.panel.className = 'panel pause-panel';
     this.pauseOverlay.append(this.panel);
     // First-time-player card: core controls + the co-op goal. Auto-hides; [H] toggles it any time.
+    // Hidden on touch — the virtual pad is the hint surface there.
     this.controlsCard = document.createElement('div');
     this.controlsCard.className = 'controls-card';
     this.controlsCard.dataset.testid = 'controls-card';
@@ -102,7 +78,7 @@ export class GameHud {
       const label = document.createElement('span');
       label.className = 'glyph-label';
       label.textContent = action;
-      item.append(keycaps(keys), icon(glyph), label);
+      item.append(keycaps(keys), controlIcon(glyph), label);
       list.append(item);
     }
     const tip = document.createElement('p');
@@ -113,26 +89,39 @@ export class GameHud {
     this.toastLayer.className = 'juice-toasts';
     this.toastLayer.dataset.testid = 'juice-toasts';
     parent.append(this.prompt, this.activeDrone, this.pauseOverlay, this.controlsCard, this.toastLayer);
-    const seen = (() => { try { return localStorage.getItem('handshake.controlsSeen') === '1'; } catch { return false; } })();
-    this.setControlsCard(true, seen ? 6000 : 16000);
-    try { localStorage.setItem('handshake.controlsSeen', '1'); } catch { /* private mode */ }
+    if (this.touch) {
+      this.controlsCard.classList.add('controls-card--touch-hidden');
+    } else {
+      const seen = (() => { try { return localStorage.getItem('handshake.controlsSeen') === '1'; } catch { return false; } })();
+      this.setControlsCard(true, seen ? 6000 : 16000);
+      try { localStorage.setItem('handshake.controlsSeen', '1'); } catch { /* private mode */ }
+    }
     this.showPauseHome();
     window.addEventListener('keydown', this.onKeyDown, true);
   }
 
   update(prompts: readonly string[], mode: GameMode, activeRole: DroneRole): void {
-    const promptKey = prompts.join('\u0000');
+    const promptKey = `${this.touch ? 't' : 'k'}\u0000${prompts.join('\u0000')}`;
     if (promptKey !== this.promptKey) {
       this.promptKey = promptKey;
       this.prompt.replaceChildren(...prompts.map((text) => {
         const item = document.createElement('button');
         item.type = 'button';
-        // "[F] Hack the console" -> drawn keycap + label, so the key reads as a key, not as brackets.
+        // "[F] Hack the console" -> drawn keycap (or touch glyph) + label.
         const match = /^\[([^\]]+)\]\s*(.*)$/.exec(text);
         if (match) {
           const label = document.createElement('span');
           label.textContent = match[2];
-          item.append(keycaps(match[1]), label);
+          if (this.touch) {
+            const glyph = match[1] === 'F' ? 'hack'
+              : match[1] === 'Q' ? 'grab'
+              : match[1] === 'R' ? 'yank'
+              : match[1] === 'E' ? 'grab'
+              : 'touch';
+            item.append(controlIcon(glyph), label);
+          } else {
+            item.append(keycaps(match[1]), label);
+          }
         } else item.textContent = text;
         item.addEventListener('click', text.startsWith('[F]')
           ? this.options.onInteract
@@ -161,6 +150,12 @@ export class GameHud {
     this.toastLayer.append(item);
     while (this.toastLayer.childElementCount > 3) this.toastLayer.firstElementChild?.remove();
     window.setTimeout(() => item.remove(), 1500);
+  }
+
+  /** Hide the keyboard controls card while the first-run coach is speaking. */
+  setControlsCardSuppressed(suppressed: boolean): void {
+    if (this.touch) return;
+    if (suppressed) this.setControlsCard(false);
   }
 
   private setControlsCard(visible: boolean, autoHideMs = 0): void {
@@ -267,6 +262,11 @@ export class GameHud {
         if (document.fullscreenElement) void document.exitFullscreen();
         else void document.documentElement.requestFullscreen();
       }),
+      this.button('Replay tutorial', () => {
+        clearOnboardingDone();
+        this.options.onResume();
+        this.options.onReplayTutorial?.();
+      }, 'btn--quiet'),
       this.button('Back', () => this.showPauseHome(), 'btn--quiet'),
     );
     this.focusFirst();

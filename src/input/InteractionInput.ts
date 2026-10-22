@@ -85,6 +85,14 @@ export class InteractionInput {
     this.actions.interact = true;
   }
 
+  requestPause(): void {
+    this.actions.pause = true;
+  }
+
+  requestSwitchDrone(): void {
+    this.actions.switchDrone = true;
+  }
+
   dispose(): void {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
