@@ -3,6 +3,8 @@ import type { Drone } from '../player/Drone.ts';
 import type { DroneRole, RoomStatus } from '../network/NetworkTypes.ts';
 import type { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import { Grabbable } from './Grabbable.ts';
+import { cordState } from './Tether.ts';
+import { gameEvents } from './GameEvents.ts';
 
 const HOLD_OFFSET = new Vector3(0, -1.15, 0.35);
 const THROW_SPEED = 10;
@@ -21,6 +23,9 @@ export class GrabSystem {
   private readonly onGrab?: (objectId: string, role: DroneRole) => void;
   private readonly onThrow?: (objectId: string, role: DroneRole) => void;
   private readonly canGrab?: (objectId: string, role: DroneRole) => boolean;
+  private readonly sweepCooldown = new Map<string, number>();
+  private readonly sweepPush = new Vector3();
+  private readonly closest = new Vector3();
 
   constructor(
     objects: readonly Grabbable[],
@@ -104,6 +109,7 @@ export class GrabSystem {
   }
 
   update(dt: number, drones: ReadonlyMap<DroneRole, Drone>): void {
+    this.cordSweep(dt, drones);
     for (const object of this.objects) {
       const holder = object.heldBy ? drones.get(object.heldBy) : undefined;
       if (holder) {
@@ -112,6 +118,44 @@ export class GrabSystem {
         object.update(dt, this.holdTarget, holder.velocity);
       } else {
         object.update(dt);
+      }
+    }
+  }
+
+  /**
+   * The cord is a tool: a fast-swept or taut cord knocks free props off desks and
+   * shelves and drags them along. Only bodies this client simulates are pushed, so
+   * the owner's physics replicates the result to the partner.
+   */
+  private cordSweep(dt: number, drones: ReadonlyMap<DroneRole, Drone>): void {
+    const path = cordState.path;
+    const pix = drones.get('pix');
+    const nee = drones.get('nee');
+    if (path.length < 2 || !pix || !nee) return;
+    const live = cordState.sweep > 3 || cordState.strain > 0.35;
+    for (const object of this.objects) {
+      const cooldown = Math.max(0, (this.sweepCooldown.get(object.id) ?? 0) - dt);
+      this.sweepCooldown.set(object.id, cooldown);
+      if (!live || cooldown > 0 || !object.pushable) continue;
+      const p = object.position;
+      let best = Number.POSITIVE_INFINITY;
+      for (let i = 1; i < path.length; i++) {
+        const d = closestOnSegment(p, path[i - 1], path[i], this.closest);
+        if (d < best) best = d;
+        if (d === best) this.sweepPush.copyFrom(this.closest);
+      }
+      if (best > object.collisionRadius + 0.3) continue;
+      // Push: the cord's average travel, plus a shove out of the cord line and a little hop.
+      const away = p.subtract(this.sweepPush);
+      away.y = 0;
+      if (away.lengthSquared() < 1e-4) away.set(0, 0, 1);
+      away.normalize();
+      this.sweepPush.copyFrom(pix.velocity).addInPlace(nee.velocity).scaleInPlace(0.5 * (object.heavy ? 0.12 : 0.85));
+      this.sweepPush.addInPlace(away.scaleInPlace(object.heavy ? 0.6 : 2.6 + cordState.strain * 3));
+      this.sweepPush.y = Math.max(this.sweepPush.y, object.heavy ? 0 : 1.6);
+      if (object.nudge(this.sweepPush)) {
+        this.sweepCooldown.set(object.id, 0.35);
+        if (!object.heavy) gameEvents.emit('cord-knock', { id: object.id, position: p.clone() });
       }
     }
   }
@@ -250,4 +294,13 @@ export class GrabSystem {
       drone.position.y - (thrown ? 0.12 : 0.62),
     );
   }
+}
+
+function closestOnSegment(point: Vector3, a: Vector3, b: Vector3, out: Vector3): number {
+  const sx = b.x - a.x, sy = b.y - a.y, sz = b.z - a.z;
+  const len2 = sx * sx + sy * sy + sz * sz;
+  let t = len2 < 1e-6 ? 0 : ((point.x - a.x) * sx + (point.y - a.y) * sy + (point.z - a.z) * sz) / len2;
+  t = Math.max(0, Math.min(1, t));
+  out.set(a.x + sx * t, a.y + sy * t, a.z + sz * t);
+  return Vector3.Distance(point, out);
 }

@@ -13,6 +13,14 @@ import layout from '../level/heist-layout.json';
 import { dressPrototype } from '../level/PrototypeVisual.ts';
 import { dressLabCrate } from '../level/LabCrateVisual.ts';
 
+const DESK_PROPS = [
+  { id: 'mug-a', label: 'Coffee Mug', color: new Color3(0.93, 0.9, 0.84), shape: 'cylinder', size: 0.55 },
+  { id: 'mug-b', label: 'Coffee Mug', color: new Color3(0.95, 0.46, 0.4), shape: 'cylinder', size: 0.55 },
+  { id: 'paper-stack', label: 'Paper Stack', color: new Color3(0.96, 0.95, 0.9), shape: 'box', size: 0.7 },
+  { id: 'cable-spool', label: 'Cable Spool', color: new Color3(0.55, 0.66, 0.58), shape: 'cylinder', size: 0.7 },
+  { id: 'snack-tin', label: 'Snack Tin', color: new Color3(0.98, 0.78, 0.3), shape: 'box', size: 0.6 },
+] as const satisfies readonly { id: keyof typeof layout.objects; label: string; color: Color3; shape: 'box' | 'cylinder' | 'sphere'; size: number }[];
+
 /** Small reusable interaction layer for the dev gameplay room. */
 export class GameplayWorld {
   private readonly grab: GrabSystem;
@@ -67,6 +75,16 @@ export class GameplayWorld {
         size: 1.15,
         grabRadius: 3.2,
       }),
+      // Knockable desk/shelf props: cord-sweepable, grabbable, throwable at security.
+      ...DESK_PROPS.map((prop) => new Grabbable(scene, plugin, {
+        id: prop.id,
+        label: prop.label,
+        position: Vector3.FromArray(Object.values(layout.objects[prop.id])),
+        color: prop.color,
+        shape: prop.shape,
+        size: prop.size,
+        grabRadius: 2.2,
+      })),
     ];
     dressLabCrate(objects.find((object) => object.id === 'crate-blue')!.mesh, 3.6, scene);
     dressPrototype(objects.find((object) => object.id === 'prototype')!.mesh, scene);

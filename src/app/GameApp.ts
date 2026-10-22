@@ -165,6 +165,10 @@ export class GameApp {
           this.hud?.toast('YANK [R] TO RESCUE!', 'good');
         }
       }),
+      gameEvents.on('cord-knock', (e) => {
+        this.juice.burst('impact', e.position, 7);
+        audio.bump();
+      }),
       gameEvents.on('clothesline', (e) => {
         this.juice.burst('zap', e.position, 34);
         audio.clothesline();
