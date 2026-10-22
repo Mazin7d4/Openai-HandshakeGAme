@@ -118,6 +118,18 @@ export class Grabbable implements Interactable {
     return this.mesh.position;
   }
 
+  /** Re-seat a cradled prop (prototype loot) for a seeded RunLayout. */
+  relocateCradle(next: Vector3): void {
+    this.cradlePosition.copyFrom(next);
+    this.lastSafePosition.copyFrom(next);
+    this.mesh.position.copyFrom(next);
+    this.targetPosition.copyFrom(next);
+    if (this.holder === null) {
+      this.aggregate.body.setLinearVelocity(this.zero);
+      this.aggregate.body.setAngularVelocity(this.zero);
+    }
+  }
+
   get heldBy(): DroneRole | null {
     return this.holder;
   }

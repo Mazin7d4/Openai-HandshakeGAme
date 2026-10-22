@@ -26,6 +26,7 @@ import { enableHavok } from '../physics/enableHavok.ts';
 import { createEngine, createScene } from '../scene/createScene.ts';
 import { GameHud } from '../ui/GameHud.ts';
 import { saveSettings } from '../ui/Settings.ts';
+import { generateRun, getRunSeed, type RunLayout } from '../seed/index.ts';
 import type { GameMode } from './GameMode.ts';
 
 export interface GameAppOptions {
@@ -36,6 +37,8 @@ export interface GameAppOptions {
   mode?: GameMode;
   multiplayer?: MultiplayerSession;
   onLeaveGame?: () => void;
+  /** Optional override; default is getRunSeed() stub (Netcode swaps the getter later). */
+  runSeed?: { seed: number; floor: number };
 }
 
 interface LocalPlayer {
@@ -77,6 +80,7 @@ export class GameApp {
   private yankRequested = false;
   private disposed = false;
   private activeDevRole: DroneRole = 'pix';
+  readonly runLayout: RunLayout | null;
   private readonly onResize = () => {
     this.engine.resize();
   };
@@ -107,6 +111,7 @@ export class GameApp {
     gameplay: GameplayWorld,
     hudParent: HTMLElement | undefined,
     onLeaveGame: (() => void) | undefined,
+    runLayout: RunLayout | null = null,
   ) {
     this.engine = engine;
     this.scene = scene;
@@ -120,6 +125,7 @@ export class GameApp {
     this.mode = mode;
     this.multiplayer = multiplayer;
     this.gameplay = gameplay;
+    this.runLayout = runLayout;
     this.hud = hudParent
       ? new GameHud(hudParent, {
           onResume: () => this.setPaused(false),
@@ -238,13 +244,20 @@ export class GameApp {
     const scene = createScene(engine);
     const plugin = await enableHavok(scene);
     const levelSpawn = await options.createLevel(scene);
-    // TEST-ONLY: ?autotest&stage=escape starts local modes in the alarm escape, beside the heavy crate.
-    const escapeStage = Autopilot.enabled && (options.mode ?? 'dev-local') !== 'multiplayer'
-      && new URLSearchParams(window.location.search).get('stage') === 'escape';
-    const spawn = escapeStage ? new Vector3(-7, 4.5, 13) : levelSpawn;
-    const assets = new AssetLoader(scene);
     const mode = options.mode ?? 'dev-local';
     const multiplayer = options.multiplayer ?? null;
+    // Solo + Night Shift share generateRun; multiplayer waits on server applySeedFloor (prod-net sync).
+    // Story/solo/co-op keep the handcrafted level; only Night Shift remixes (until Netcode syncs room seeds).
+    const runSeed = mode === 'night-shift' ? options.runSeed ?? getRunSeed() : null;
+    const runLayout = runSeed ? generateRun(runSeed.seed, runSeed.floor) : null;
+    // TEST-ONLY: ?autotest&stage=escape starts local modes in the alarm escape, beside the heavy crate.
+    const escapeStage = Autopilot.enabled && mode !== 'multiplayer'
+      && new URLSearchParams(window.location.search).get('stage') === 'escape';
+    const layoutSpawn = runLayout
+      ? new Vector3(runLayout.spawn.x, runLayout.spawn.y, runLayout.spawn.z)
+      : levelSpawn;
+    const spawn = escapeStage ? new Vector3(-7, 4.5, 13) : layoutSpawn;
+    const assets = new AssetLoader(scene);
     const localRole = multiplayer?.currentStatus.localRole ?? null;
     if (mode === 'multiplayer' && (!multiplayer || !localRole)) {
       throw new Error('Multiplayer mode requires a joined room and assigned role.');
@@ -258,13 +271,14 @@ export class GameApp {
 
     // Late-bound refs so the single-player companion can perceive drones/camera created below.
     const live: { drones?: Drone[]; camera?: CinematicCamera; gameplay?: GameplayWorld } = {};
+    const companionModes: GameMode[] = ['singleplayer', 'night-shift'];
     const controlFor = (role: DroneRole): DroneControlSource => {
       if (mode === 'multiplayer') {
         return role === localRole
           ? new HumanControlSource(PLAYER_ONE_KEYS)
           : new RemoteControlSource();
       }
-      if (mode === 'singleplayer') {
+      if (companionModes.includes(mode)) {
         return role === 'pix'
           ? new HumanControlSource(PLAYER_ONE_KEYS)
           : new BotControlSource({
@@ -305,12 +319,19 @@ export class GameApp {
       },
     ];
     const drones = players.map((p) => p.drone);
-    const tether = new Tether(scene, drones[0], drones[1], TETHER_TUNING, {
+    const tetherTuning = { ...TETHER_TUNING };
+    if (runLayout) {
+      tetherTuning.restLength = runLayout.cord.restLength;
+      tetherTuning.maxLength = runLayout.cord.maxLength;
+    }
+    const tether = new Tether(scene, drones[0], drones[1], tetherTuning, {
       collarA: DRONE_PALETTES.pix.accent,
       collarB: DRONE_PALETTES.nee.accent,
     });
     const uiParent = options.uiParent ?? options.devParent;
-    const gameplay = new GameplayWorld(scene, plugin, mode, multiplayer, uiParent, options.onLeaveGame);
+    const gameplay = new GameplayWorld(
+      scene, plugin, mode, multiplayer, uiParent, options.onLeaveGame, runLayout,
+    );
     if (escapeStage) gameplay.debugStartEscape();
 
     const cameraRig = new CinematicCamera(scene);
@@ -334,6 +355,7 @@ export class GameApp {
       gameplay,
       uiParent,
       options.onLeaveGame,
+      runLayout,
     );
   }
 

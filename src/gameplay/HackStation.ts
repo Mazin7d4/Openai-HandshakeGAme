@@ -149,6 +149,15 @@ export class HackStation implements Interactable {
     this.floorRing.material = this.ringMaterial;
   }
 
+  /** Move the console for a seeded RunLayout (mesh + indicator + interact point). */
+  relocate(next: Vector3): void {
+    this.position.copyFrom(next);
+    this.mesh.position.copyFrom(next);
+    this.indicator.position.copyFrom(next);
+    this.indicator.position.z -= 0.42;
+    this.mesh.computeWorldMatrix(true);
+  }
+
   distanceTo(point: Vector3): number {
     return Vector3.Distance(this.position, point);
   }
