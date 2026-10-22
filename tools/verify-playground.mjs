@@ -24,7 +24,7 @@ try {
   }, 150);
   let text = await objective(page);
   console.log('objective:', JSON.stringify(text));
-  assert(/WARM UP/i.test(text) && text.includes('topple the desk toys'), 'Warm-up checklist missing.');
+  assert(/warm up/i.test(text) && /topple the desk toys/i.test(text), 'Warm-up checklist missing.');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/playground-start.png` });
 
   // Fly forward into the toy tower (PIX leads, cord drags NEE through it), weaving.

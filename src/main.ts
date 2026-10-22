@@ -250,8 +250,8 @@ async function ensureServerAwake(
   ui.title!.textContent = "Server didn't wake up";
   ui.detail!.textContent = 'Check your connection and retry.';
   ui.overlay.append(
-    menuButton('RETRY', 'wake-retry', retry),
-    menuButton('BACK', 'back', back),
+    menuButton('Retry', 'wake-retry', retry),
+    menuButton('Back', 'back', back),
   );
   return false;
 }
@@ -423,7 +423,7 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
     const networkHud = runHud;
     networkHud.dataset.testid = 'network-hud';
     const updateHud = (status: RoomStatus) => {
-      const localRole = status.localRole?.toUpperCase() ?? 'PLAYER';
+      const localRole = status.localRole?.toUpperCase() ?? 'Player';
       const partnerRole = status.localRole === 'pix' ? 'nee' : 'pix';
       const partner = status.players.get(partnerRole);
       const partnerDisconnected = !partner || partner.connected === false;

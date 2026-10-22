@@ -1,22 +1,28 @@
 /**
  * Challenge-link smoke: ?seed=123 shows the Night Shift floor counter, and the
  * Heist Report "Copy challenge link" round-trips seed + beat via shared/run challengeUrl.
+ *
+ * Uses a fresh browser context per navigation so aborted in-flight fetches from the
+ * previous document cannot pollute the console-error assert.
  */
 import { formatSeed, parseSeed } from '../../shared/run.ts';
-import { runTest, url, assert, collectErrors, shot, waitForGame, devices } from './lib.mjs';
+import {
+  runTest, url, assert, collectErrors, shot, waitForNightShiftHud, devices, openPage, closePage,
+} from './lib.mjs';
 
 const SEED = 123;
 const SEED_CODE = formatSeed(SEED);
 
 await runTest('challenge', async (browser, notes) => {
   const errors = [];
-  const ctx = await browser.newContext({
+  const device = {
     ...devices['iPhone 13 landscape'],
     viewport: { width: 844, height: 390 },
     screen: { width: 844, height: 390 },
-  });
-  await ctx.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
-  const page = await ctx.newPage();
+  };
+
+  const { page } = await openPage(browser, device);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
   collectErrors(page, 'challenge', errors);
 
   const open = new URL(url({ seed: String(SEED), beat: '342000' }));
@@ -24,18 +30,13 @@ await runTest('challenge', async (browser, notes) => {
   open.searchParams.set('seed', String(SEED));
   open.searchParams.set('beat', '342000');
   await page.goto(open.toString());
-  await waitForGame(page);
-  await page.waitForTimeout(1500);
+  await waitForNightShiftHud(page, { beat: true });
 
-  const floor = page.getByTestId('floor-counter');
-  await floor.waitFor({ state: 'visible', timeout: 15_000 });
-  const floorText = (await floor.innerText()).trim();
+  const floorText = (await page.getByTestId('floor-counter').innerText()).trim();
   notes.floorText = floorText;
   assert(/^Floor\s+\d+$/.test(floorText), `floor counter missing: "${floorText}"`);
 
-  const beat = page.getByTestId('beat-chip');
-  await beat.waitFor({ state: 'visible', timeout: 5_000 });
-  const beatText = (await beat.innerText()).trim();
+  const beatText = (await page.getByTestId('beat-chip').innerText()).trim();
   notes.beatText = beatText;
   assert(beatText === 'Beat 5:42', `beat chip wrong: "${beatText}"`);
 
@@ -77,18 +78,20 @@ await runTest('challenge', async (browser, notes) => {
   assert(parseSeed(roundSeed) === SEED, `challenge seed parse: ${roundSeed}`);
   assert(roundTrip.searchParams.get('beat') === '342000', `challenge beat: ${roundTrip.searchParams.get('beat')}`);
 
-  // Reload from the copied challenge link and confirm floor + beat again.
-  await page.goto(challengeUrl);
-  await waitForGame(page);
-  await page.waitForTimeout(1200);
-  const floor2 = (await page.getByTestId('floor-counter').innerText()).trim();
-  const beat2 = (await page.getByTestId('beat-chip').innerText()).trim();
+  // Fresh context for the copied link — avoids aborted-fetch console noise from the first boot.
+  await closePage(page);
+  const { page: reload } = await openPage(browser, device);
+  collectErrors(reload, 'challenge-reload', errors);
+  await reload.goto(challengeUrl);
+  await waitForNightShiftHud(reload, { beat: true });
+  const floor2 = (await reload.getByTestId('floor-counter').innerText()).trim();
+  const beat2 = (await reload.getByTestId('beat-chip').innerText()).trim();
   notes.afterReload = { floor: floor2, beat: beat2 };
   assert(/^Floor\s+\d+$/.test(floor2), `reload floor counter: "${floor2}"`);
   assert(beat2 === 'Beat 5:42', `reload beat chip: "${beat2}"`);
 
-  await shot(page, 'challenge-844x390');
+  await shot(reload, 'challenge-844x390');
   notes.errors = errors;
   assert(errors.length === 0, `console/page errors:\n${errors.join('\n')}`);
-  await ctx.close();
+  await closePage(reload);
 });

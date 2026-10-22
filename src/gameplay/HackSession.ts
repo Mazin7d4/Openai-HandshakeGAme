@@ -29,7 +29,7 @@ function terminalPos(
 
 /** Owns station proximity, minigame lifetime, completion state and the shared door target. */
 /** Seconds the CPU partner needs on its own console. */
-const BOT_HACK_SECONDS = 5;
+const BOT_HACK_SECONDS = 3.5;
 
 export class HackSession {
   readonly stations: readonly HackStation[];
@@ -64,7 +64,7 @@ export class HackSession {
     this.stations = [
       new HackStation(scene, {
         id: 'terminal-a',
-        label: 'PIX PACKET CONSOLE',
+        label: 'PIX packet console',
         position: terminalPos(runLayout, 'terminal-a'),
         interactionRadius: 3.2,
         minigameType: 'packet-routing',
@@ -73,7 +73,7 @@ export class HackSession {
       }),
       new HackStation(scene, {
         id: 'terminal-b',
-        label: 'NEE SIGNAL CONSOLE',
+        label: 'NEE signal console',
         position: terminalPos(runLayout, 'terminal-b'),
         interactionRadius: 3.2,
         minigameType: 'signal-match',
@@ -82,7 +82,7 @@ export class HackSession {
       }),
       new HackStation(scene, {
         id: 'terminal-c',
-        label: 'MEMORY AUTHORIZER',
+        label: 'Memory authorizer',
         position: terminalPos(runLayout, 'terminal-c'),
         interactionRadius: 3.1,
         minigameType: 'memory-trace',

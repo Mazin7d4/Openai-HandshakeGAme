@@ -92,4 +92,6 @@ await runTest('reconnect', async (browser, notes) => {
   notes.fixme = fixme;
   assert(!(REJOIN_EXPECTED && !fixme.ok), `rejoin expected but failed: ${JSON.stringify(fixme)}`);
   notes.errors = errors;
+  await guestCtx.close().catch(() => {});
+  await hostCtx.close().catch(() => {});
 });
