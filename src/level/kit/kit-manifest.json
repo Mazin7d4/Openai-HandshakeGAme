@@ -1,0 +1,562 @@
+{
+  "version": 1,
+  "unitsPerMetre": 5,
+  "generatedBy": "tools/blender/kit/build_kit.py",
+  "files": {
+    "room": "assets/kit/room-kit.glb",
+    "prop": "assets/kit/props-kit.glb",
+    "vault": "assets/kit/vault-kit.glb"
+  },
+  "assets": [
+    {
+      "name": "Desk",
+      "category": "prop",
+      "glb": "assets/kit/props-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 1404,
+      "bounds": {
+        "min": [
+          -4.0,
+          -3.675,
+          -2.0
+        ],
+        "max": [
+          4.0,
+          0.075,
+          2.0
+        ]
+      },
+      "footprint": {
+        "w": 1.6,
+        "d": 0.8
+      },
+      "gridSnap": false
+    },
+    {
+      "name": "CableRun",
+      "category": "room",
+      "glb": "assets/kit/room-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 408,
+      "bounds": {
+        "min": [
+          -0.1,
+          -0.7,
+          -0.2
+        ],
+        "max": [
+          9.9,
+          0.15,
+          0.2
+        ]
+      },
+      "footprint": {
+        "w": 2.0,
+        "d": 0.08
+      },
+      "gridSnap": true
+    },
+    {
+      "name": "CableTray",
+      "category": "room",
+      "glb": "assets/kit/room-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 844,
+      "bounds": {
+        "min": [
+          -2.5,
+          -0.1,
+          -1.425
+        ],
+        "max": [
+          2.5,
+          3.0,
+          0.075
+        ]
+      },
+      "footprint": {
+        "w": 1.0,
+        "d": 0.3
+      },
+      "gridSnap": true
+    },
+    {
+      "name": "CeilingTile",
+      "category": "room",
+      "glb": "assets/kit/room-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 120,
+      "bounds": {
+        "min": [
+          -2.5,
+          -0.02,
+          -2.5
+        ],
+        "max": [
+          2.5,
+          0.12,
+          2.5
+        ]
+      },
+      "footprint": {
+        "w": 1.0,
+        "d": 1.0
+      },
+      "gridSnap": true
+    },
+    {
+      "name": "FloorTile",
+      "category": "room",
+      "glb": "assets/kit/room-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 108,
+      "bounds": {
+        "min": [
+          -2.5,
+          -0.05,
+          -2.5
+        ],
+        "max": [
+          2.5,
+          0.05,
+          2.5
+        ]
+      },
+      "footprint": {
+        "w": 1.0,
+        "d": 1.0
+      },
+      "gridSnap": true
+    },
+    {
+      "name": "FloorTileOak",
+      "category": "room",
+      "glb": "assets/kit/room-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 108,
+      "bounds": {
+        "min": [
+          -2.5,
+          -0.05,
+          -2.5
+        ],
+        "max": [
+          2.5,
+          0.05,
+          2.5
+        ]
+      },
+      "footprint": {
+        "w": 1.0,
+        "d": 1.0
+      },
+      "gridSnap": true
+    },
+    {
+      "name": "GlassPartition",
+      "category": "room",
+      "glb": "assets/kit/room-kit.glb",
+      "materials": [
+        "KitAtlas",
+        "KitGlass"
+      ],
+      "tris": 444,
+      "bounds": {
+        "min": [
+          -2.5,
+          -5.85,
+          -0.1
+        ],
+        "max": [
+          2.5,
+          11.925,
+          0.1
+        ]
+      },
+      "footprint": {
+        "w": 1.0,
+        "d": 0.04
+      },
+      "gridSnap": true
+    },
+    {
+      "name": "Pillar",
+      "category": "room",
+      "glb": "assets/kit/room-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 540,
+      "bounds": {
+        "min": [
+          -1.025,
+          -7.5,
+          -1.025
+        ],
+        "max": [
+          1.025,
+          7.5,
+          1.025
+        ]
+      },
+      "footprint": {
+        "w": 0.4,
+        "d": 0.4
+      },
+      "gridSnap": true
+    },
+    {
+      "name": "TrimStrip",
+      "category": "room",
+      "glb": "assets/kit/room-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 216,
+      "bounds": {
+        "min": [
+          -2.5,
+          -0.175,
+          -0.055
+        ],
+        "max": [
+          2.5,
+          0.225,
+          0.055
+        ]
+      },
+      "footprint": {
+        "w": 1.0,
+        "d": 0.022
+      },
+      "gridSnap": true
+    },
+    {
+      "name": "Vent",
+      "category": "room",
+      "glb": "assets/kit/room-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 1092,
+      "bounds": {
+        "min": [
+          -1.5,
+          -1.9,
+          -0.075
+        ],
+        "max": [
+          1.5,
+          0.1,
+          0.075
+        ]
+      },
+      "footprint": {
+        "w": 0.6,
+        "d": 0.03
+      },
+      "gridSnap": true
+    },
+    {
+      "name": "WallCorner",
+      "category": "room",
+      "glb": "assets/kit/room-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 432,
+      "bounds": {
+        "min": [
+          -2.5,
+          -0.375,
+          -0.31
+        ],
+        "max": [
+          2.51,
+          14.625,
+          4.7
+        ]
+      },
+      "footprint": {
+        "w": 1.0,
+        "d": 1.0
+      },
+      "gridSnap": true
+    },
+    {
+      "name": "WallDoor",
+      "category": "room",
+      "glb": "assets/kit/room-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 864,
+      "bounds": {
+        "min": [
+          -1.25,
+          -0.375,
+          -0.325
+        ],
+        "max": [
+          8.75,
+          14.625,
+          0.325
+        ]
+      },
+      "footprint": {
+        "w": 2.0,
+        "d": 0.12
+      },
+      "gridSnap": true
+    },
+    {
+      "name": "WallStraight",
+      "category": "room",
+      "glb": "assets/kit/room-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 216,
+      "bounds": {
+        "min": [
+          -2.5,
+          -0.375,
+          -0.31
+        ],
+        "max": [
+          2.5,
+          14.625,
+          0.31
+        ]
+      },
+      "footprint": {
+        "w": 1.0,
+        "d": 0.12
+      },
+      "gridSnap": true
+    },
+    {
+      "name": "WallStraight2",
+      "category": "room",
+      "glb": "assets/kit/room-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 216,
+      "bounds": {
+        "min": [
+          -5.0,
+          -0.375,
+          -0.31
+        ],
+        "max": [
+          5.0,
+          14.625,
+          0.31
+        ]
+      },
+      "footprint": {
+        "w": 2.0,
+        "d": 0.12
+      },
+      "gridSnap": true
+    },
+    {
+      "name": "WallWindow",
+      "category": "room",
+      "glb": "assets/kit/room-kit.glb",
+      "materials": [
+        "KitAtlas",
+        "KitGlass"
+      ],
+      "tris": 984,
+      "bounds": {
+        "min": [
+          -5.0,
+          -2.9,
+          -0.325
+        ],
+        "max": [
+          5.0,
+          14.625,
+          0.325
+        ]
+      },
+      "footprint": {
+        "w": 2.0,
+        "d": 0.12
+      },
+      "gridSnap": true
+    },
+    {
+      "name": "VaultBolts",
+      "category": "vault",
+      "glb": "assets/kit/vault-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 528,
+      "bounds": {
+        "min": [
+          -4.9,
+          -9.45,
+          -0.175
+        ],
+        "max": [
+          4.9,
+          0.35,
+          0.175
+        ]
+      },
+      "footprint": {
+        "w": 2.0,
+        "d": 0.15
+      },
+      "gridSnap": false
+    },
+    {
+      "name": "VaultCore",
+      "category": "vault",
+      "glb": "assets/kit/vault-kit.glb",
+      "materials": [
+        "KitEmissive"
+      ],
+      "tris": 108,
+      "bounds": {
+        "min": [
+          -0.3,
+          -0.3,
+          -0.3
+        ],
+        "max": [
+          0.3,
+          0.3,
+          0.3
+        ]
+      },
+      "footprint": {
+        "w": 0.12,
+        "d": 0.12
+      },
+      "gridSnap": false
+    },
+    {
+      "name": "VaultDoor",
+      "category": "vault",
+      "glb": "assets/kit/vault-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 1332,
+      "bounds": {
+        "min": [
+          -5.1,
+          -0.95,
+          -4.575
+        ],
+        "max": [
+          4.575,
+          1.075,
+          4.575
+        ]
+      },
+      "footprint": {
+        "w": 1.8,
+        "d": 0.38
+      },
+      "gridSnap": false
+    },
+    {
+      "name": "VaultFrame",
+      "category": "vault",
+      "glb": "assets/kit/vault-kit.glb",
+      "materials": [
+        "KitAtlas"
+      ],
+      "tris": 560,
+      "bounds": {
+        "min": [
+          -6.0,
+          0.0,
+          -1.0
+        ],
+        "max": [
+          6.0,
+          12.0,
+          1.1
+        ]
+      },
+      "footprint": {
+        "w": 2.4,
+        "d": 0.4
+      },
+      "gridSnap": false
+    },
+    {
+      "name": "VaultJar",
+      "category": "vault",
+      "glb": "assets/kit/vault-kit.glb",
+      "materials": [
+        "KitAtlas",
+        "KitGlassClear"
+      ],
+      "tris": 348,
+      "bounds": {
+        "min": [
+          -0.95,
+          -1.025,
+          -0.95
+        ],
+        "max": [
+          0.95,
+          2.537,
+          0.95
+        ]
+      },
+      "footprint": {
+        "w": 0.38,
+        "d": 0.38
+      },
+      "gridSnap": false
+    },
+    {
+      "name": "VaultPedestal",
+      "category": "vault",
+      "glb": "assets/kit/vault-kit.glb",
+      "materials": [
+        "KitAtlas",
+        "KitEmissive"
+      ],
+      "tris": 304,
+      "bounds": {
+        "min": [
+          -1.55,
+          -0.15,
+          -1.55
+        ],
+        "max": [
+          1.55,
+          4.25,
+          1.55
+        ]
+      },
+      "footprint": {
+        "w": 0.62,
+        "d": 0.62
+      },
+      "gridSnap": false
+    }
+  ]
+}
