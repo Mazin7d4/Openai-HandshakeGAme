@@ -1,4 +1,4 @@
-import type { AbstractMesh } from '@babylonjs/core';
+import type { AbstractMesh, Mesh } from '@babylonjs/core';
 import {
   Color3,
   Color4,
@@ -30,6 +30,14 @@ export function createEngine(canvas: HTMLCanvasElement): Engine {
   });
   if (renderScale > 1) engine.setHardwareScalingLevel(renderScale);
   return engine;
+}
+
+const GLOW_NAMES = /^(p01-core|p01-core-halo|alarm-beacon-lamp|alarm-beacon-beam|security-camera|security-drone-\d+-eye|instrument-screen|.*-beacon)$/;
+/** Glow include-list: core, screens, face-screens, security lenses, alarm/objective beacons. */
+function isGlowMesh(mesh: AbstractMesh): boolean {
+  if (GLOW_NAMES.test(mesh.name)) return true;
+  // Mascot face-screens: the drone GLB's 'Screen' material carries the animated face texture.
+  return mesh.material?.name === 'Screen' && !!(mesh.material as { emissiveTexture?: unknown }).emissiveTexture;
 }
 
 const qualityManagers = new WeakMap<Scene, QualityManager>();
@@ -97,8 +105,18 @@ export function createScene(engine: Engine): Scene {
 
   let glow: GlowLayer | null = null;
   if (!lowFx) {
-    glow = new GlowLayer('glow', scene, { blurKernelSize: 32 });
-    glow.intensity = 0.22;
+    // Glow discipline (ANTI_VIBECODED): include-list only (face-screens, lenses, beacons, the core).
+    // An unfiltered GlowLayer re-draws every emissive mesh and blooms props into neon.
+    glow = new GlowLayer('glow', scene, { blurKernelSize: 16, mainTextureRatio: 0.5 });
+    glow.intensity = 0.5;
+    const layer = glow;
+    const pending: AbstractMesh[] = [];
+    scene.onNewMeshAddedObservable.add((mesh) => pending.push(mesh));
+    // Materials are assigned after creation, so classify on the next frame.
+    scene.onBeforeRenderObservable.add(() => {
+      if (pending.length === 0) return;
+      for (const mesh of pending.splice(0)) if (isGlowMesh(mesh)) layer.addIncludedOnlyMesh(mesh as Mesh);
+    });
   }
   qualityManagers.set(scene, new QualityManager(scene, { sun, shadows, glow }));
 
