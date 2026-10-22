@@ -2,7 +2,7 @@
 // Default URL renders at 1/4 resolution without glow so checks are reliable on software WebGL / weak GPUs.
 import { spawnSync } from 'node:child_process';
 const url = process.argv[2] ?? process.env.APP_URL ?? 'http://localhost:5173/?scale=4&lowfx';
-const checks = ['verify-crate', 'verify-companion', 'verify-multiplayer', 'verify-dev-local', 'verify-gameplay', 'verify-heist', 'verify-multiplayer-heist', 'verify-singleplayer', 'verify-tether-moves', 'verify-multiplayer-yank', 'verify-multiplayer-security'];
+const checks = ['verify-crate', 'verify-companion', 'verify-multiplayer', 'verify-dev-local', 'verify-gameplay', 'verify-heist', 'verify-multiplayer-heist', 'verify-singleplayer', 'verify-tether-moves', 'verify-multiplayer-yank', 'verify-multiplayer-security', 'verify-reconnect'];
 const results = {};
 for (const check of checks) {
   const started = Date.now();

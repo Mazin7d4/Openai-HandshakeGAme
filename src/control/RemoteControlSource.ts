@@ -37,10 +37,17 @@ export class RemoteControlSource implements DroneControlSource {
   private targetReceivedAt = performance.now();
 
   push(state: DroneNetworkState): void {
-    this.target = cloneState(state);
+    const next = cloneState(state);
+    // Dropped seats are frozen server-side; keep the last pose still for the partner.
+    if (!next.connected) {
+      next.velocity = { x: 0, y: 0, z: 0 };
+      next.boost = 'off';
+      next.movement = 'idle';
+    }
+    this.target = next;
     this.targetReceivedAt = performance.now();
     if (!this.current) {
-      this.current = cloneState(state);
+      this.current = cloneState(next);
     }
   }
 
