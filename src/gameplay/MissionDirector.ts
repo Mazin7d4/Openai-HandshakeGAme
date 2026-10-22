@@ -292,6 +292,7 @@ export class MissionDirector {
 
   /** Warm-up checklist line, exposed for tests. */
   get warmupLine(): string | null { return this.warmup(); }
+  get stage(): string { return this.state.stage; }
 
   private renderObjective(hackCount: number): void {
     if (!this.objectiveTitle || !this.objectiveDetail || !this.detectionFill) return;

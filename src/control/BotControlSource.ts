@@ -1,4 +1,4 @@
-import type { Vector3 } from '@babylonjs/core';
+import { Vector3 } from '@babylonjs/core';
 import { zeroFlightAxes, type FlightAxes } from '../input/FlightAxes.ts';
 import { zeroInteractionActions } from '../input/InteractionActions.ts';
 import type { DroneControlFrame, DroneControlSource } from './DroneControlSource.ts';
@@ -17,9 +17,24 @@ export interface BotSensors {
   leaderHacking?(): boolean;
   /** Leader was shoved / stunned / hanging off a ledge and needs a yank. */
   leaderInTrouble?(): boolean;
+  /** Where the companion's own job is (e.g. its console), or null to just follow. */
+  objective?(): Vector3 | null;
+  /** Work the objective while parked on it; true while working. Called with dt. */
+  work?(dt: number): boolean;
+  /** Current cord polyline (either end may be first) and strain 0..1. */
+  cordPath?(): readonly Vector3[];
+  cordStrain?(): number;
+  /** Zip along the given points to the leader (ghosted glide). */
+  zip?(path: Vector3[]): void;
+  zipping?(): boolean;
+  /** The leader is held by security: yank them free. */
+  leaderCaptured?(): boolean;
 }
 
-export type BotState = 'follow' | 'haul' | 'guard' | 'rescue' | 'idle';
+/** Seconds without closing on the leader (while far) before the companion zips to them. */
+export const BOT_STUCK_SECONDS = 2.5;
+
+export type BotState = 'follow' | 'haul' | 'guard' | 'rescue' | 'idle' | 'zip' | 'objective' | 'work';
 
 /**
  * CPU companion: a small steering state machine (follow / haul / guard / rescue), no LLM.
@@ -39,6 +54,12 @@ export class BotControlSource implements DroneControlSource {
   private following = false;
   private yankCooldown = 0;
   private troubleTime = 0;
+  private stuckTime = 0;
+  private stretchTime = 0;
+  private checkTimer = 0;
+  private lastCheck = Number.POSITIVE_INFINITY;
+  /** Total zips so far (tests). */
+  zips = 0;
   /** Current behaviour, exposed for the HUD/tests. */
   state: BotState = 'idle';
 
@@ -56,12 +77,30 @@ export class BotControlSource implements DroneControlSource {
     const leader = s.leader();
     if (!self || !leader) { this.state = 'idle'; return this.idle; }
     const basis = s.basis();
+    if (s.zipping?.()) { this.state = 'zip'; return this.idle; }
     // Rescue: react after a short, human-feeling delay, then yank once (cooldown keeps it from spamming).
-    this.troubleTime = s.leaderInTrouble?.() ? this.troubleTime + dt : 0;
+    const captured = s.leaderCaptured?.() ?? false;
+    this.troubleTime = s.leaderInTrouble?.() || captured ? this.troubleTime + dt : 0;
+    if (captured && this.troubleTime > 0.8 && this.yankCooldown === 0) {
+      this.state = 'rescue';
+      this.yankCooldown = 1.2;
+      return { actions: zeroFlightAxes(), interactions: { ...zeroInteractionActions(), yank: true } };
+    }
     if (this.troubleTime > 0.35 && this.yankCooldown === 0) {
       this.state = 'rescue';
       this.yankCooldown = 2.5;
       return { actions: zeroFlightAxes(), interactions: { ...zeroInteractionActions(), yank: true } };
+    }
+    // Own job (e.g. NEE's console during a paired hack): go there and work it.
+    const objective = s.objective?.() ?? null;
+    if (objective) {
+      if (s.work?.(dt)) {
+        this.state = 'work';
+        return { actions: zeroFlightAxes(), interactions: this.idle.interactions };
+      }
+      this.state = 'objective';
+      if (this.recover(dt, self, objective, [objective.clone()])) { this.state = 'zip'; return this.idle; }
+      return { actions: this.goTo(self, objective, basis), interactions: this.idle.interactions };
     }
     if (s.leaderHacking?.()) {
       // Guard: hover in place, only correcting altitude, so the cord stays slack during the hack.
@@ -73,8 +112,71 @@ export class BotControlSource implements DroneControlSource {
       this.state = 'haul';
       return { actions: this.haul(self, leader, s.leaderVelocity?.() ?? null, basis), interactions: this.idle.interactions };
     }
+    s.work?.(0);
+    if (this.recover(dt, self, leader)) {
+      this.state = 'zip';
+      return this.idle;
+    }
     this.state = 'follow';
     return { actions: this.follow(self, leader, basis), interactions: this.idle.interactions };
+  }
+
+  private resetStuck(): void {
+    this.stuckTime = 0;
+    this.stretchTime = 0;
+    this.checkTimer = 0;
+    this.lastCheck = Number.POSITIVE_INFINITY;
+  }
+
+  /**
+   * Never strand the player: if we have not closed on the leader for BOT_STUCK_SECONDS
+   * while far away (or the cord is over-stretched for a second), zip along the cord.
+   */
+  private recover(dt: number, self: Vector3, leader: Vector3, direct?: Vector3[]): boolean {
+    const s = this.sensors!;
+    if (!s.zip || !s.cordPath) return false;
+    const distance = Vector3.Distance(self, leader);
+    this.stretchTime = (s.cordStrain?.() ?? 0) > 0.95 ? this.stretchTime + dt : 0;
+    this.checkTimer += dt;
+    if (this.checkTimer >= 0.5) {
+      if (distance > (direct ? 2.5 : 4.5) && this.lastCheck - distance < 0.3) this.stuckTime += this.checkTimer;
+      else this.stuckTime = 0;
+      this.lastCheck = distance;
+      this.checkTimer = 0;
+    }
+    if (this.stuckTime < BOT_STUCK_SECONDS && this.stretchTime < 1) return false;
+    if (direct) {
+      s.zip(direct);
+      this.zips += 1;
+      this.resetStuck();
+      return true;
+    }
+    const raw = s.cordPath();
+    const path = raw.length > 1 && Vector3.DistanceSquared(raw[0], self) > Vector3.DistanceSquared(raw[raw.length - 1], self)
+      ? [...raw].reverse()
+      : [...raw];
+    // Glide along the cord, stopping a little short of the leader.
+    const points = path.filter((point) => Vector3.Distance(point, leader) > 1.4);
+    if (points.length === 0 || Vector3.Distance(points[points.length - 1], leader) > 2.6) {
+      points.push(leader.add(self.subtract(leader).normalize().scale(1.4)));
+    }
+    s.zip(points.map((p) => p.clone()));
+    this.zips += 1;
+    this.resetStuck();
+    return true;
+  }
+
+  private goTo(self: Vector3, target: Vector3, basis: { forward: Vector3; right: Vector3 }): FlightAxes {
+    const clamp = (v: number) => Math.max(-1, Math.min(1, v));
+    const dx = target.x - self.x;
+    const dz = target.z - self.z;
+    const dy = target.y - self.y;
+    return {
+      thrust: clamp((basis.forward.x * dx + basis.forward.z * dz) * 0.8),
+      strafe: clamp((basis.right.x * dx + basis.right.z * dz) * 0.8),
+      lift: Math.abs(dy) > 0.3 ? clamp(dy * 1.2) : 0,
+      boost: Math.hypot(dx, dz) > 6,
+    };
   }
 
   /**

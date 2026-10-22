@@ -100,6 +100,9 @@ export class Drone implements CameraSubject {
   private wasBoosting = false;
   /** Seconds since this drone was last knocked about (patrol shove / hard hit). */
   private hurtTimer = 0;
+  /** Companion recovery: remaining waypoints of a zip along the cord (empty = not zipping). */
+  private zipPath: Vector3[] = [];
+  private zipFor = 0;
   /** Security capture: velocity a patrol pod is hauling this drone with (null = free). */
   private readonly capturePull = new Vector3();
   private captured = false;
@@ -191,6 +194,7 @@ export class Drone implements CameraSubject {
       this.flight.velocity.scaleInPlace(0.25).addInPlace(this.capturePull.scale(0.75));
       this.hurtTimer = Math.max(this.hurtTimer, 0.5);
     }
+    if (this.steerZip(dt)) this.selfPowered = true;
     this.inputBoost = input.boost;
     if (input.boost && !this.wasBoosting && this.selfPowered) {
       gameEvents.emit('boost', { droneId: this.id, position: this.root.position });
@@ -245,6 +249,43 @@ export class Drone implements CameraSubject {
     this.visual.react('panic', 1.1);
     this.visual.impact(6);
     gameEvents.emit('knockback', { droneId: this.id, position: this.root.position });
+  }
+
+  /**
+   * Zip along the cord to the partner: a quick ghosted glide through the cord's own
+   * (collision-free) path, used by the CPU companion so it can never strand the player.
+   */
+  startZip(path: readonly Vector3[]): void {
+    if (path.length === 0) return;
+    this.zipPath = path.map((point) => point.clone());
+    this.zipFor = 0;
+    this.aggregate.shape.filterCollideMask = 0;
+    this.visual.react('sheepish', 1.6);
+  }
+
+  get isZipping(): boolean {
+    return this.zipPath.length > 0;
+  }
+
+  private endZip(): void {
+    this.zipPath = [];
+    this.aggregate.shape.filterCollideMask = COLLISION_GROUP.all;
+    this.flight.velocity.scaleInPlace(0.2);
+  }
+
+  /** Returns true while zipping (steer is fully overridden). */
+  private steerZip(dt: number): boolean {
+    if (this.zipPath.length === 0) return false;
+    this.zipFor += dt;
+    while (this.zipPath.length > 0 && Vector3.Distance(this.zipPath[0], this.root.position) < 0.7) this.zipPath.shift();
+    if (this.zipPath.length === 0 || this.zipFor > 3) {
+      this.endZip();
+      return true;
+    }
+    const to = this.zipPath[0].subtract(this.root.position);
+    const speed = Math.min(16, to.length() / Math.max(dt, 1e-3));
+    this.flight.velocity.copyFrom(to.normalize().scaleInPlace(speed));
+    return true;
   }
 
   /** Security pod grabbed (pull set) or released (null) this drone. */

@@ -154,6 +154,18 @@ export class GameplayWorld {
     return [...this.grab.promptsFor(role, drone), ...this.hack.promptsFor(role, drone.position)];
   }
 
+  /** Solo companion: where its own console is, once the leader is working nearby. */
+  botObjective(role: DroneRole, leader: Vector3): Vector3 | null {
+    if (this.mission.stage !== 'hack-security') return null;
+    const station = this.hack.botStation(role);
+    if (!station || Vector3.Distance(station.position, leader) > 15) return null;
+    return station.position.add(new Vector3(0, 0.4, 0));
+  }
+
+  botWork(role: DroneRole, position: Vector3, dt: number): boolean {
+    return dt > 0 ? this.hack.botWork(role, position, dt) : (this.hack.botWork(role, position, 0), false);
+  }
+
   isRoleHacking(role: DroneRole): boolean {
     return this.hack.isRoleHacking(role);
   }

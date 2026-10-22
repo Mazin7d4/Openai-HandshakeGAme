@@ -1,3 +1,4 @@
+import { cordState } from '../gameplay/Tether.ts';
 import { Vector3, type Engine, type Scene } from '@babylonjs/core';
 import { AssetLoader } from '../assets/AssetLoader.ts';
 import { CinematicCamera } from '../camera/CinematicCamera.ts';
@@ -325,6 +326,19 @@ export class GameApp {
             leaderHauling: () => live.gameplay?.isRoleHaulingHeavy('pix') ?? false,
             leaderVelocity: () => live.drones?.[0]?.velocity ?? null,
             leaderInTrouble: () => live.drones?.[0]?.inTrouble ?? false,
+            leaderCaptured: () => live.drones?.[0]?.isCaptured ?? false,
+            objective: () => {
+              const leader = live.drones?.[0]?.position;
+              return leader ? live.gameplay?.botObjective('nee', leader) ?? null : null;
+            },
+            work: (dt) => {
+              const self = live.drones?.[1]?.position;
+              return self ? live.gameplay?.botWork('nee', self, dt) ?? false : false;
+            },
+            cordPath: () => cordState.path,
+            cordStrain: () => cordState.strain,
+            zip: (path) => live.drones?.[1]?.startZip(path),
+            zipping: () => live.drones?.[1]?.isZipping ?? false,
           });
       }
       return role === 'pix'
@@ -497,7 +511,7 @@ export class GameApp {
     this.devReadout?.update(
       this.snapshots,
       this.tether.currentStrain,
-      this.gameplay.describe() + this.players.map((p) => p.control instanceof BotControlSource ? ` bot:${p.control.state}` : '').join(''),
+      this.gameplay.describe() + this.players.map((p) => p.control instanceof BotControlSource ? ` bot:${p.control.state}/z${p.control.zips}` : '').join(''),
       {
         fps: this.engine.getFps(),
         activeRole: this.mode === 'dev-local'
