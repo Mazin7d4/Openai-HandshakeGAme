@@ -74,7 +74,7 @@ try {
     await page.keyboard.up('Shift');
     const toast = await page.getByTestId('juice-toasts').innerText();
     console.log('sling attempt', dir, JSON.stringify(toast));
-    if (toast.includes('SLINGSHOT')) { slung = true; break; }
+    if (/slingshot/i.test(toast)) { slung = true; break; }
     await page.waitForTimeout(1300);
   }
   assert(slung, 'Slingshot never triggered.');
