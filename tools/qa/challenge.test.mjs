@@ -1,8 +1,12 @@
 /**
  * Challenge-link smoke: ?seed=123 shows the Night Shift floor counter, and the
- * Heist Report "Copy challenge link" round-trips seed + beat back into a bootable URL.
+ * Heist Report "Copy challenge link" round-trips seed + beat via shared/run challengeUrl.
  */
+import { formatSeed, parseSeed } from '../../shared/run.ts';
 import { runTest, url, assert, collectErrors, shot, waitForGame, devices } from './lib.mjs';
+
+const SEED = 123;
+const SEED_CODE = formatSeed(SEED);
 
 await runTest('challenge', async (browser, notes) => {
   const errors = [];
@@ -15,9 +19,9 @@ await runTest('challenge', async (browser, notes) => {
   const page = await ctx.newPage();
   collectErrors(page, 'challenge', errors);
 
-  const open = new URL(url({ seed: '123', beat: '342000' }));
-  // lib.url() adds debug/autotest; keep seed + beat.
-  open.searchParams.set('seed', '123');
+  const open = new URL(url({ seed: String(SEED), beat: '342000' }));
+  // lib.url() adds debug/autotest; keep seed + beat (decimal accepted by parseSeed).
+  open.searchParams.set('seed', String(SEED));
   open.searchParams.set('beat', '342000');
   await page.goto(open.toString());
   await waitForGame(page);
@@ -36,7 +40,7 @@ await runTest('challenge', async (browser, notes) => {
   assert(beatText === 'Beat 5:42', `beat chip wrong: "${beatText}"`);
 
   // Open the report via the existing screenshot/test hook and copy the challenge link.
-  await page.evaluate(() => {
+  await page.evaluate((seed) => {
     window.__heistReport?.show({
       elapsedSeconds: 5 * 60 + 42,
       timesSpotted: 0,
@@ -49,13 +53,13 @@ await runTest('challenge', async (browser, notes) => {
       spottedBy: [],
       yankBy: ['pix'],
       outcome: 'win',
-      seed: 123,
+      seed,
     });
-  });
+  }, SEED);
   await page.getByTestId('mission-complete').waitFor({ state: 'visible', timeout: 10_000 });
   const seedLine = (await page.getByTestId('report-seed').innerText()).trim();
   notes.reportSeed = seedLine;
-  assert(seedLine === 'Seed 123', `report seed wrong: "${seedLine}"`);
+  assert(seedLine === `Seed ${SEED}`, `report seed wrong: "${seedLine}"`);
 
   await page.getByTestId('challenge-friend').click();
   const hint = page.locator('[data-heist="challenge-hint"]');
@@ -67,8 +71,10 @@ await runTest('challenge', async (browser, notes) => {
   if (!challengeUrl && /^https?:/.test(hintText)) challengeUrl = hintText;
   assert(challengeUrl, 'challenge URL missing');
   const roundTrip = new URL(challengeUrl);
-  notes.roundTrip = { seed: roundTrip.searchParams.get('seed'), beat: roundTrip.searchParams.get('beat') };
-  assert(roundTrip.searchParams.get('seed') === '123', `challenge seed: ${roundTrip.searchParams.get('seed')}`);
+  const roundSeed = roundTrip.searchParams.get('seed');
+  notes.roundTrip = { seed: roundSeed, beat: roundTrip.searchParams.get('beat') };
+  assert(roundSeed === SEED_CODE, `challenge seed: ${roundSeed} (expected ${SEED_CODE})`);
+  assert(parseSeed(roundSeed) === SEED, `challenge seed parse: ${roundSeed}`);
   assert(roundTrip.searchParams.get('beat') === '342000', `challenge beat: ${roundTrip.searchParams.get('beat')}`);
 
   // Reload from the copied challenge link and confirm floor + beat again.

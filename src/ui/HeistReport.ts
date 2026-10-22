@@ -1,5 +1,6 @@
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
+import { challengeUrl as buildChallengeUrl } from '../../shared/run.ts';
 import {
   awardAccent,
   formatRunTime,
@@ -222,21 +223,18 @@ export class HeistReport {
     }
   }
 
-  /** Builds `?seed=<n>&beat=<ms>` from the run seed and the player's elapsed time. */
+  /** Builds `?seed=<code>&beat=<ms>` via shared/run.ts challengeUrl. */
   challengeUrl(): string {
-    const url = new URL(window.location.href);
-    url.searchParams.delete('report');
-    url.searchParams.delete('autotest');
-    url.searchParams.delete('debug');
-    url.searchParams.delete('play');
-    url.searchParams.delete('room');
-    url.searchParams.delete('dev');
-    if (this.stats?.seed != null) {
-      url.searchParams.set('seed', String(this.stats.seed >>> 0));
+    const base = new URL(window.location.href);
+    for (const key of ['report', 'autotest', 'debug', 'play', 'room', 'dev', 'mode']) {
+      base.searchParams.delete(key);
     }
-    const ms = Math.round((this.stats?.elapsedSeconds ?? 0) * 1000);
-    url.searchParams.set('beat', String(Math.max(0, ms)));
-    return url.toString();
+    if (this.stats?.seed == null) return base.toString();
+    const ms = Math.round((this.stats.elapsedSeconds ?? 0) * 1000);
+    return buildChallengeUrl(base, {
+      seed: this.stats.seed >>> 0,
+      beat: Math.max(0, ms),
+    });
   }
 
   private async copyChallengeLink(): Promise<void> {

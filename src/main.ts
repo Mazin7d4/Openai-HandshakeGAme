@@ -10,12 +10,20 @@ import type { RoomStatus } from './network/NetworkTypes.ts';
 import { RECONNECT_GRACE_SECONDS } from './network/ReconnectionToken.ts';
 import { pingServer, wakeServer } from './network/ServerEndpoint.ts';
 import {
+  getRunState,
+  readUrlRunOptions,
+  startLocalRun,
+  clearRunState,
+} from './run/ClientRun.ts';
+import {
   clearRunIntent,
+  consumeRunIntent,
   dailySeed,
   formatBeatMs,
   getRunInfo,
   prepareChallengeRun,
   prepareDailyRun,
+  runOptionsFromSearch,
 } from './net/runInfo.ts';
 import './style.css';
 import { audio } from './audio/AudioManager.ts';
@@ -254,7 +262,7 @@ async function createRoom(): Promise<void> {
   panel.append(status);
   if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void createRoom(); }))) return;
   try {
-    const session = await MultiplayerSession.createRoom();
+    const session = await MultiplayerSession.createRoom(readUrlRunOptions());
     showLobby(session);
   } catch (error) {
     status.textContent = errorMessage(error);
@@ -292,7 +300,7 @@ function showJoinRoom(prefill?: string): void {
       return;
     }
     try {
-      const session = await MultiplayerSession.joinRoom(code);
+      const session = await MultiplayerSession.joinRoom(code, readUrlRunOptions());
       showLobby(session);
     } catch (error: unknown) {
       status.textContent = errorMessage(error);
@@ -356,6 +364,26 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   const boot = element('div', 'boot-card');
   boot.id = 'boot-status';
   const bootStep = element('p', 'boot-step', 'Loading physics…');
+
+  // Solo / offline: same shared run module, never contacts the server.
+  // Consume Daily / challenge / replay intent so ClientRun (and getRunInfo) share one seed.
+  if (!session && (mode === 'singleplayer' || mode === 'dev-local' || mode === 'night-shift')) {
+    const prepared = consumeRunIntent();
+    const fromUrl = readUrlRunOptions();
+    startLocalRun(
+      mode === 'night-shift'
+        ? {
+            ...fromUrl,
+            ...(prepared?.seed != null ? { seed: prepared.seed } : {}),
+            ...(prepared?.floor != null ? { floor: prepared.floor } : {}),
+            ...(prepared?.captures != null ? { captures: prepared.captures } : {}),
+            ...(prepared?.timeToBeatMs != null ? { beat: prepared.timeToBeatMs } : {}),
+            mode: prepared?.mode ?? fromUrl.mode ?? 'nightshift',
+          }
+        : { ...fromUrl, ...(prepared ?? {}) },
+    );
+  }
+
   const runInfo = mode === 'night-shift' ? getRunInfo() : undefined;
   boot.append(
     element('p', 'boot-title', 'PIX & NEE'),
@@ -364,7 +392,7 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
     bootStep,
   );
   if (runInfo) {
-    boot.append(element('p', 'boot-seed', `Seed ${runInfo.seed} · Floor ${runInfo.floor + 1}`));
+    boot.append(element('p', 'boot-seed', `Seed ${runInfo.seed} · Floor ${runInfo.floor}`));
   }
   root.replaceChildren(canvas, boot);
   const bootSteps = ['Loading physics…', 'Building the lab…', 'Waking PIX and NEE…'];
@@ -376,20 +404,33 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   }, 1400);
 
   let removeStatus: (() => void) | null = null;
+  const runHud = element('aside', 'network-hud');
+  runHud.dataset.testid = 'run-hud';
+  const paintRunHud = (base = '') => {
+    const run = getRunState();
+    if (!run) {
+      runHud.textContent = base;
+      return;
+    }
+    const parts = [base, `Floor ${run.floor}`, run.seedCode].filter(Boolean);
+    if (run.mode !== 'standard') parts.push(run.mode.toUpperCase());
+    runHud.textContent = parts.join(' · ');
+  };
+  root.append(runHud);
+  paintRunHud();
+
   if (session) {
-    const networkHud = element('aside', 'network-hud');
+    const networkHud = runHud;
     networkHud.dataset.testid = 'network-hud';
-    root.append(networkHud);
     const updateHud = (status: RoomStatus) => {
       const localRole = status.localRole?.toUpperCase() ?? 'PLAYER';
       const partnerRole = status.localRole === 'pix' ? 'nee' : 'pix';
       const partner = status.players.get(partnerRole);
       const partnerDisconnected = !partner || partner.connected === false;
-      networkHud.textContent = `${status.roomCode} · ${localRole}`;
+      let base = `${status.roomCode} · ${localRole}`;
+      if (partnerDisconnected) base += ' · Partner disconnected';
       networkHud.classList.toggle('partner-disconnected', partnerDisconnected);
-      if (partnerDisconnected) {
-        networkHud.textContent += ' · Partner disconnected';
-      }
+      paintRunHud(base);
     };
     removeStatus = session.onStatus(updateHud);
 
@@ -453,6 +494,7 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
       runSeed: runInfo ? { seed: runInfo.seed, floor: runInfo.floor } : undefined,
       onLeaveGame: () => {
         removeStatus?.();
+        clearRunState();
         game?.dispose();
         game = null;
         // Next-floor stub stashes seed then leaves; resume the same mode when pending.
@@ -520,7 +562,7 @@ async function bootFromInviteLink(): Promise<boolean> {
     return true;
   }
 
-  const resumed = await MultiplayerSession.resumeRoom(code);
+  const resumed = await MultiplayerSession.resumeRoom(code, readUrlRunOptions().beat);
   if (resumed) {
     status.textContent = resumed.currentStatus.started
       ? 'Seat restored. Returning to the match…'
@@ -537,34 +579,21 @@ async function bootFromInviteLink(): Promise<boolean> {
   return true;
 }
 
-function challengeSeedFromUrl(): number | null {
-  const raw = new URLSearchParams(window.location.search).get('seed')?.trim() ?? '';
-  if (!/^\d+$/.test(raw)) return null;
-  return Number(raw) >>> 0;
-}
-
-function challengeBeatMsFromUrl(): number | undefined {
-  const raw = new URLSearchParams(window.location.search).get('beat')?.trim() ?? '';
-  if (!/^\d+$/.test(raw)) return undefined;
-  const ms = Number(raw);
-  return Number.isFinite(ms) ? Math.max(0, ms) : undefined;
-}
-
 const bootParams = new URLSearchParams(window.location.search);
-const challengeSeed = challengeSeedFromUrl();
+const urlRun = runOptionsFromSearch(bootParams);
 if (bootParams.has('report')) {
   void showHeistReportDemo();
 } else if (roomCodeFromUrl()) {
   void bootFromInviteLink();
   setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
-} else if (challengeSeed != null) {
-  prepareChallengeRun(challengeSeed, challengeBeatMsFromUrl());
+} else if (urlRun.seed != null) {
+  prepareChallengeRun(urlRun.seed, urlRun.beat);
   void startGame('night-shift');
   setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
 } else if (bootParams.get('play') === 'solo') {
   void startGame('singleplayer');
   setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
-} else if (bootParams.get('play') === 'daily') {
+} else if (bootParams.get('play') === 'daily' || urlRun.mode === 'daily') {
   prepareDailyRun(new Date());
   void startGame('night-shift');
   setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);

@@ -66,7 +66,7 @@ async function joinMatch(host, guest, appUrl) {
   return code;
 }
 
-const server = spawn(process.execPath, [resolve(root, 'server/index.mjs')], {
+const server = spawn(process.execPath, ['--experimental-strip-types', resolve(root, 'server/index.mjs')], {
   cwd: root,
   env: {
     ...process.env,

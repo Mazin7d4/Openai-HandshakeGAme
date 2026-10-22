@@ -1,5 +1,5 @@
 // (c) Reconnect: (1) guest WebSocket drops abnormally -> auto-reconnect, overlay clears, state agrees.
-//                (2) guest reloads the page -> can it rejoin the same room and get NEE back?
+//                (2) guest reloads the page -> seat resumes (overlay and/or auto-rejoin).
 import { runTest, url, assert, collectErrors, shot, waitForGame, createAndJoin, joinRoom, worldState, compareWorld } from './lib.mjs';
 
 const TRACK_WS = () => {
@@ -20,15 +20,17 @@ await runTest('reconnect', async (browser, notes) => {
   await Promise.all([waitForGame(host), waitForGame(guest)]);
   await host.waitForTimeout(1500);
 
-  // --- 1. transient drop ---
+  // --- 1. transient drop (QA closes the game socket with 4999; reconnect code must reclaim the seat) ---
   const dropped = await guest.evaluate(() => { const s = window.__qaSockets.filter((w) => w.readyState === 1 && !/vite|token=/.test(w.url) && !w.protocol.includes('vite')); s.forEach((w) => w.close(4999, 'qa-drop')); return s.length; });
   notes.socketsDropped = dropped;
   notes.socketUrls = await guest.evaluate(() => window.__qaSockets.map((w) => w.url.replace(/\?.*/, '')));
+  assert(dropped >= 1, 'no game WebSocket was open to drop');
   const sawOverlay = await guest.getByTestId('partner-overlay').and(guest.locator('.visible')).waitFor({ timeout: 5_000 }).then(() => true, () => false);
   notes.guestOverlayDuringDrop = sawOverlay ? await guest.getByTestId('partner-overlay').innerText() : null;
   await shot(guest, 'reconnect-drop-guest');
   const recovered = await guest.waitForFunction(() => !document.querySelector('[data-testid=partner-overlay]')?.classList.contains('visible'), null, { timeout: 20_000 }).then(() => true, () => false);
   notes.dropRecovered = recovered;
+  assert(recovered, 'guest did not auto-reconnect after socket drop (4999)');
   await host.waitForTimeout(1500);
   const hudAfterDrop = await host.getByTestId('network-hud').innerText();
   notes.hostHudAfterDrop = hudAfterDrop;
@@ -37,25 +39,40 @@ await runTest('reconnect', async (browser, notes) => {
   await host.waitForTimeout(1200);
   const agree1 = compareWorld(await worldState(host), await worldState(guest));
   notes.agreementAfterDrop = agree1;
+  assert(agree1.length === 0, `clients disagreed after drop reconnect: ${agree1.join('; ')}`);
+  notes.dropFixme = { name: 'auto-reconnect-after-drop', status: 'pass' };
 
-  // --- 2. full reload: partner overlay must appear on host (required) ---
+  // --- 2. full reload: host may flash partner-overlay, or guest resumes so fast the overlay is skipped ---
   await guest.reload();
-  const overlayShown = await host.waitForFunction(() => document.querySelector('[data-testid=partner-overlay]')?.classList.contains('visible'), null, { timeout: 10_000 }).then(() => true, () => false);
+  const overlayShown = await host.waitForFunction(() => document.querySelector('[data-testid=partner-overlay]')?.classList.contains('visible'), null, { timeout: 8_000 }).then(() => true, () => false);
   notes.hostOverlayAfterGuestReload = (await host.getByTestId('partner-overlay').innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
   await shot(host, 'reconnect-reload-host-waiting');
   notes.reloadLandsOn = await guest.getByRole('heading').first().innerText().catch(() => '?');
+  // Fast resume via sessionStorage + ?room= can beat the host overlay paint; either is success.
+  const guestBackInGame = await guest.getByTestId('game-canvas').isVisible().catch(() => false);
+  notes.reloadGuestInGame = guestBackInGame;
+  assert(overlayShown || guestBackInGame, 'after guest reload: expected host overlay or guest already back in-game');
 
-  // --- 3. FIXME / expected-fail until prod-net ships rejoin + state restore ---
-  // When it lands: flip REJOIN_EXPECTED to true (or set QA_EXPECT_REJOIN=1) so a failure becomes a real failure.
-  const REJOIN_EXPECTED = process.env.QA_EXPECT_REJOIN === '1';
+  // --- 3. rejoin after reload (sessionStorage token + ?room= / join UI) ---
+  const REJOIN_EXPECTED = process.env.QA_EXPECT_REJOIN !== '0';
   const fixme = { name: 'rejoin-after-reload', expected: REJOIN_EXPECTED ? 'pass' : 'fail' };
   try {
-    await joinRoom(guest, code);
-    await guest.waitForTimeout(3000);
-    fixme.immediateRejoinStatus = (await guest.locator('.lobby-status').first().innerText().catch(() => '')).slice(0, 200);
-    let inGame = await guest.getByTestId('game-canvas').isVisible().catch(() => false);
+    let inGame = guestBackInGame;
     if (!inGame) {
-      await guest.waitForTimeout(16_000); // server holds the seat RECONNECT_SECONDS=15
+      const invite = new URL(url());
+      invite.searchParams.set('room', code);
+      await guest.goto(invite.toString());
+      await guest.waitForTimeout(3000);
+      fixme.immediateRejoinStatus = (await guest.locator('.lobby-status').first().innerText().catch(() => '')).slice(0, 200);
+      inGame = await guest.getByTestId('game-canvas').isVisible().catch(() => false);
+    }
+    if (!inGame) {
+      await joinRoom(guest, code);
+      await guest.waitForTimeout(3000);
+      inGame = await guest.getByTestId('game-canvas').isVisible().catch(() => false);
+    }
+    if (!inGame) {
+      await guest.waitForTimeout(16_000);
       await joinRoom(guest, code);
       inGame = await guest.getByTestId('game-canvas').waitFor({ state: 'visible', timeout: 20_000 }).then(() => true, () => false);
       fixme.retriedAfterSeconds = 16;
@@ -73,11 +90,6 @@ await runTest('reconnect', async (browser, notes) => {
   } catch (e) { fixme.ok = false; fixme.error = String(e.message).slice(0, 300); }
   fixme.status = fixme.ok ? (REJOIN_EXPECTED ? 'pass' : 'XPASS') : (REJOIN_EXPECTED ? 'FAIL' : 'xfail');
   notes.fixme = fixme;
-
-  // FIXME: a JS-initiated close(4999) is treated as a leave by the SDK, not a drop, so this does not yet
-  // model a real network loss (1006). Tracked as expected-fail until a true drop harness exists.
-  notes.dropFixme = { name: 'auto-reconnect-after-drop', status: recovered && agree1.length === 0 ? 'XPASS' : 'xfail' };
-  assert(overlayShown, 'host did not show partner-disconnected overlay after guest reload');
   assert(!(REJOIN_EXPECTED && !fixme.ok), `rejoin expected but failed: ${JSON.stringify(fixme)}`);
   notes.errors = errors;
 });

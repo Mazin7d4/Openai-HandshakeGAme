@@ -1,13 +1,25 @@
 /**
- * Thin UI adapter over the seed remix stub.
- * Wraps getRunSeed() today so Netcode can swap the run-state source later without UI churn.
+ * Thin UI adapter over ClientRun synced run state.
+ * Daily / challenge / replay intents feed startLocalRun; HUD reads getRunInfo().
  */
-import { dailySeed as dailySeedShared, getRunSeed } from '../seed/index.ts';
+import {
+  dailySeed as dailySeedShared,
+  parseSeed,
+  randomSeed,
+  runOptionsFromSearch,
+  type UrlRunOptions,
+} from '../../shared/run.ts';
+import {
+  getRunState,
+  setBeatTarget,
+  type ClientRunSnapshot,
+} from '../run/ClientRun.ts';
+import { getRunSeed } from '../seed/index.ts';
 
 export interface RunInfo {
   seed: number;
   floor: number;
-  /** Night Shift captures this run; stubbed at 0 until Netcode owns the counter. */
+  /** Night Shift captures this run. */
   captures: number;
   /** Challenge-link target time in milliseconds, when the run was opened from ?beat=. */
   timeToBeatMs?: number;
@@ -17,29 +29,32 @@ type RunIntent = {
   seed?: number;
   floor?: number;
   captures?: number;
+  mode?: UrlRunOptions['mode'];
   timeToBeatMs?: number;
 };
 
 let intent: RunIntent | null = null;
 
-/** Re-export: deterministic UTC calendar seed (same helper QA / Netcode use). */
+/** Re-export: deterministic UTC calendar seed (shared/run.ts — single source of truth). */
 export const dailySeed = dailySeedShared;
 
 /** One-shot / sticky override for the next Night Shift boot (daily, challenge, replay). */
 export function prepareRun(next: RunIntent | null): void {
   intent = next;
+  if (next?.timeToBeatMs != null) setBeatTarget(next.timeToBeatMs);
 }
 
 export function prepareDailyRun(date: Date = new Date()): void {
-  prepareRun({ seed: dailySeed(date), floor: 0, captures: 0 });
+  prepareRun({ seed: dailySeed(date), floor: 1, captures: 0, mode: 'nightshift' });
 }
 
 export function prepareChallengeRun(seed: number, timeToBeatMs?: number): void {
   const beat = Number.isFinite(timeToBeatMs) ? Math.max(0, Math.round(timeToBeatMs!)) : undefined;
   prepareRun({
     seed: seed >>> 0,
-    floor: 0,
+    floor: 1,
     captures: 0,
+    mode: 'nightshift',
     ...(beat !== undefined ? { timeToBeatMs: beat } : {}),
   });
 }
@@ -48,27 +63,65 @@ export function clearRunIntent(): void {
   intent = null;
 }
 
-/**
- * Single read path for HUD / report / boot. Always goes through getRunSeed() so a
- * future Netcode getter can replace that stub without touching call sites.
- */
-export function getRunInfo(): RunInfo {
-  const override = intent && Number.isFinite(intent.seed)
-    ? { seed: intent.seed!, floor: intent.floor ?? 0 }
-    : null;
-  const base = getRunSeed(override);
-  const captures = Math.max(0, (intent?.captures ?? 0) | 0);
-  const timeToBeatMs = intent?.timeToBeatMs;
-  return {
-    seed: base.seed,
-    floor: base.floor,
-    captures,
-    ...(timeToBeatMs !== undefined ? { timeToBeatMs } : {}),
-  };
+/** Consume prepared intent for startLocalRun (URL params still win when present). */
+export function consumeRunIntent(): RunIntent | null {
+  const next = intent;
+  intent = null;
+  return next;
 }
 
-/** Format a millisecond challenge target for Doto chips / copy ("5:42"). */
+/** Pending intent without clearing (boot card / pre-start getRunInfo). */
+export function peekRunIntent(): RunIntent | null {
+  return intent;
+}
+
+/**
+ * Single read path for HUD / report / boot.
+ * Prefers synced ClientRun state so co-op clients and reconnects show the server seed/floor.
+ */
+export function getRunInfo(): RunInfo {
+  const run: ClientRunSnapshot | null = getRunState();
+  if (run) {
+    return {
+      seed: run.seed,
+      floor: run.floor,
+      captures: run.captures,
+      ...(run.beatTarget != null ? { timeToBeatMs: run.beatTarget } : {}),
+    };
+  }
+
+  const pending = intent;
+  if (pending && Number.isFinite(pending.seed)) {
+    const base = getRunSeed({ seed: pending.seed!, floor: pending.floor ?? 1 });
+    return {
+      seed: base.seed,
+      floor: base.floor,
+      captures: Math.max(0, (pending.captures ?? 0) | 0),
+      ...(pending.timeToBeatMs !== undefined ? { timeToBeatMs: pending.timeToBeatMs } : {}),
+    };
+  }
+
+  const fromUrl = runOptionsFromSearch(
+    typeof window !== 'undefined' ? window.location.search : '',
+  );
+  if (fromUrl.seed != null) {
+    const base = getRunSeed({ seed: fromUrl.seed, floor: 1 });
+    return {
+      seed: base.seed,
+      floor: base.floor,
+      captures: 0,
+      ...(fromUrl.beat != null ? { timeToBeatMs: fromUrl.beat } : {}),
+    };
+  }
+
+  const base = getRunSeed();
+  return { seed: base.seed, floor: base.floor, captures: 0 };
+}
+
+/** Format a millisecond challenge target for HUD chips / copy ("5:42"). */
 export function formatBeatMs(ms: number): string {
   const whole = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 }
+
+export { parseSeed, randomSeed, runOptionsFromSearch };

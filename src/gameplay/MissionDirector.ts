@@ -12,9 +12,10 @@ import { SecuritySystem } from './SecuritySystem.ts';
 import layout from '../level/heist-layout.json';
 import type { RunLayout } from '../seed/index.ts';
 import { nextFloorSeed, stashRunSeed } from '../seed/index.ts';
-import { clearRunIntent, formatBeatMs, getRunInfo, prepareRun } from '../net/runInfo.ts';
+import { clearRunIntent, formatBeatMs, getRunInfo, prepareRun, randomSeed } from '../net/runInfo.ts';
 import { updateHeistPresentation } from '../level/PrototypeHeist.ts';
 import { gameEvents } from './GameEvents.ts';
+import { getRunState, localEscape, localCapture } from '../run/ClientRun.ts';
 
 const FRESH_STATE: MissionNetworkState = {
   stage: 'infiltrate', alarm: false, securityActive: false, prototypeHeldBy: null,
@@ -154,11 +155,13 @@ export class MissionDirector {
       }
 
       const restartNightShift = (next: { seed: number; floor: number }, keepBeat = true) => {
-        stashRunSeed(next);
+        const floor = Math.max(1, next.floor | 0);
+        stashRunSeed({ seed: next.seed, floor });
         prepareRun({
-          seed: next.seed,
-          floor: next.floor,
+          seed: next.seed >>> 0,
+          floor,
           captures: 0,
+          mode: 'nightshift',
           ...(keepBeat && this.timeToBeatMs != null ? { timeToBeatMs: this.timeToBeatMs } : {}),
         });
         try { sessionStorage.setItem('pixnee.pendingMode', mode); } catch { /* private mode */ }
@@ -178,10 +181,15 @@ export class MissionDirector {
         },
         onNewSeed: mode === 'night-shift' ? () => {
           clearRunIntent();
-          restartNightShift({ seed: (Math.random() * 0x100000000) >>> 0, floor: 0 }, false);
+          restartNightShift({ seed: randomSeed(), floor: 1 }, false);
         } : undefined,
-        // Night Shift stub: stash floor+1 for getRunSeed, then restart in the same mode.
+        // Night Shift: advance ClientRun seed/floor, stash, restart same mode.
         onNextFloor: mode === 'night-shift' ? () => {
+          const advanced = localEscape(this.state.elapsedSeconds);
+          if (advanced) {
+            restartNightShift({ seed: advanced.seed, floor: advanced.floor });
+            return;
+          }
           if (!this.runLayout) return;
           restartNightShift(nextFloorSeed({ seed: this.runLayout.seed, floor: this.runLayout.floor }));
         } : undefined,
@@ -375,6 +383,12 @@ export class MissionDirector {
     this.audio.stopAlarm();
   }
 
+  /** Solo / offline Night Shift capture (test + future fail path). */
+  reportCapture(): void {
+    if (this.multiplayer || getRunState()?.mode !== 'nightshift') return;
+    localCapture();
+  }
+
   private beginAlarm(): void {
     gameEvents.emit('heist', { beat: 'pickup', position: this.vault.clone(), role: this.state.prototypeHeldBy });
     this.audio.prototypePickup();
@@ -430,8 +444,9 @@ export class MissionDirector {
 
   private renderFloorHud(): void {
     if (!this.floorChip || !this.runLayout) return;
-    // Player-facing floors are 1-based (layout floor 0 → "Floor 1").
-    this.floorChip.textContent = `Floor ${this.runLayout.floor + 1}`;
+    // RunState / generateRun floors are already 1-based for Night Shift boots.
+    const floor = Math.max(1, this.runLayout.floor | 0);
+    this.floorChip.textContent = `Floor ${floor}`;
   }
 
   private presentReport(stats: RunStats, force = false): void {

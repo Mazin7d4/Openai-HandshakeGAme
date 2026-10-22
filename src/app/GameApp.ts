@@ -20,6 +20,7 @@ import { zeroFlightAxes } from '../input/FlightAxes.ts';
 import { PLAYER_ONE_KEYS } from '../input/KeyboardInput.ts';
 import { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
+import { getRunState } from '../run/ClientRun.ts';
 import { Drone, DRONE_PALETTES } from '../player/Drone.ts';
 import { DRONE_MODEL_URL } from '../player/DroneVisual.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
@@ -467,6 +468,12 @@ export class GameApp {
         const partner = status.players.get(status.localRole === 'pix' ? 'nee' : 'pix');
         return partner?.connected ?? false;
       },
+      /** Current seed/mode/floor/captures for UI + seed-sync checks. */
+      runState: () => getRunState(),
+      /** TEST-ONLY Night Shift floor advance (HANDSHAKE_TEST_HOOKS=1). */
+      debugRunEscape: () => this.multiplayer?.debugRunEscape(),
+      /** TEST-ONLY Night Shift capture (HANDSHAKE_TEST_HOOKS=1). */
+      debugRunCapture: () => this.multiplayer?.debugRunCapture(),
     });
     // QA / debug: expose camera look yaw ("alpha") for Playwright touch-look checks.
     if (new URLSearchParams(window.location.search).has('debug')) {
