@@ -1,7 +1,7 @@
 import { mergeRigidChildren } from '../scene/mergeChildren.ts';
 import {
-  Color3, CreateCylinder, CreateSphere, CreateTorus, PBRMaterial, StandardMaterial, TransformNode,
-  type Mesh, type Scene,
+  Color3, Constants, CreateCylinder, CreatePlane, CreateSphere, CreateTorus, DynamicTexture, Mesh,
+  PBRMaterial, StandardMaterial, TransformNode, type Scene,
 } from '@babylonjs/core';
 
 /**
@@ -47,6 +47,18 @@ export function dressPrototype(body: Mesh, scene: Scene): void {
   const ringA = pick(CreateTorus('p01-gimbal-a', { diameter: 0.58, thickness: 0.025, tessellation: 40 }, scene));
   const ringB = pick(CreateTorus('p01-gimbal-b', { diameter: 0.5, thickness: 0.025, tessellation: 40 }, scene));
   ringA.material = alu; ringB.material = ceramic;
+  // Mint bloom card: the core's light spilling through the capsule glass. Cheap (one additive quad),
+  // so it still reads on the low tier where the GlowLayer is off.
+  const bloomTex = new DynamicTexture('p01-bloom-ramp', { width: 64, height: 64 }, scene, false);
+  const bctx = bloomTex.getContext() as CanvasRenderingContext2D;
+  const rg = bctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(0.25, 'rgba(255,255,255,0.45)'); rg.addColorStop(1, 'rgba(255,255,255,0)');
+  bctx.fillStyle = rg; bctx.fillRect(0, 0, 64, 64); bloomTex.update(); bloomTex.hasAlpha = true;
+  const bloomMat = new StandardMaterial('p01-bloom', scene);
+  bloomMat.disableLighting = true; bloomMat.diffuseColor = Color3.Black(); bloomMat.emissiveColor = Color3.FromHexString('#7FF0D0');
+  bloomMat.opacityTexture = bloomTex; bloomMat.alphaMode = Constants.ALPHA_ADD; bloomMat.alpha = 0.7;
+  const bloom = CreatePlane('p01-bloom', { size: 2.4 }, scene);
+  bloom.parent = body; bloom.billboardMode = Mesh.BILLBOARDMODE_ALL; bloom.material = bloomMat; bloom.isPickable = false;
   root.computeWorldMatrix(true);
   mergeRigidChildren(root, [core, halo, ringA, ringB]);
   let t = 0;
@@ -57,7 +69,9 @@ export function dressPrototype(body: Mesh, scene: Scene): void {
     ringA.rotation.x += dt * speed; ringB.rotation.z += dt * speed * 1.3;
     const pulse = 0.85 + 0.15 * Math.sin(t * (2 + excited * 6));
     core.scaling.setAll(pulse); halo.scaling.setAll(1 + 0.12 * Math.sin(t * 2.4) + excited * 0.25);
-    glow.emissiveColor.set(0.5 * pulse + excited * 0.4, 0.94 * pulse, 0.82 * pulse);
+    const k = 1.3 * pulse; // hotter core: the brightest, most saturated thing in the vault
+    glow.emissiveColor.set(0.5 * k + excited * 0.4, 0.94 * k, 0.82 * k);
+    bloom.scaling.setAll(0.9 + 0.12 * pulse + excited * 0.35); bloomMat.alpha = 0.55 + 0.2 * pulse;
   });
   body.onDisposeObservable.addOnce(() => scene.onBeforeRenderObservable.remove(obs));
 }
