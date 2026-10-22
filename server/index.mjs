@@ -311,14 +311,14 @@ class HandshakeRoom extends Room {
         captures: run.captures,
         maxCaptures: run.maxCaptures,
         startedAt: run.startedAt,
-        floorTimes: Array.from(run.floorTimes),
+        floorTimes: Array.from(run.floorTimes, (value) => finite(value, 0)),
       },
-      this.state.mission.elapsedSeconds,
+      finite(this.state.mission.elapsedSeconds, 0),
     );
     run.floor = next.floor;
     run.seed = next.seed;
     run.floorTimes.clear();
-    for (const t of next.floorTimes) run.floorTimes.push(t);
+    for (const t of next.floorTimes) run.floorTimes.push(finite(t, 0));
     this.resetMission();
     this.beginFloor();
   }

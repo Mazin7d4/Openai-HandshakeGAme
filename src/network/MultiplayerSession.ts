@@ -664,7 +664,10 @@ export class MultiplayerSession {
       captures: run.captures,
       maxCaptures: run.maxCaptures || 3,
       startedAt: run.startedAt,
-      floorTimes: Array.from(run.floorTimes ?? [], (value) => Number(value)),
+      floorTimes: Array.from(run.floorTimes ?? [], (value) => {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : 0;
+      }),
       ended: run.ended === true,
     };
   }
