@@ -38,7 +38,7 @@ try {
       validated += 1;
     }
   }
-  result.notes = { validated, seeds: SEED_COUNT, floors: FLOORS };
+  result.notes = { ...result.notes, validated, seeds: SEED_COUNT, floors: FLOORS };
   result.pass = true;
 } catch (e) {
   result.error = String(e?.message ?? e).slice(0, 1500);

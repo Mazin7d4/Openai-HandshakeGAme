@@ -24,10 +24,14 @@ import { DRONE_MODEL_URL } from '../player/DroneVisual.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import { enableHavok } from '../physics/enableHavok.ts';
 import { createEngine, createScene } from '../scene/createScene.ts';
+import { AccessibilityFeedback } from '../ui/AccessibilityFeedback.ts';
 import { GameHud } from '../ui/GameHud.ts';
+import { OnboardingCoach } from '../ui/OnboardingCoach.ts';
 import { saveSettings } from '../ui/Settings.ts';
 import { generateRun, type RunLayout } from '../seed/index.ts';
 import { getRunInfo } from '../net/runInfo.ts';
+import { TouchControls } from '../ui/TouchControls.ts';
+import { isTouchPlayDevice } from '../ui/touchDetect.ts';
 import type { GameMode } from './GameMode.ts';
 
 export interface GameAppOptions {
@@ -69,6 +73,9 @@ export class GameApp {
   private readonly removeNetworkStatus: (() => void) | null;
   private readonly snapshots: PlayerSnapshot[] = [];
   private readonly hud: GameHud | null;
+  private readonly a11y: AccessibilityFeedback | null;
+  private readonly coach: OnboardingCoach | null;
+  private touch: TouchControls | null = null;
   private readonly diagnostics = new StabilityDiagnostics();
   private readonly idleAxes = zeroFlightAxes();
   /** TEST-ONLY (?autotest): position-targeted steering for deterministic verifiers. */
@@ -82,6 +89,7 @@ export class GameApp {
   private disposed = false;
   private activeDevRole: DroneRole = 'pix';
   readonly runLayout: RunLayout | null;
+  private readonly touchPlay = isTouchPlayDevice();
   private readonly onResize = () => {
     this.engine.resize();
   };
@@ -137,9 +145,17 @@ export class GameApp {
           onGrabDrop: () => this.triggerHudAction('grabDrop'),
           onThrow: () => this.triggerHudAction('throwObject'),
           onYank: () => { this.yankRequested = true; },
+          onReplayTutorial: () => this.coach?.begin(),
           runSeed: runLayout?.seed ?? null,
         })
       : null;
+    this.a11y = hudParent ? new AccessibilityFeedback(hudParent) : null;
+    this.coach = hudParent ? new OnboardingCoach(hudParent, mode === 'night-shift' ? 'singleplayer' : mode) : null;
+    this.hud?.setControlsCardSuppressed(this.coach?.isActive === true);
+    if (hudParent && this.touchPlay) {
+      hudParent.classList.add('touch-play');
+      this.bindTouchControls(hudParent);
+    }
     this.juice = new Juice(scene);
     const audio = gameplay.sfx;
     this.moves = new TetherMoves(
@@ -390,6 +406,12 @@ export class GameApp {
         return partner?.connected ?? false;
       },
     });
+    // QA / debug: expose camera look yaw ("alpha") for Playwright touch-look checks.
+    if (new URLSearchParams(window.location.search).has('debug')) {
+      (window as unknown as { __pixneeCamera?: { getLookYaw: () => number } }).__pixneeCamera = {
+        getLookYaw: () => this.cameraRig.touchLookYaw,
+      };
+    }
     window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKeyDown);
     this.engine.runRenderLoop(() => {
@@ -414,7 +436,10 @@ export class GameApp {
     this.devOrbit?.dispose();
     this.cameraRig.dispose();
     this.gameplay.dispose();
+    this.touch?.dispose();
+    this.coach?.dispose();
     this.hud?.dispose();
+    this.a11y?.dispose();
     this.diagnostics.dispose();
     this.scene.dispose();
     this.engine.dispose();
@@ -438,6 +463,8 @@ export class GameApp {
     for (const player of this.players) droneByRole.set(player.role, player.drone);
 
     let switchDrone = false;
+    let coachAxes = this.idleAxes;
+    let coachActions = null as ReturnType<HumanControlSource['sample']>['interactions'] | null;
     for (const player of this.players) {
       const control = player.control.sample(dt);
       if (control.remoteState) {
@@ -456,9 +483,22 @@ export class GameApp {
         this.gameplay.handle(player.role, player.drone, interactions);
         const wantsYank = interactions.yank || (this.yankRequested && player.role === this.hudRole());
         if (wantsYank && !this.gameplay.isRoleHacking(player.role)) this.yank(player);
-        if (interactions.pause) this.setPaused(true);
+        if (interactions.pause) {
+          if (this.coach?.isActive) this.coach.skip();
+          else this.setPaused(true);
+        }
         switchDrone ||= control.interactions.switchDrone;
+        if (player.role === this.hudRole() && player.control instanceof HumanControlSource) {
+          coachAxes = control.actions;
+          coachActions = interactions;
+        }
       }
+    }
+    if (coachActions && this.coach?.isActive) {
+      this.coach.observe(coachAxes, coachActions);
+      this.hud?.setControlsCardSuppressed(true);
+    } else if (this.coach && !this.coach.isActive) {
+      this.hud?.setControlsCardSuppressed(false);
     }
     this.yankRequested = false;
     this.moves.update(dt);
@@ -589,6 +629,7 @@ export class GameApp {
   private setPaused(paused: boolean): void {
     this.paused = paused;
     this.hud?.setPaused(paused);
+    this.touch?.setVisible(!paused);
   }
 
   private switchDevDrone(): void {
@@ -599,6 +640,35 @@ export class GameApp {
         ? new HumanControlSource(PLAYER_ONE_KEYS)
         : new BotControlSource();
     }
+    if (this.touchPlay && this.touch) {
+      const human = this.humanControl();
+      if (human) this.touch.rebindVirtual(human.enableVirtualControls());
+    }
+  }
+
+  private humanControl(): HumanControlSource | null {
+    const role = this.hudRole();
+    const player = this.players.find((candidate) => candidate.role === role);
+    return player?.control instanceof HumanControlSource ? player.control : null;
+  }
+
+  private bindTouchControls(parent: HTMLElement): void {
+    const human = this.humanControl();
+    if (!human) return;
+    this.touch?.dispose();
+    const virtual = human.enableVirtualControls();
+    // Look up the live HumanControlSource each tap — drone switch recreates it.
+    const live = () => this.humanControl();
+    this.touch = new TouchControls(parent, {
+      virtual,
+      camera: this.cameraRig,
+      solo: this.mode !== 'multiplayer',
+      onGrab: () => live()?.requestGrabDrop(),
+      onYank: () => live()?.requestYank(),
+      onInteract: () => live()?.requestInteract(),
+      onPause: () => live()?.requestPause(),
+      onSwitch: this.mode !== 'multiplayer' ? () => live()?.requestSwitchDrone() : undefined,
+    });
   }
 
   private triggerHudAction(action: 'interact' | 'grabDrop' | 'throwObject'): void {

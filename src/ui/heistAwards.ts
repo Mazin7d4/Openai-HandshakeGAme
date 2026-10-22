@@ -40,28 +40,29 @@ export interface GradeFace {
   label: string;
 }
 
-const PIX = '#3DDBFF';
-const NEE = '#FF6194';
 /** Accent bar only (not title text) — LED hues for PIX/NEE, graphite for shared. */
 const PIX_LED = '#3DDBFF';
 const NEE_LED = '#FF6194';
 const SHARED_ACCENT = '#5C6B6A';
+/** Grade-face dots stay neutral so cyan/coral remain PIX & NEE crew faces only. */
+const GRADE_INK = '#1E2A2B';
+const GRADE_MISS = '#A7B6B5';
 
 /** Three grade faces map to the same axes as gradeScore. */
 export function gradeFaces(stats: RunStats): GradeFace[] {
   const speed = stats.elapsedSeconds < 420;
   const stealth = Math.round(stats.timesSpotted) <= 1;
   const teamwork = stats.tetherSaves + stats.clotheslines >= 2;
-  const axes: Array<{ caption: string; earned: boolean; color: string; good: FaceMood; miss: FaceMood }> = [
-    { caption: 'Speed', earned: speed, color: PIX, good: 'proud', miss: 'sleepy' },
-    { caption: 'Stealth', earned: stealth, color: NEE, good: 'sneaky', miss: 'shocked' },
-    { caption: 'Teamwork', earned: teamwork, color: PIX, good: 'happy', miss: 'neutral' },
+  const axes: Array<{ caption: string; earned: boolean; good: FaceMood; miss: FaceMood }> = [
+    { caption: 'Speed', earned: speed, good: 'proud', miss: 'sleepy' },
+    { caption: 'Stealth', earned: stealth, good: 'sneaky', miss: 'shocked' },
+    { caption: 'Teamwork', earned: teamwork, good: 'happy', miss: 'neutral' },
   ];
   return axes.map((axis) => ({
     caption: axis.caption,
     earned: axis.earned,
     mood: axis.earned ? axis.good : axis.miss,
-    color: axis.earned ? axis.color : '#A7B6B5',
+    color: axis.earned ? GRADE_INK : GRADE_MISS,
     label: `${axis.caption}: ${axis.earned ? 'earned' : 'missed'}`,
   }));
 }

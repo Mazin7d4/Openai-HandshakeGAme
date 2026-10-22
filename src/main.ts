@@ -148,11 +148,28 @@ function showMainMenu(): void {
       void startGame('dev-local');
     }, 'btn--quiet'));
   }
+  actions.append(menuButton('Settings', 'title-settings', openTitleSettings, 'btn--quiet'));
   panel.append(actions);
   shell.append(panel);
   root.replaceChildren(shell);
   // PLAY NOW is first in tab order and already focused, so Enter starts it.
   play.focus();
+}
+
+function openTitleSettings(): void {
+  void import('./ui/SettingsMenu.ts').then(({ SettingsMenu }) => {
+    const host = document.createElement('div');
+    host.className = 'settings-host';
+    root.append(host);
+    let menu: InstanceType<typeof SettingsMenu> | null = null;
+    menu = new SettingsMenu(host, {
+      onClose: () => {
+        menu?.dispose();
+        host.remove();
+        showMainMenu();
+      },
+    });
+  });
 }
 
 function showSinglePlayer(): void {

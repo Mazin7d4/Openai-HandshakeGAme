@@ -1,5 +1,6 @@
 import { clampAxis, zeroFlightAxes, type FlightAxes } from './FlightAxes.ts';
 import type { InputSource } from './InputSource.ts';
+import { getSettings, subscribeSettings } from '../ui/Settings.ts';
 
 /** KeyboardEvent.code values for each flight action. */
 export interface KeyBindings {
@@ -57,18 +58,26 @@ export class KeyboardInput implements InputSource {
   private readonly axes = zeroFlightAxes();
   private readonly handled: Set<string>;
   private readonly keys: KeyBindings;
+  private holdToToggle = getSettings().holdToToggle;
+  private boostLatched = false;
+  private readonly unsubSettings: () => void;
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (!this.handled.has(event.code)) {
       return;
     }
     event.preventDefault();
+    const wasDown = this.pressed.has(event.code);
     this.pressed.add(event.code);
+    if (this.holdToToggle && !wasDown && !event.repeat && this.keys.boost.includes(event.code)) {
+      this.boostLatched = !this.boostLatched;
+    }
   };
   private readonly onKeyUp = (event: KeyboardEvent) => {
     this.pressed.delete(event.code);
   };
   private readonly onBlur = () => {
     this.pressed.clear();
+    this.boostLatched = false;
   };
 
   constructor(keys: KeyBindings = PLAYER_ONE_KEYS) {
@@ -82,6 +91,10 @@ export class KeyboardInput implements InputSource {
       ...keys.down,
       ...keys.boost,
     ]);
+    this.unsubSettings = subscribeSettings((s) => {
+      this.holdToToggle = s.holdToToggle;
+      if (!s.holdToToggle) this.boostLatched = false;
+    });
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.onBlur);
@@ -92,11 +105,12 @@ export class KeyboardInput implements InputSource {
     this.axes.thrust = clampAxis(this.any(k.forward) - this.any(k.back));
     this.axes.strafe = clampAxis(this.any(k.right) - this.any(k.left));
     this.axes.lift = clampAxis(this.any(k.up) - this.any(k.down));
-    this.axes.boost = this.any(k.boost) === 1;
+    this.axes.boost = this.holdToToggle ? this.boostLatched : this.any(k.boost) === 1;
     return this.axes;
   }
 
   dispose(): void {
+    this.unsubSettings();
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
