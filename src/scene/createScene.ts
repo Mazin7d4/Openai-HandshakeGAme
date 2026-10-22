@@ -1,4 +1,3 @@
-import type { AbstractMesh, Mesh } from '@babylonjs/core';
 import {
   Color3,
   Color4,
@@ -8,9 +7,11 @@ import {
   GlowLayer,
   HemisphericLight,
   ImageProcessingConfiguration,
+  Mesh,
   Scene,
   ShadowGenerator,
   Vector3,
+  type AbstractMesh,
 } from '@babylonjs/core';
 import { createStudioEnvironment } from './studioEnvironment.ts';
 import { initialTier, QualityManager } from './Quality.ts';
@@ -32,12 +33,20 @@ export function createEngine(canvas: HTMLCanvasElement): Engine {
   return engine;
 }
 
+// Intentional glow include-list (prod-art): core, screens, face-screens, security lenses, alarm/objective beacons.
 const GLOW_NAMES = /^(p01-core|p01-core-halo|alarm-beacon-lamp|alarm-beacon-beam|security-camera|security-drone-\d+-eye|instrument-screen|.*-beacon)$/;
-/** Glow include-list: core, screens, face-screens, security lenses, alarm/objective beacons. */
+// Strong decorative emitters that still read at the layer intensity (merged with the include-list approach).
+const GLOW_MATERIALS = /^(sign-lip-glow|dress-status-led-warm|dress-status-led-soft|dress-wall-washer|lab-warm-diffuser|Glow|Glow-antenna|LedAmber|LedCyan|objective-beacon|vault-beam)$/;
+
+/** Glow include-list: named gameplay emitters + strong decorative materials (not every faint emissive). */
 function isGlowMesh(mesh: AbstractMesh): boolean {
   if (GLOW_NAMES.test(mesh.name)) return true;
+  const mat = mesh.material;
+  if (!mat) return false;
   // Mascot face-screens: the drone GLB's 'Screen' material carries the animated face texture.
-  return mesh.material?.name === 'Screen' && !!(mesh.material as { emissiveTexture?: unknown }).emissiveTexture;
+  if (mat.name === 'Screen' && !!(mat as { emissiveTexture?: unknown }).emissiveTexture) return true;
+  if (GLOW_MATERIALS.test(mat.name)) return true;
+  return false;
 }
 
 const qualityManagers = new WeakMap<Scene, QualityManager>();
@@ -79,7 +88,7 @@ export function createScene(engine: Engine): Scene {
       if (sphere.radiusWorld >= 0.45) staticCasters.push({ mesh, x: sphere.centerWorld.x, z: sphere.centerWorld.z, r: sphere.radiusWorld });
     }
   });
-  // Shadow-pass culling: only static casters overlapping the camera-following 48 m ortho box are
+  // Shadow-pass culling: only static casters overlapping the camera-following 48 m shadow box are
   // rendered into the shadow map (rebuilt only when the 2 m-snapped centre moves).
   let castersKey = '';
   const refreshCasters = (fx: number, fz: number) => {
@@ -105,14 +114,13 @@ export function createScene(engine: Engine): Scene {
 
   let glow: GlowLayer | null = null;
   if (!lowFx) {
-    // Glow discipline (ANTI_VIBECODED): include-list only (face-screens, lenses, beacons, the core).
-    // An unfiltered GlowLayer re-draws every emissive mesh and blooms props into neon.
+    // Glow discipline: include-list only (prod-art) plus strong decorative materials — not every faint emissive.
     glow = new GlowLayer('glow', scene, { blurKernelSize: 16, mainTextureRatio: 0.5 });
     glow.intensity = 0.5;
     const layer = glow;
     const pending: AbstractMesh[] = [];
     scene.onNewMeshAddedObservable.add((mesh) => pending.push(mesh));
-    // Materials are assigned after creation, so classify on the next frame.
+    // Materials are often assigned after creation, so classify on the next frame.
     scene.onBeforeRenderObservable.add(() => {
       if (pending.length === 0) return;
       for (const mesh of pending.splice(0)) if (isGlowMesh(mesh)) layer.addIncludedOnlyMesh(mesh as Mesh);

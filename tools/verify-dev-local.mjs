@@ -132,6 +132,7 @@ page.on('console', (message) => {
 });
 
 try {
+  await page.addInitScript(() => localStorage.setItem('handshake.onboardingDone', '1'));
   await page.goto(APP_URL);
   await page.getByTestId('dev-local').click();
   await page.getByTestId('game-canvas').waitFor({ state: 'visible', timeout: 30_000 });
@@ -161,14 +162,18 @@ try {
   assert(distance(neeActive, await playerPosition(page, 'player-2')) > 0.4, 'Active NEE did not move.');
   assert(distance(pixInactive, await playerPosition(page, 'player-1')) < 0.4, 'Inactive PIX failed to hold position.');
 
-  await page.keyboard.press('Escape');
+  await page.keyboard.down('Escape');
+  await page.waitForTimeout(200);
+  await page.keyboard.up('Escape');
   await page.getByTestId('pause-menu').waitFor({ state: 'visible' });
   await page.getByRole('button', { name: 'CONTROLS' }).click();
-  assert((await page.locator('.controls-list').innerText()).includes('Grab / Drop'), 'Controls page missing bindings.');
+  assert((await page.locator('.controls-list').innerText()).includes('Grab or drop'), 'Controls page missing bindings.');
   await page.getByRole('button', { name: 'BACK' }).click();
   await page.getByRole('button', { name: 'SETTINGS' }).click();
-  assert((await page.locator('.settings-row').allTextContents()).join(' ').includes('GRAPHICS QUALITY'), 'Settings page missing graphics quality.');
-  await page.keyboard.press('Escape');
+  await page.getByTestId('settings-tab-visuals').click();
+  assert((await page.locator('.settings-row').allTextContents()).join(' ').toLowerCase().includes('graphics quality'), 'Settings page missing graphics quality.');
+  await page.getByRole('button', { name: 'BACK' }).click();
+  await page.getByRole('button', { name: 'Resume' }).click();
   await page.getByTestId('pause-menu').waitFor({ state: 'hidden' });
 
   // Grab / drop / re-grab / throw with the delivery cargo-core beside reception (Astra layout).
