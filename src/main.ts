@@ -60,7 +60,11 @@ function errorMessage(error: unknown): string {
 }
 
 function showMainMenu(): void {
-  const panel = menuPanel('Choose a mode', 'Two drones. One tether.');
+  const beat = new URLSearchParams(window.location.search).get('beat');
+  const subtitle = beat && /^\d+:\d{2}$/.test(beat)
+    ? `A friend finished in ${beat}. Can you beat it?`
+    : 'Two drones. One tether.';
+  const panel = menuPanel('Choose a mode', subtitle);
   const actions = element('div', 'menu-actions');
   actions.append(
     menuButton('Play now · solo', 'singleplayer', showSinglePlayer, 'btn--primary'),
@@ -291,7 +295,43 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   }
 }
 
-showMainMenu();
+/** Dev / screenshot hook: `?report` mounts the Heist Report with demo stats (no Havok boot). */
+async function showHeistReportDemo(): Promise<void> {
+  const shell = element('main', 'menu-shell heist-report-demo');
+  shell.style.background = 'var(--screen)';
+  root.replaceChildren(shell);
+  const { HeistReport, demoRunStats } = await import('./ui/HeistReport.ts');
+  const report = new HeistReport(shell, {
+    onPlayAgain: () => {
+      const next = new URL(window.location.href);
+      next.searchParams.delete('report');
+      next.searchParams.set('play', 'solo');
+      window.location.href = next.toString();
+    },
+    onLeave: () => {
+      const next = new URL(window.location.href);
+      next.searchParams.delete('report');
+      window.location.href = next.toString();
+    },
+  });
+  report.show(demoRunStats());
+  (window as unknown as { __heistReport?: unknown }).__heistReport = {
+    show: (stats?: Parameters<typeof report.show>[0]) => report.show(stats ?? demoRunStats()),
+    hide: () => report.hide(),
+    visible: () => report.visible,
+  };
+}
+
+const bootParams = new URLSearchParams(window.location.search);
+if (bootParams.has('report')) {
+  void showHeistReportDemo();
+} else if (bootParams.get('play') === 'solo') {
+  void startGame('singleplayer');
+  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+} else {
+  showMainMenu();
+  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+}
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
@@ -299,5 +339,3 @@ if (import.meta.hot) {
     game = null;
   });
 }
-
-setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);

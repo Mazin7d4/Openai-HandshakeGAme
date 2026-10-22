@@ -258,20 +258,93 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 }
 .memory-node.active { color: var(--screen); background: var(--pix); border-color: var(--pix-ink); transform: translateY(2px); box-shadow: 0 1px 0 var(--pix-ink); }
 
-/* ---------- Results (Heist Report placeholder until the card ships) ---------- */
-.mission-complete-panel { width: min(500px, 100%); padding: 32px; text-align: center; background: var(--paper); border-top: 6px solid var(--oak); }
-.mission-complete-panel h1 { margin: 8px 0 20px; font-size: 36px; }
-.mission-stats { display: grid; grid-template-columns: 1fr auto; gap: 10px 22px; padding: 16px 18px; border: var(--rim); border-radius: var(--r-control); background: var(--porcelain); text-align: left; }
-.mission-stats dt { color: var(--pencil); font-size: 15px; font-weight: 700; }
-.mission-stats dd { color: var(--graphite); font: 800 20px/1.1 var(--font-screen); font-variant-numeric: tabular-nums; font-variation-settings: 'ROND' 100; }
-.mission-complete-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; }
-.mission-crew { display: flex; align-items: center; justify-content: center; gap: 18px; margin: -6px 0 8px; }
-.crew-face { display: inline-grid; place-items: center; width: 58px; height: 40px; border-radius: var(--r-control); background: var(--screen); font: 800 18px/1 var(--font-screen); animation: crew-bob 1.4s ease-in-out infinite; }
-.crew-face.pix { color: var(--pix); }
-.crew-face.nee { color: var(--nee); animation-delay: .35s; }
-.mission-rating { color: var(--oak-ink); font-size: 28px; letter-spacing: .1em; }
-.mission-quip { margin: 0 0 18px; color: var(--pencil); font-size: 16px; }
-@keyframes crew-bob { 50% { transform: translateY(-4px) rotate(-3deg); } }
+/* ---------- Heist Report (oak case file) ---------- */
+.heist-report-overlay { align-content: center; justify-items: center; overflow: auto; }
+.heist-report {
+  width: min(520px, 100%);
+  padding: 28px 28px 24px;
+  text-align: left;
+  background: var(--paper);
+  border-top: 6px solid var(--oak);
+  overflow: hidden;
+}
+.heist-report__brand {
+  display: flex; align-items: center; gap: 10px; margin: 0 0 10px;
+  font: 800 22px/1 var(--font-title); font-stretch: 125%;
+}
+.heist-report__brand-pix { color: var(--pix-ink); }
+.heist-report__brand-nee { color: var(--nee-ink); }
+.heist-report__brand-cord {
+  flex: 0 0 36px; height: var(--cord); background: var(--graphite); border-radius: 999px; position: relative;
+}
+.heist-report__brand-cord::before, .heist-report__brand-cord::after {
+  content: ''; position: absolute; top: 50%; width: 8px; height: 8px; border-radius: 2px;
+  background: var(--aluminium); border: 1px solid var(--graphite); transform: translateY(-50%);
+}
+.heist-report__brand-cord::before { left: -4px; }
+.heist-report__brand-cord::after { right: -4px; }
+.heist-report__kicker { color: var(--oak-ink); }
+.heist-report__title { margin: 4px 0 16px; font-size: 34px; }
+.heist-report__faces {
+  display: flex; align-items: center; justify-content: flex-start; gap: 14px; margin: 0 0 14px;
+}
+.heist-report__crew-face { display: grid; justify-items: center; gap: 4px; }
+.heist-report__crew-name { color: var(--pencil); font: 700 13px/1 var(--font-body); }
+.heist-report__crew-cord {
+  width: 48px; height: var(--cord); background: var(--graphite); border-radius: 999px; margin-bottom: 18px;
+}
+.heist-report__time {
+  display: inline-block; margin: 0 0 12px; padding: 10px 16px;
+  border-radius: var(--r-panel); color: var(--pix); background: var(--screen);
+  font: 800 40px/1 var(--font-screen); font-variant-numeric: tabular-nums;
+  font-variation-settings: 'ROND' 100; letter-spacing: 0.04em;
+}
+.heist-report__grade { display: flex; gap: 10px; margin: 0 0 16px; min-height: 48px; }
+.heist-report__grade-slot {
+  opacity: 0; transform: translateY(8px) scale(0.85);
+  transition: opacity var(--t-drone) var(--ease-drone), transform var(--t-drone) var(--ease-drone);
+}
+.heist-report__grade-slot.is-in { opacity: 1; transform: none; }
+.heist-report__awards { list-style: none; display: grid; gap: 8px; margin: 0 0 14px; }
+.heist-report__award {
+  display: grid; gap: 2px; padding: 10px 12px;
+  border: var(--rim); border-left: 4px solid var(--award-ink, var(--oak));
+  border-radius: var(--r-control); background: var(--porcelain);
+}
+.heist-report__award strong {
+  color: var(--award-ink, var(--oak-ink)); font: 800 16px/1.2 var(--font-title); font-stretch: 112%;
+}
+.heist-report__award span { color: var(--pencil); font-size: 15px; }
+.heist-report__quip { margin: 0 0 12px; color: var(--pencil); font-size: 16px; }
+.heist-report__challenge-hint {
+  margin: 0 0 12px; padding: 10px 12px; border: var(--rim); border-radius: var(--r-control);
+  background: var(--warm-screen); color: var(--graphite); font-size: 14px; word-break: break-all;
+}
+.heist-report__actions {
+  display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 8px;
+}
+.heist-report__actions .btn { min-height: 48px; }
+.heist-report__actions .btn--primary { min-height: 56px; }
+.heist-report__stamp {
+  position: absolute; right: 22px; top: 88px;
+  padding: 6px 10px; border: 3px solid var(--exit); border-radius: var(--r-control);
+  color: var(--exit); font: 800 14px/1 var(--font-title); font-stretch: 112%;
+  transform: rotate(-12deg); pointer-events: none; opacity: 0.85;
+}
+.heist-report__stamp--fail { border-color: var(--alarm); color: var(--alarm); }
+
+@media (min-width: 520px) {
+  .heist-report__actions { grid-template-columns: 1fr 1fr; }
+  .heist-report__actions .btn--primary { grid-column: 1 / -1; }
+  .heist-report__actions .btn--quiet { grid-column: 1 / -1; }
+}
+@media (max-width: 420px), (max-height: 460px) {
+  .heist-report { padding: 18px 16px 16px; }
+  .heist-report__title { font-size: 28px; margin-bottom: 10px; }
+  .heist-report__time { font-size: 32px; padding: 8px 12px; }
+  .heist-report__stamp { top: 64px; right: 12px; font-size: 12px; }
+  .heist-report__quip { font-size: 15px; }
+}
 
 /* ---------- Partner disconnected / connection lost ---------- */
 .partner-overlay { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); z-index: 6; display: none; width: auto; min-width: 300px; padding: 18px 24px; text-align: center; border-color: var(--security); animation: none; }
