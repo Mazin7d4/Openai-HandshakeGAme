@@ -370,6 +370,12 @@ export class GameApp {
         if (point) this.multiplayer?.requestPatrolStun({ index, x: point.x, y: point.y, z: point.z });
       },
     });
+    // QA / debug: expose camera look yaw ("alpha") for Playwright touch-look checks.
+    if (new URLSearchParams(window.location.search).has('debug')) {
+      (window as unknown as { __pixneeCamera?: { getLookYaw: () => number } }).__pixneeCamera = {
+        getLookYaw: () => this.cameraRig.touchLookYaw,
+      };
+    }
     window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKeyDown);
     this.engine.runRenderLoop(() => {
@@ -600,6 +606,7 @@ export class GameApp {
     const live = () => this.humanControl();
     this.touch = new TouchControls(parent, {
       virtual,
+      camera: this.cameraRig,
       solo: this.mode !== 'multiplayer',
       onGrab: () => live()?.requestGrabDrop(),
       onYank: () => live()?.requestYank(),

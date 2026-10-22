@@ -2,7 +2,7 @@ import type { GameMode } from '../app/GameMode.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
 import { controlIcon, keycaps } from './ControlGlyphs.ts';
 import { clearOnboardingDone } from './OnboardingCoach.ts';
-import { getSettings, saveSettings } from './Settings.ts';
+import { getSettings, saveSettings, type TouchHandedness } from './Settings.ts';
 import { isTouchPlayDevice } from './touchDetect.ts';
 
 export interface GameHudOptions {
@@ -253,11 +253,40 @@ export class GameHud {
     });
     row.append(select);
 
+    this.panel.append(masterVolumeRow, sensitivityRow, shakeRow, row);
+
+    if (this.touch) {
+      const handRow = document.createElement('label');
+      handRow.className = 'settings-row';
+      handRow.append(document.createTextNode('Touch layout'));
+      const handSelect = document.createElement('select');
+      for (const [value, label] of [['right', 'Right-handed'], ['left', 'Left-handed']] as const) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label;
+        option.selected = settings.touchHandedness === value;
+        handSelect.append(option);
+      }
+      handSelect.addEventListener('change', () => {
+        saveSettings({ touchHandedness: handSelect.value as TouchHandedness });
+      });
+      handRow.append(handSelect);
+
+      const opacityRow = this.rangeRow(
+        'Touch opacity',
+        settings.touchOpacity,
+        0.35,
+        1,
+        0.05,
+        '',
+        (val: number) => {
+          saveSettings({ touchOpacity: val });
+        },
+      );
+      this.panel.append(handRow, opacityRow);
+    }
+
     this.panel.append(
-      masterVolumeRow,
-      sensitivityRow,
-      shakeRow,
-      row,
       this.button('Fullscreen', () => {
         if (document.fullscreenElement) void document.exitFullscreen();
         else void document.documentElement.requestFullscreen();
