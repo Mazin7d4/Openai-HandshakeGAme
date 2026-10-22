@@ -2,7 +2,7 @@ import { Color3, PointLight, Vector3, type Scene } from '@babylonjs/core';
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { GameMode } from '../app/GameMode.ts';
 import type { MultiplayerSession } from '../network/MultiplayerSession.ts';
-import type { DroneRole, MissionNetworkState, RoomStatus } from '../network/NetworkTypes.ts';
+import type { DroneRole, MissionNetworkState, RoomStatus, SecurityNetworkState } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
 import type { GrabSystem } from './GrabSystem.ts';
 import type { HackSession } from './HackSession.ts';
@@ -42,6 +42,12 @@ export class MissionDirector {
   private cameraDisabledFor = 0;
   private hacksWereComplete = false;
   private clotheslines = 0;
+  /** Multiplayer: latest server-owned security state and pending server shoves for our drone. */
+  private securityState: SecurityNetworkState | null = null;
+  private readonly pendingShoves: { role: DroneRole; impulse: Vector3 }[] = [];
+  private readonly spottedLog: DroneRole[] = [];
+  /** Last few replicated patrol samples keyed by the server mission clock (test agreement checks). */
+  private readonly securityHistory: { t: number; p: { x: number; y: number; z: number }[] }[] = [];
   private readonly unsubscribe: (() => void) | null;
   private readonly scene: Scene;
   private warmup: () => string | null = () => null;
@@ -74,8 +80,19 @@ export class MissionDirector {
       this.clotheslines = m.clotheslines ?? this.clotheslines + 1;
       this.security.remoteStun(m.index, new Vector3(m.x, m.y, m.z));
     });
+    const offSpotted = multiplayer?.onSecuritySpotted((role) => {
+      this.spottedLog.push(role);
+      this.audio.warning();
+    });
+    const offShove = multiplayer?.onPatrolShove((m) => {
+      const impulse = new Vector3(m.impulse?.x, m.impulse?.y, m.impulse?.z);
+      if ((m.role === 'pix' || m.role === 'nee') && Number.isFinite(impulse.x) && Number.isFinite(impulse.y) &&
+        Number.isFinite(impulse.z) && impulse.length() <= 8) {
+        this.pendingShoves.push({ role: m.role, impulse });
+      }
+    });
     const offLine = gameEvents.on('clothesline', () => { if (!this.multiplayer) this.clotheslines += 1; });
-    this.unsubscribe = () => { offStun?.(); offLine(); };
+    this.unsubscribe = () => { offStun?.(); offSpotted?.(); offShove?.(); offLine(); };
 
     if (uiParent) {
       const objective = document.createElement('aside');
@@ -137,6 +154,12 @@ export class MissionDirector {
   sync(status: RoomStatus): void {
     const previousAlarm = this.state.alarm;
     this.state = { ...status.mission };
+    this.securityState = status.security;
+    const last = this.securityHistory[this.securityHistory.length - 1];
+    if (status.security.patrols.length && last?.t !== status.mission.elapsedSeconds) {
+      this.securityHistory.push({ t: status.mission.elapsedSeconds, p: status.security.patrols.map(({ x, y, z }) => ({ x, y, z })) });
+      if (this.securityHistory.length > 80) this.securityHistory.shift();
+    }
     if (!previousAlarm && this.state.alarm) this.beginAlarm();
     this.presentStageChange();
   }
@@ -208,8 +231,16 @@ export class MissionDirector {
         : !hack.isComplete('terminal-c')
           ? 'Server gallery unlocked. Weave around the racks or fly over them; reach the high memory shelf.'
           : 'Vault authorized. Through the central shutter, then climb to the companion core.';
-    this.security.update(dt, drones, this.state.securityActive, this.cameraDisabledFor > 0, tetherStrain,
-      this.multiplayer ? this.state.elapsedSeconds : undefined);
+    if (this.multiplayer && this.securityState) {
+      // Server-owned enemies: render/interpolate only. Shoves land on our own (client-owned) drone.
+      // On the partner's drone the impulse is overwritten by its replicated pose next frame; it still
+      // marks the partner "in trouble" (rescue-yank prompt) and plays the panic reaction.
+      for (const shove of this.pendingShoves.splice(0)) drones.get(shove.role)?.knockback(shove.impulse);
+      this.security.updateNetworked(dt, drones, this.state.securityActive, this.securityState, tetherStrain,
+        this.state.elapsedSeconds);
+    } else {
+      this.security.update(dt, drones, this.state.securityActive, this.cameraDisabledFor > 0, tetherStrain);
+    }
     this.alarmLight.intensity = this.state.alarm ? 1.6 + Math.sin(this.localElapsed * 9) * 1.2 : 0;
     this.renderObjective(hack.completionCount());
     this.presentStageChange();
@@ -219,6 +250,22 @@ export class MissionDirector {
     return `mission:${this.state.stage} alarm:${this.state.alarm ? 'on' : 'off'} ` +
       `security:${this.state.securityActive ? 'active' : 'standby'} prototype:${this.state.prototypeHeldBy ?? 'free'} ` +
       `spotted:${this.state.timesSpotted} thrown:${this.state.objectsThrown}`;
+  }
+
+  /** TEST-ONLY snapshot for two-client agreement checks. */
+  debugSecurity() {
+    return {
+      patrols: this.security.patrolPositions(),
+      server: this.securityState,
+      history: [...this.securityHistory],
+      detection: this.security.detection,
+      stage: this.state.stage,
+      alarm: this.state.alarm,
+      securityActive: this.state.securityActive,
+      timesSpotted: this.state.timesSpotted,
+      spotted: [...this.spottedLog],
+      clotheslines: this.clotheslines,
+    };
   }
 
   get cameraContext() {
@@ -241,14 +288,12 @@ export class MissionDirector {
     this.completeOverlay?.remove();
   }
 
-  private spotted(role: DroneRole): void {
+  private spotted(_role: DroneRole): void {
     if (this.spotCooldown > 0 || this.state.stage === 'complete') return;
     this.spotCooldown = 2.8;
-    if (this.multiplayer) {
-      if (this.multiplayer.currentStatus.localRole === role) this.multiplayer.reportSpotted();
-    } else {
-      this.state = { ...this.state, timesSpotted: this.state.timesSpotted + 1 };
-    }
+    // Single-player only: in multiplayer the server detects, counts and broadcasts 'security-spotted'.
+    if (this.multiplayer) return;
+    this.state = { ...this.state, timesSpotted: this.state.timesSpotted + 1 };
     this.audio.warning();
   }
 

@@ -8,12 +8,16 @@ import type {
   HackNetworkState,
   MissionNetworkState,
   RoomStatus,
+  SecurityNetworkState,
 } from './NetworkTypes.ts';
 
 const SEND_INTERVAL_MS = 50;
 
 /** Partner tether move relayed (and validated) by the server. */
 export interface PatrolStunMessage { index: number; by?: string; clotheslines?: number; x: number; y: number; z: number }
+
+/** Server-detected patrol shove (broadcast; the shoved role's own client applies the impulse). */
+export interface PatrolShoveMessage { index: number; role: DroneRole; impulse: { x: number; y: number; z: number } }
 
 export interface TetherYankMessage {
   kind: 'yank' | 'sling' | 'bump';
@@ -43,6 +47,14 @@ interface SchemaRoomState {
   objects: Map<string, SchemaObject>;
   hack: SchemaHack;
   mission: SchemaMission;
+  security?: SchemaSecurity;
+}
+
+interface SchemaSecurity {
+  patrols: ArrayLike<{ x: number; y: number; z: number; stunned: boolean }> & Iterable<{ x: number; y: number; z: number; stunned: boolean }>;
+  cameraDisabled: boolean;
+  detectionPix: number;
+  detectionNee: number;
 }
 
 interface SchemaObject {
@@ -92,6 +104,8 @@ const EMPTY_MISSION: MissionNetworkState = {
   stage: 'infiltrate', alarm: false, securityActive: false, prototypeHeldBy: null,
   extracted: false, elapsedSeconds: 0, timesSpotted: 0, objectsThrown: 0, tetherSaves: 0,
 };
+
+const EMPTY_SECURITY: SecurityNetworkState = { patrols: [], cameraDisabled: false, detection: { pix: 0, nee: 0 } };
 
 function serverEndpoint(): string {
   const configured = import.meta.env.VITE_COLYSEUS_URL as string | undefined;
@@ -154,6 +168,8 @@ export class MultiplayerSession {
   private readonly listeners = new Set<StatusListener>();
   private readonly yankListeners = new Set<(message: TetherYankMessage) => void>();
   private readonly patrolListeners = new Set<(message: PatrolStunMessage) => void>();
+  private readonly shoveListeners = new Set<(message: PatrolShoveMessage) => void>();
+  private readonly spottedListeners = new Set<(role: DroneRole) => void>();
   private readonly players = new Map<DroneRole, DroneNetworkState>();
   private readonly objects = new Map<string, GrabbableNetworkState>();
   private status: RoomStatus;
@@ -175,6 +191,7 @@ export class MultiplayerSession {
       objects: this.objects,
       hack: EMPTY_HACK,
       mission: EMPTY_MISSION,
+      security: EMPTY_SECURITY,
     };
 
     room.onStateChange((state) => {
@@ -189,6 +206,13 @@ export class MultiplayerSession {
     });
     room.onMessage('patrol-stunned', (message: PatrolStunMessage) => {
       for (const listener of this.patrolListeners) listener(message);
+    });
+    room.onMessage('patrol-shove', (message: PatrolShoveMessage) => {
+      for (const listener of this.shoveListeners) listener(message);
+    });
+    room.onMessage('security-spotted', (message: { role?: string }) => {
+      const role = roleOrNull(message?.role ?? '');
+      if (role) for (const listener of this.spottedListeners) listener(role);
     });
     room.onReconnect(() => {
       this.networkState = 'connected';
@@ -308,8 +332,21 @@ export class MultiplayerSession {
     this.room.send('hack-cancel', { stationId });
   }
 
-  reportSpotted(): void {
-    this.room.send('mission-spotted');
+  /** The server detected a drone in the security camera (it already counted it). */
+  onSecuritySpotted(listener: (role: DroneRole) => void): () => void {
+    this.spottedListeners.add(listener);
+    return () => this.spottedListeners.delete(listener);
+  }
+
+  /** The server's patrol shoved a drone; its owner applies the impulse (movement stays client-owned). */
+  onPatrolShove(listener: (message: PatrolShoveMessage) => void): () => void {
+    this.shoveListeners.add(listener);
+    return () => this.shoveListeners.delete(listener);
+  }
+
+  /** TEST-ONLY: honoured by the server only when it runs with HANDSHAKE_TEST_HOOKS=1. */
+  debugStage(stage: 'escape'): void {
+    this.room.send('debug-stage', { stage });
   }
 
   /** Ask the server to stun a patrol; it arbitrates and broadcasts 'patrol-stunned' to both clients. */
@@ -390,6 +427,13 @@ export class MultiplayerSession {
           tetherSaves: state.mission.tetherSaves,
         }
       : EMPTY_MISSION;
+    const security: SecurityNetworkState = state.security
+      ? {
+          patrols: Array.from(state.security.patrols ?? [], (p) => ({ x: p.x, y: p.y, z: p.z, stunned: p.stunned })),
+          cameraDisabled: state.security.cameraDisabled,
+          detection: { pix: state.security.detectionPix, nee: state.security.detectionNee },
+        }
+      : EMPTY_SECURITY;
     this.status = {
       roomCode: this.roomCode,
       started: state.started,
@@ -398,6 +442,7 @@ export class MultiplayerSession {
       objects: this.objects,
       hack,
       mission,
+      security,
     };
     this.emit();
   }
