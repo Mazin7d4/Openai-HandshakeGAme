@@ -1,14 +1,14 @@
 // Solo judge path: cold load -> solo with CPU NEE, with the multiplayer server port BLOCKED.
 // Measures time to menu, time to first rendered frame, and checks ?play=solo deep link.
-import { runTest, assert, collectErrors, shot, waitForGame, canvasHasContent, BASE_URL } from './lib.mjs';
+import { runTest, assert, collectErrors, shot, waitForGame, canvasHasContent, BASE_URL, SERVER_PORT } from './lib.mjs';
 
-const serverPort = process.env.QA_SERVER_PORT ?? '2583';
+const serverPort = SERVER_PORT;
 
 await runTest('solo-boot', async (browser, notes) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const blocked = [];
-  await ctx.route((u) => u.port === serverPort, (r) => { blocked.push(r.request().url()); return r.abort(); });
-  if (ctx.routeWebSocket) await ctx.routeWebSocket((u) => u.port === serverPort, (ws) => { blocked.push(ws.url()); ws.close(); });
+  await ctx.route((u) => u.port === serverPort || /onrender\.com$/.test(u.hostname), (r) => { blocked.push(r.request().url()); return r.abort(); });
+  if (ctx.routeWebSocket) await ctx.routeWebSocket((u) => u.port === serverPort || /onrender\.com$/.test(u.hostname), (ws) => { blocked.push(ws.url()); ws.close(); });
   const page = await ctx.newPage();
   const errors = collectErrors(page, 'solo', []);
   const t0 = Date.now();

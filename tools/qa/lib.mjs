@@ -1,9 +1,14 @@
 // Shared helpers for the PIX QA regression suite (tools/qa/*.test.mjs).
-// Env: QA_URL (default http://127.0.0.1:5183/?scale=4&lowfx), QA_SHOTS (screenshot dir).
+// Env: QA_BASE_URL / QA_URL (full client URL, e.g. the live Pages site), QA_CLIENT_PORT (5183), QA_SERVER_PORT (2583),
+// QA_SERVER_URL (ws URL; default ws://127.0.0.1:$QA_SERVER_PORT, only passed as ?server= for local runs), QA_SHOTS (screenshot dir).
 import { chromium, devices } from 'playwright';
 import { mkdirSync } from 'node:fs';
 
-export const BASE_URL = process.env.QA_URL ?? process.argv[2] ?? 'http://127.0.0.1:5183/?scale=4&lowfx';
+export const CLIENT_PORT = process.env.QA_CLIENT_PORT ?? '5183';
+export const SERVER_PORT = process.env.QA_SERVER_PORT ?? '2583';
+const argUrl = /^https?:/.test(process.argv[2] ?? '') ? process.argv[2] : undefined;
+export const BASE_URL = process.env.QA_BASE_URL ?? process.env.QA_URL ?? argUrl ?? `http://127.0.0.1:${CLIENT_PORT}/?scale=4&lowfx`;
+export const IS_LOCAL = /^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(BASE_URL);
 export const SHOTS = process.env.QA_SHOTS ?? '/workspace/handshake/sprint/screens/qa';
 mkdirSync(SHOTS, { recursive: true });
 
@@ -12,12 +17,12 @@ export const GL_ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-w
 
 /** WS server for co-op/join tests. Passed as ?server= (future override, see WIN_STRATEGY); the
  * current client ignores it and uses VITE_COLYSEUS_URL baked in at vite start (qa:servers sets it). */
-export const SERVER_URL = process.env.QA_SERVER_URL ?? 'ws://127.0.0.1:2583';
+export const SERVER_URL = process.env.QA_SERVER_URL ?? `ws://127.0.0.1:${SERVER_PORT}`;
 export function url(extra = {}) {
   const u = new URL(BASE_URL);
   u.searchParams.set('debug', '1');
   u.searchParams.set('autotest', '1');
-  u.searchParams.set('server', SERVER_URL);
+  if (IS_LOCAL || process.env.QA_SERVER_URL) u.searchParams.set('server', SERVER_URL);
   for (const [k, v] of Object.entries(extra)) u.searchParams.set(k, v);
   return u.toString();
 }
