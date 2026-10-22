@@ -343,9 +343,29 @@ export class AudioManager {
     duck.gain.setTargetAtTime(1, t + seconds, 0.35);
   }
 
+  private readonly playListeners = new Set<(event: AudioEvent, opts: PlayOptions) => void>();
+  private readonly alarmListeners = new Set<(stage: number) => void>();
+
+  /** Subscribe to one-shots the hub actually plays (a11y visual cues, captions). */
+  onPlay(listener: (event: AudioEvent, opts: PlayOptions) => void): () => void {
+    this.playListeners.add(listener);
+    return () => { this.playListeners.delete(listener); };
+  }
+
+  /** Subscribe to alarm stage changes (0 = off, 1..3 escalation). */
+  onAlarmStage(listener: (stage: number) => void): () => void {
+    this.alarmListeners.add(listener);
+    return () => { this.alarmListeners.delete(listener); };
+  }
+
   // ---------------------------------------------------------------- one-shots
   play(event: AudioEvent, opts: PlayOptions = {}): void {
-    try { this.playInner(event, opts); } catch { /* audio must never break the game */ }
+    try {
+      this.playInner(event, opts);
+      for (const listener of this.playListeners) {
+        try { listener(event, opts); } catch { /* a11y must never break audio */ }
+      }
+    } catch { /* audio must never break the game */ }
   }
 
   private playInner(event: AudioEvent, o: PlayOptions): void {
@@ -500,6 +520,9 @@ export class AudioManager {
     const next = Math.max(0, Math.min(3, Math.round(stage)));
     if (next === this.alarm.stage && (next === 0 || this.alarm.src)) return;
     this.alarm.stage = next;
+    for (const listener of this.alarmListeners) {
+      try { listener(next); } catch { /* a11y must never break audio */ }
+    }
     if (next >= 1 && this.music !== 'off') this.setMusic('escape');
     if (next === 0 && this.music === 'escape') this.setMusic('calm');
     if (!ctx || !buses || ctx.state !== 'running') { if (next === 0) this.alarm.src = null; return; }

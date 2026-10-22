@@ -1,6 +1,10 @@
 import type { GameMode } from '../app/GameMode.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
-import { getSettings, saveSettings, type GraphicsQualitySetting } from './Settings.ts';
+import { controlIcon, keycaps } from './ControlGlyphs.ts';
+import { clearOnboardingDone } from './OnboardingCoach.ts';
+import type { GraphicsQualitySetting } from './Settings.ts';
+import { SettingsMenu } from './SettingsMenu.ts';
+import { isTouchPlayDevice } from './touchDetect.ts';
 
 export interface GameHudOptions {
   onResume: () => void;
@@ -10,38 +14,8 @@ export interface GameHudOptions {
   onGrabDrop: () => void;
   onThrow: () => void;
   onYank?: () => void;
-}
-
-// One drawn icon style for every control glyph: 24px grid, 2px graphite stroke, round caps, no fills.
-const ICONS: Record<string, string> = {
-  fly: '<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>',
-  updown: '<path d="M8 4v16M8 4L5 7M8 4l3 3M16 20V4M16 20l-3-3M16 20l3-3"/>',
-  boost: '<path d="M5 6l6 6-6 6M12 6l6 6-6 6"/>',
-  hack: '<path d="M9 3v5M15 3v5M6 8h12v4a6 6 0 0 1-12 0zM12 18v3"/>',
-  grab: '<path d="M12 3v5M7 8h10M7 8l-2 6 3 4M17 8l2 6-3 4"/>',
-  yank: '<path d="M3 8h4M17 8h4M7 8c0 9 10 9 10 0"/><path d="M12 15v5M9 18l3 3 3-3"/>',
-  pause: '<path d="M9 6v12M15 6v12"/>',
-};
-function icon(name: string): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.classList.add('glyph');
-  svg.innerHTML = ICONS[name] ?? '';
-  return svg;
-}
-/** Keycaps for a binding like "W A S D" or "Space / Ctrl"; "/" becomes a quiet separator. */
-function keycaps(binding: string): HTMLElement {
-  const group = document.createElement('span');
-  group.className = 'keys';
-  for (const part of binding.split(' ')) {
-    if (part === '/') { group.append(Object.assign(document.createElement('span'), { className: 'keys__or', textContent: 'or' })); continue; }
-    const cap = document.createElement('kbd');
-    cap.className = 'keycap';
-    cap.textContent = part;
-    group.append(cap);
-  }
-  return group;
+  /** Settings → Replay tutorial. */
+  onReplayTutorial?: () => void;
 }
 
 /** Lightweight contextual HUD and pause/settings/controls navigation. */
@@ -53,10 +27,12 @@ export class GameHud {
   private readonly options: GameHudOptions;
   private readonly controlsCard: HTMLDivElement;
   private readonly toastLayer: HTMLDivElement;
+  private readonly touch: boolean;
   private controlsTimer = 0;
   private paused = false;
   private promptKey = '';
   private activeDroneText = '';
+  private settingsMenu: SettingsMenu | null = null;
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (event.code === 'KeyH' && !this.paused && !(event.target instanceof HTMLInputElement)) {
@@ -68,6 +44,13 @@ export class GameHud {
       return;
     }
     if (event.code === 'Escape' && this.paused) {
+      if (this.settingsMenu) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        this.closeSettings();
+        this.showPauseHome();
+        return;
+      }
       event.preventDefault();
       event.stopImmediatePropagation();
       this.options.onResume();
@@ -76,6 +59,7 @@ export class GameHud {
 
   constructor(parent: HTMLElement, options: GameHudOptions) {
     this.options = options;
+    this.touch = isTouchPlayDevice();
     this.prompt = document.createElement('div');
     this.prompt.className = 'interaction-prompt';
     this.prompt.dataset.testid = 'interaction-prompt';
@@ -88,6 +72,7 @@ export class GameHud {
     this.panel.className = 'panel pause-panel';
     this.pauseOverlay.append(this.panel);
     // First-time-player card: core controls + the co-op goal. Auto-hides; [H] toggles it any time.
+    // Hidden on touch — the virtual pad is the hint surface there.
     this.controlsCard = document.createElement('div');
     this.controlsCard.className = 'controls-card';
     this.controlsCard.dataset.testid = 'controls-card';
@@ -102,7 +87,7 @@ export class GameHud {
       const label = document.createElement('span');
       label.className = 'glyph-label';
       label.textContent = action;
-      item.append(keycaps(keys), icon(glyph), label);
+      item.append(keycaps(keys), controlIcon(glyph), label);
       list.append(item);
     }
     const tip = document.createElement('p');
@@ -113,26 +98,39 @@ export class GameHud {
     this.toastLayer.className = 'juice-toasts';
     this.toastLayer.dataset.testid = 'juice-toasts';
     parent.append(this.prompt, this.activeDrone, this.pauseOverlay, this.controlsCard, this.toastLayer);
-    const seen = (() => { try { return localStorage.getItem('handshake.controlsSeen') === '1'; } catch { return false; } })();
-    this.setControlsCard(true, seen ? 6000 : 16000);
-    try { localStorage.setItem('handshake.controlsSeen', '1'); } catch { /* private mode */ }
+    if (this.touch) {
+      this.controlsCard.classList.add('controls-card--touch-hidden');
+    } else {
+      const seen = (() => { try { return localStorage.getItem('handshake.controlsSeen') === '1'; } catch { return false; } })();
+      this.setControlsCard(true, seen ? 6000 : 16000);
+      try { localStorage.setItem('handshake.controlsSeen', '1'); } catch { /* private mode */ }
+    }
     this.showPauseHome();
     window.addEventListener('keydown', this.onKeyDown, true);
   }
 
   update(prompts: readonly string[], mode: GameMode, activeRole: DroneRole): void {
-    const promptKey = prompts.join('\u0000');
+    const promptKey = `${this.touch ? 't' : 'k'}\u0000${prompts.join('\u0000')}`;
     if (promptKey !== this.promptKey) {
       this.promptKey = promptKey;
       this.prompt.replaceChildren(...prompts.map((text) => {
         const item = document.createElement('button');
         item.type = 'button';
-        // "[F] Hack the console" -> drawn keycap + label, so the key reads as a key, not as brackets.
+        // "[F] Hack the console" -> drawn keycap (or touch glyph) + label.
         const match = /^\[([^\]]+)\]\s*(.*)$/.exec(text);
         if (match) {
           const label = document.createElement('span');
           label.textContent = match[2];
-          item.append(keycaps(match[1]), label);
+          if (this.touch) {
+            const glyph = match[1] === 'F' ? 'hack'
+              : match[1] === 'Q' ? 'grab'
+              : match[1] === 'R' ? 'yank'
+              : match[1] === 'E' ? 'grab'
+              : 'touch';
+            item.append(controlIcon(glyph), label);
+          } else {
+            item.append(keycaps(match[1]), label);
+          }
         } else item.textContent = text;
         item.addEventListener('click', text.startsWith('[F]')
           ? this.options.onInteract
@@ -163,6 +161,12 @@ export class GameHud {
     window.setTimeout(() => item.remove(), 1500);
   }
 
+  /** Hide the keyboard controls card while the first-run coach is speaking. */
+  setControlsCardSuppressed(suppressed: boolean): void {
+    if (this.touch) return;
+    if (suppressed) this.setControlsCard(false);
+  }
+
   private setControlsCard(visible: boolean, autoHideMs = 0): void {
     window.clearTimeout(this.controlsTimer);
     this.controlsCard.classList.toggle('visible', visible);
@@ -174,6 +178,7 @@ export class GameHud {
     this.pauseOverlay.classList.toggle('visible', paused);
     this.prompt.classList.toggle('visible', !paused && this.prompt.childElementCount > 0);
     if (paused) this.showPauseHome();
+    else this.closeSettings();
   }
 
   /** Keyboard players land on the first action of each pause screen. */
@@ -183,6 +188,7 @@ export class GameHud {
 
   dispose(): void {
     window.removeEventListener('keydown', this.onKeyDown, true);
+    this.closeSettings();
     this.prompt.remove();
     this.activeDrone.remove();
     this.pauseOverlay.remove();
@@ -192,10 +198,11 @@ export class GameHud {
   }
 
   private showPauseHome(): void {
+    this.closeSettings();
     this.panel.replaceChildren(this.heading('Paused'));
     this.panel.append(
       this.button('Resume', this.options.onResume, 'btn--primary'),
-      this.button('Settings', () => this.showSettings()),
+      this.button('Settings', () => this.showSettings(), '', 'pause-settings'),
       this.button('Controls', () => this.showControls()),
       this.button('Leave game', this.options.onLeave, 'btn--danger danger'),
     );
@@ -203,73 +210,23 @@ export class GameHud {
   }
 
   private showSettings(): void {
-    const settings = getSettings();
-    this.panel.replaceChildren(this.heading('Settings'));
-
-    const masterVolumeRow = this.rangeRow(
-      'Master volume',
-      settings.masterVolume,
-      0,
-      100,
-      1,
-      '%',
-      (val: number) => {
-        saveSettings({ masterVolume: val });
+    this.closeSettings();
+    this.panel.replaceChildren();
+    this.settingsMenu = new SettingsMenu(this.panel, {
+      embedded: true,
+      onClose: () => this.showPauseHome(),
+      onGraphicsQuality: this.options.onGraphicsQuality,
+      onReplayTutorial: () => {
+        clearOnboardingDone();
+        this.options.onResume();
+        this.options.onReplayTutorial?.();
       },
-    );
-
-    const sensitivityRow = this.rangeRow(
-      'Look sensitivity',
-      settings.lookSensitivity,
-      0.25,
-      2,
-      0.05,
-      'x',
-      (val: number) => {
-        saveSettings({ lookSensitivity: val });
-      },
-    );
-
-    const shakeRow = document.createElement('label');
-    shakeRow.className = 'settings-row';
-    const shakeLabel = document.createElement('span');
-    shakeLabel.textContent = 'Screen shake';
-    const shakeInput = document.createElement('input');
-    shakeInput.type = 'checkbox';
-    shakeInput.checked = settings.screenShake;
-    shakeInput.addEventListener('change', () => {
-      saveSettings({ screenShake: shakeInput.checked });
     });
-    shakeRow.append(shakeLabel, shakeInput);
+  }
 
-    const row = document.createElement('label');
-    row.className = 'settings-row';
-    row.append(document.createTextNode('Graphics quality'));
-    const select = document.createElement('select');
-    for (const value of ['auto', 'low', 'medium', 'high'] as const) {
-      const option = document.createElement('option');
-      option.value = value;
-      option.textContent = value[0].toUpperCase() + value.slice(1);
-      option.selected = value === settings.graphicsQuality;
-      select.append(option);
-    }
-    select.addEventListener('change', () => {
-      this.options.onGraphicsQuality(select.value as GraphicsQualitySetting);
-    });
-    row.append(select);
-
-    this.panel.append(
-      masterVolumeRow,
-      sensitivityRow,
-      shakeRow,
-      row,
-      this.button('Fullscreen', () => {
-        if (document.fullscreenElement) void document.exitFullscreen();
-        else void document.documentElement.requestFullscreen();
-      }),
-      this.button('Back', () => this.showPauseHome(), 'btn--quiet'),
-    );
-    this.focusFirst();
+  private closeSettings(): void {
+    this.settingsMenu?.dispose();
+    this.settingsMenu = null;
   }
 
   private showControls(): void {
@@ -293,41 +250,18 @@ export class GameHud {
     this.focusFirst();
   }
 
-  private rangeRow(
-    label: string, value: number, min: number, max: number, step: number, unit: string,
-    onChange: (value: number) => void,
-  ): HTMLElement {
-    const row = document.createElement('label');
-    row.className = 'settings-row';
-    const text = document.createElement('span');
-    const format = (v: number) => `${label}  ${unit === '%' ? Math.round(v) : v.toFixed(2)}${unit}`;
-    text.textContent = format(value);
-    const input = document.createElement('input');
-    input.type = 'range';
-    input.min = String(min);
-    input.max = String(max);
-    input.step = String(step);
-    input.value = String(value);
-    input.addEventListener('input', () => {
-      const next = Number(input.value);
-      text.textContent = format(next);
-      onChange(next);
-    });
-    row.append(text, input);
-    return row;
-  }
-
   private heading(text: string): HTMLHeadingElement {
     const heading = document.createElement('h2');
     heading.textContent = text;
     return heading;
   }
 
-  private button(label: string, action: () => void, className = ''): HTMLButtonElement {
+  private button(label: string, action: () => void, className = '', testId = ''): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `btn pause-button ${className}`.trim();
     button.textContent = label;
+    if (testId) button.dataset.testid = testId;
     button.addEventListener('click', action);
     return button;
   }

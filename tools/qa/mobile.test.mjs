@@ -20,10 +20,84 @@ await runTest('mobile', async (browser, notes) => {
     await shot(page, `mobile-${label}-ingame`);
     const touch = await page.evaluate(() => {
       const hits = [...document.querySelectorAll('*')].filter((el) => /joystick|stick|touch|dpad|virtual/i.test(`${el.className} ${el.id} ${el.dataset?.testid ?? ''}`));
-      return { touchUiElements: hits.length, maxTouchPoints: navigator.maxTouchPoints };
+      return {
+        touchUiElements: hits.length,
+        maxTouchPoints: navigator.maxTouchPoints,
+        joystick: !!document.querySelector('[data-testid="touch-joystick"]'),
+        actions: ['touch-jump', 'touch-grab', 'touch-yank', 'touch-hack', 'touch-pause']
+          .map((id) => !!document.querySelector(`[data-testid="${id}"]`)),
+      };
     });
-    // Does a one-finger drag do anything? (camera needs two fingers per FIRST_MISSION)
+    assert(touch.joystick, `${label}: touch joystick missing`);
+    assert(touch.actions.every(Boolean), `${label}: touch action buttons missing ${JSON.stringify(touch.actions)}`);
+    if (label === 'portrait') {
+      notes.rotateHint = await page.getByTestId('touch-rotate-hint').isVisible().catch(() => false);
+    }
+    // Landscape: drag the virtual joystick and confirm the local drone moves.
+    if (label === 'landscape') {
+      const before = (await worldState(page)).players['player-1'];
+      const joy = await page.getByTestId('touch-joystick').boundingBox();
+      assert(joy, 'joystick box missing');
+      const cdp = await ctx.newCDPSession(page);
+      const ox = joy.x + joy.width * 0.45;
+      const oy = joy.y + joy.height * 0.55;
+      const pt = (x, y, id = 1) => [{ x, y, radiusX: 12, radiusY: 12, force: 0.5, id }];
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt(ox, oy) });
+      for (let i = 1; i <= 12; i++) {
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchMove',
+          touchPoints: pt(ox, oy - i * 10),
+        });
+        await page.waitForTimeout(50);
+      }
+      await page.waitForTimeout(700);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      const after = (await worldState(page)).players['player-1'];
+      const moved = before && after ? Math.hypot(after.x - before.x, after.z - before.z) : 0;
+      notes.joystickMoved = +moved.toFixed(2);
+      assert(moved > 0.35, `joystick did not move drone (Δ=${moved})`);
+      await shot(page, 'mobile-landscape-joystick');
+
+      // Drag on the right-half look pad and assert camera yaw ("alpha") changes.
+      const yawBefore = await page.evaluate(() => window.__pixneeCamera?.getLookYaw?.() ?? null);
+      assert(yawBefore != null, 'debug camera hook missing');
+      const look = await page.getByTestId('touch-look').boundingBox();
+      assert(look, 'touch look pad missing');
+      const lx = look.x + look.width * 0.55;
+      const ly = look.y + look.height * 0.45;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt(lx, ly, 2) });
+      for (let i = 1; i <= 14; i++) {
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchMove',
+          touchPoints: pt(lx + i * 12, ly, 2),
+        });
+        await page.waitForTimeout(40);
+      }
+      await page.waitForTimeout(200);
+      const yawAfter = await page.evaluate(() => window.__pixneeCamera?.getLookYaw?.() ?? 0);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      notes.cameraYawDelta = +(Math.abs(yawAfter - yawBefore)).toFixed(4);
+      assert(Math.abs(yawAfter - yawBefore) > 0.01, `camera alpha unchanged (${yawBefore} -> ${yawAfter})`);
+      await shot(page, 'mobile-landscape-look');
+    }
     notes[label] = { menu, game, touch };
+    await ctx.close();
+  }
+  // Extra landscape sizes for Android phones and iPhone Pro Max.
+  for (const [tag, viewport] of [
+    ['android-915', { width: 915, height: 412 }],
+    ['iphone-932', { width: 932, height: 430 }],
+  ]) {
+    const ctx = await browser.newContext({ ...devices['iPhone 13'], viewport, screen: viewport, hasTouch: true, isMobile: true });
+    const page = await ctx.newPage();
+    collectErrors(page, tag, errors);
+    await page.goto(url());
+    await page.getByTestId('singleplayer').tap();
+    await page.getByTestId('start-singleplayer').tap();
+    await waitForGame(page);
+    await page.waitForTimeout(2000);
+    assert(await page.getByTestId('touch-joystick').isVisible(), `${tag}: joystick missing`);
+    await shot(page, `mobile-landscape-${tag}`);
     await ctx.close();
   }
   // Phone landscape (844x390, touch) as player 2 joining a desktop host.

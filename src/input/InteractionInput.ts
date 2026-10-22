@@ -1,5 +1,6 @@
 import type { KeyBindings } from './KeyboardInput.ts';
 import { zeroInteractionActions, type InteractionActions } from './InteractionActions.ts';
+import { getSettings, subscribeSettings } from '../ui/Settings.ts';
 
 /** Edge-triggered gameplay buttons. Public request methods are the mobile-control seam. */
 export class InteractionInput {
@@ -11,6 +12,8 @@ export class InteractionInput {
   private readonly switchKeys: Set<string>;
   private readonly yankKeys: Set<string>;
   private readonly pressed = new Set<string>();
+  private holdToToggle = getSettings().holdToToggle;
+  private readonly unsubSettings: () => void;
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (
@@ -40,6 +43,10 @@ export class InteractionInput {
 
   private readonly onKeyUp = (event: KeyboardEvent) => {
     this.pressed.delete(event.code);
+    // Hold-to-grab: releasing the grab key drops (second edge).
+    if (this.holdToToggle && this.grabKeys.has(event.code)) {
+      this.actions.grabDrop = true;
+    }
   };
 
   private readonly onBlur = () => {
@@ -53,6 +60,9 @@ export class InteractionInput {
     this.pauseKeys = new Set(keys.pause);
     this.switchKeys = new Set(keys.switchDrone);
     this.yankKeys = new Set(keys.yank);
+    this.unsubSettings = subscribeSettings((s) => {
+      this.holdToToggle = s.holdToToggle;
+    });
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.onBlur);
@@ -85,7 +95,16 @@ export class InteractionInput {
     this.actions.interact = true;
   }
 
+  requestPause(): void {
+    this.actions.pause = true;
+  }
+
+  requestSwitchDrone(): void {
+    this.actions.switchDrone = true;
+  }
+
   dispose(): void {
+    this.unsubSettings();
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
