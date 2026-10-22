@@ -1,6 +1,7 @@
 import { CloseCode, Room, Server, WebSocketTransport } from 'colyseus';
 import { schema, t } from '@colyseus/schema';
 import layout from '../src/level/heist-layout.json' with { type: 'json' };
+import { Security, createSecurityState, SecuritySim } from './security.mjs';
 
 const PORT = Number.parseInt(process.env.PORT ?? '2567', 10);
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -96,6 +97,7 @@ const HandshakeState = schema(
     objects: t.map(Grabbable),
     hack: Hack,
     mission: Mission,
+    security: Security,
   },
   'HandshakeState',
 );
@@ -147,11 +149,16 @@ function createGrabbable(id, x, y, z, grabRadius) {
 class HandshakeRoom extends Room {
   state = new HandshakeState();
   missionStartedAt = Date.now();
+  doorOpenedAt = 0;
+  spotCooldownUntil = 0;
+  clotheslines = 0;
 
   onCreate() {
     this.maxClients = 2;
     this.roomId = roomCode();
     this.setMetadata({ code: this.roomId });
+    this.state.security = createSecurityState();
+    this.securitySim = new SecuritySim(this.state.security);
     for (const [id, position] of Object.entries(layout.objects)) {
       const radius = { 'cargo-core': 3.3, 'crate-blue': 4.8, 'crate-pink': 3, prototype: 3.2 }[id];
       this.state.objects.set(id, createGrabbable(id, position.x, position.y, position.z, radius));
@@ -165,14 +172,24 @@ class HandshakeRoom extends Room {
     this.onMessage('hack-start', (client, message) => this.startHack(client.sessionId, message));
     this.onMessage('hack-complete', (client, message) => this.completeHack(client.sessionId, message));
     this.onMessage('hack-cancel', (client, message) => this.cancelHack(client.sessionId, message));
-    this.onMessage('mission-spotted', (client) => this.reportSpotted(client.sessionId));
     this.onMessage('mission-tether-save', (client) => this.reportTetherSave(client.sessionId));
     this.onMessage('mission-retry', () => this.resetMission());
     this.onMessage('tether-yank', (client, message) => this.relayTetherYank(client, message));
     this.onMessage('patrol-stun', (client, message) => this.stunPatrol(client, message));
-    this.setSimulationInterval(() => {
+    if (process.env.HANDSHAKE_TEST_HOOKS === '1') {
+      console.log('[handshake] TEST HOOKS enabled');
+      this.onMessage('debug-stage', (client, m) => {
+        if (m?.stage === 'escape') {
+          this.state.mission.stage = 'escape';
+          this.state.mission.alarm = true;
+          this.state.mission.securityActive = true;
+        }
+      });
+    }
+    this.setSimulationInterval((deltaMs) => {
       this.updateHack();
       this.updateMission();
+      this.updateSecurity(deltaMs / 1000);
     });
   }
 
@@ -327,6 +344,9 @@ class HandshakeRoom extends Room {
     this.state.hack.doorOpen =
       this.state.hack.stationAComplete && this.state.hack.stationBComplete &&
       this.state.hack.stationCComplete;
+    if (this.state.hack.doorOpen && !this.doorOpenedAt) {
+      this.doorOpenedAt = Date.now();
+    }
   }
 
   cancelHack(sessionId, message) {
@@ -383,10 +403,32 @@ class HandshakeRoom extends Room {
     }
   }
 
-  reportSpotted(sessionId) {
-    if (this.state.players.has(sessionId) && this.state.mission.stage !== 'complete') {
-      this.state.mission.timesSpotted += 1;
+  updateSecurity(dt) {
+    dt = Math.max(0, Math.min(0.1, dt));
+    if (this.state.mission.stage === 'complete') return;
+    const now = Date.now();
+    const cameraDisabled = this.doorOpenedAt > 0 && (now - this.doorOpenedAt) < 18000;
+    const players = Array.from(this.state.players.values()).map((p) => ({
+      role: p.role,
+      connected: p.connected,
+      position: { x: p.position.x, y: p.position.y, z: p.position.z },
+    }));
+    const result = this.securitySim.update(dt, {
+      active: this.state.mission.securityActive,
+      elapsed: this.state.mission.elapsedSeconds,
+      cameraDisabled,
+      players,
+      objects: this.state.objects.values(),
+    });
+    for (const role of result.spotted) {
+      if (this.spotCooldownUntil <= now && this.state.mission.stage !== 'complete') {
+        this.state.mission.timesSpotted += 1;
+        this.spotCooldownUntil = now + 2800;
+        this.broadcast('security-spotted', { role });
+      }
     }
+    // Broadcast so the partner also shows the shoved drone "in trouble"; only the owner applies the impulse.
+    for (const shove of result.shoves) this.broadcast('patrol-shove', shove);
   }
 
   /** Validate a tether move and relay the impulse to the partner, who owns its own drone. */
@@ -419,20 +461,46 @@ class HandshakeRoom extends Room {
     });
   }
 
-  /** Server-arbitrated clothesline: one stun per patrol, broadcast to both clients so they agree. */
+  /** Server-arbitrated clothesline: validate claim, then let SecuritySim own the stun. */
   stunPatrol(client, message) {
     if (!this.state.players.has(client.sessionId) || !message || typeof message !== 'object') return;
     if (!this.state.mission.securityActive) return;
     const index = Math.round(finite(message.index, -1));
     if (index !== 0 && index !== 1) return;
-    const now = Date.now();
-    this.patrolStunUntil ??= [0, 0];
-    if (now < this.patrolStunUntil[index]) return;
-    this.patrolStunUntil[index] = now + 3400;
-    this.clotheslines = (this.clotheslines ?? 0) + 1;
+    const p = this.securitySim.patrolPosition(index);
+    if (!p) return;
+
+    // Reported stun point must be within 3.5 of the server patrol position
+    const r = { x: finite(message.x), y: finite(message.y, 2), z: finite(message.z) };
+    if (distance(r, p) > 3.5) return;
+
+    // Both players must be present and within 14 of the patrol
+    const players = Array.from(this.state.players.values());
+    if (players.length !== 2 || !players[0].connected || !players[1].connected) return;
+    if (distance(players[0].position, p) > 14 || distance(players[1].position, p) > 14) return;
+
+    // Distance from patrol to the segment between the two player positions must be <= 3.5
+    const a = players[0].position, b = players[1].position;
+    const seg = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z };
+    const segLenSq = seg.x * seg.x + seg.y * seg.y + seg.z * seg.z;
+    let segDist;
+    if (segLenSq < 0.0001) {
+      segDist = distance(p, a);
+    } else {
+      const ap = { x: p.x - a.x, y: p.y - a.y, z: p.z - a.z };
+      const tParam = Math.max(0, Math.min(1, (ap.x * seg.x + ap.y * seg.y + ap.z * seg.z) / segLenSq));
+      const proj = { x: a.x + seg.x * tParam, y: a.y + seg.y * tParam, z: a.z + seg.z * tParam };
+      segDist = distance(p, proj);
+    }
+    if (segDist > 3.5) return;
+
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
+    if (!this.securitySim.stun(index, midpoint)) return;
+    this.clotheslines += 1;
+    const np = this.securitySim.patrolPosition(index);
     this.broadcast('patrol-stunned', {
       index, by: this.state.players.get(client.sessionId).role, clotheslines: this.clotheslines,
-      x: finite(message.x), y: Math.max(0.8, finite(message.y, 2)), z: finite(message.z),
+      x: np.x, y: np.y, z: np.z,
     });
   }
 
@@ -443,7 +511,9 @@ class HandshakeRoom extends Room {
   }
 
   resetMission() {
-    this.patrolStunUntil = [0, 0];
+    this.securitySim.reset();
+    this.doorOpenedAt = 0;
+    this.spotCooldownUntil = 0;
     this.clotheslines = 0;
     this.state.hack.stationAOwner = '';
     this.state.hack.stationBOwner = '';
