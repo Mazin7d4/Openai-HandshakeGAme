@@ -1,4 +1,5 @@
 import { audio, type Vec3Like } from './AudioManager.ts';
+import type { DroneRole } from '../network/NetworkTypes.ts';
 
 /**
  * Per-game facade kept for existing call sites (TetherMoves, hack views, MissionDirector...).
@@ -29,7 +30,8 @@ export class GameAudio {
   fail(): void { audio.play('hackFail'); }
   /** Detection building on a camera. */
   warning(): void { audio.play('suspicious'); }
-  spotted(): void { audio.play('spotted'); }
+  /** A camera or guard saw this drone; pans to it (solo and replicated 'security-spotted'). */
+  spotted(role?: DroneRole): void { audio.play('spotted', { role }); }
   pickup(): void { audio.play('grab'); }
   prototypePickup(): void { audio.play('theft'); }
   throwObject(): void { audio.play('throw'); }

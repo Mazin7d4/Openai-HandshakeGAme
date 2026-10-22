@@ -1,6 +1,7 @@
 import type { HackMinigameSnapshot } from './HackMinigame.ts';
 import { PacketRoutingMinigame } from './PacketRoutingMinigame.ts';
 import type { GameAudio } from '../audio/GameAudio.ts';
+import { audio } from '../audio/AudioManager.ts';
 
 const GLYPHS: Record<number, string> = {
   1: '╵', 2: '╴', 3: '└', 4: '╷', 5: '│', 6: '┌', 7: '├',
@@ -26,9 +27,9 @@ export class PacketRoutingView {
     stationLabel: string,
     complete: () => void,
     cancel: () => void,
-    audio?: GameAudio,
+    gameAudio?: GameAudio,
   ) {
-    this.audio = audio;
+    this.audio = gameAudio;
     this.model = new PacketRoutingMinigame();
     this.complete = complete;
     this.cancel = cancel;
@@ -66,6 +67,7 @@ export class PacketRoutingView {
     panel.append(kicker, title, help, board, this.status, this.cancelButton);
     this.overlay.append(panel);
     parent.append(this.overlay);
+    audio.play('hackStart');
     this.render(this.model.snapshot());
   }
 
@@ -94,7 +96,7 @@ export class PacketRoutingView {
       button.textContent = GLYPHS[mask] ?? '·';
       button.classList.toggle('connected', snapshot.connected.has(index));
       button.addEventListener('click', () => {
-        this.audio?.click(snapshot.connected.size / snapshot.masks.length);
+        audio.play('hackTick', { progress: snapshot.connected.size / snapshot.masks.length });
         this.render(this.model.rotate(index));
       });
       this.grid.append(button);

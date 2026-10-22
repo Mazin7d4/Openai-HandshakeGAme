@@ -13,6 +13,7 @@ import type { DroneRole, SecurityNetworkState } from '../network/NetworkTypes.ts
 import type { Drone } from '../player/Drone.ts';
 import { cordState } from './Tether.ts';
 import { gameEvents } from './GameEvents.ts';
+import { audio } from '../audio/AudioManager.ts';
 
 const CAMERA_RANGE = 10;
 const CAMERA_HALF_ANGLE = Math.PI / 5;
@@ -66,6 +67,7 @@ class SecurityCamera {
   }
 
   setDisabled(disabled: boolean): void {
+    if (disabled && !this.disabled) audio.play('cameraBlind');
     this.disabled = disabled;
     this.cone.setEnabled(!disabled);
     const material = this.body.material as StandardMaterial;
@@ -148,6 +150,7 @@ class PatrolDrone {
   stun(at?: Vector3): void {
     this.stunnedFor = 3.4;
     if (at) this.mesh.position.copyFrom(at);
+    audio.play('stun', { position: this.mesh.position });
     gameEvents.emit('clothesline', { position: this.mesh.position.clone() });
   }
 
@@ -226,6 +229,7 @@ class PatrolDrone {
     this.eyeMaterial.emissiveColor.copyFrom(SECURITY_AMBER);
     if (callbacks.hasFastObjectNear(this.mesh.position, 1.65)) {
       this.stunnedFor = 3.2;
+      audio.play('stun', { position: this.mesh.position });
       return;
     }
     const roles = [...drones.entries()];

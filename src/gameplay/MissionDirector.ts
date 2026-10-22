@@ -80,7 +80,7 @@ export class MissionDirector {
     });
     const offSpotted = multiplayer?.onSecuritySpotted((role) => {
       this.spottedLog.push(role);
-      this.audio.warning();
+      this.audio.spotted(role);
     });
     const offShove = multiplayer?.onPatrolShove((m) => {
       const impulse = new Vector3(m.impulse?.x, m.impulse?.y, m.impulse?.z);
@@ -286,13 +286,13 @@ export class MissionDirector {
     this.completeOverlay?.remove();
   }
 
-  private spotted(_role: DroneRole): void {
+  private spotted(role: DroneRole): void {
     if (this.spotCooldown > 0 || this.state.stage === 'complete') return;
     this.spotCooldown = 2.8;
     // Single-player only: in multiplayer the server detects, counts and broadcasts 'security-spotted'.
     if (this.multiplayer) return;
     this.state = { ...this.state, timesSpotted: this.state.timesSpotted + 1 };
-    this.audio.warning();
+    this.audio.spotted(role);
   }
 
   private completeMission(): void {

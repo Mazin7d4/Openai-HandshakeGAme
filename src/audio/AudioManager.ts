@@ -350,7 +350,7 @@ export class AudioManager {
 
   private playInner(event: AudioEvent, o: PlayOptions): void {
     if (!this.ctx || this.ctx.state !== 'running') return;
-    const pos = o.position ?? null;
+    let pos: Vec3Like | null = o.position ?? null;
     const k = clamp(o.intensity ?? 0.6);
     const vol = o.volume ?? 1;
     switch (event) {
@@ -395,6 +395,7 @@ export class AudioManager {
       case 'hackFail': this.spr(event, 'hack_fail', { bus: 'ui', gain: 0.7 * vol }); return;
       case 'suspicious': this.start(event, this.synth('suspicious', (r) => zz(r, ZZ.suspicious)), { gain: 0.35 * vol, pos }); return;
       case 'spotted': {
+        if (!pos && o.role) pos = this.dronePos.get(o.role) ?? null;
         // Pan to the drone that was spotted; a local hit stays centred and loud.
         this.start(event, this.synth('spotted', (r) => zz(r, ZZ.spotted)), { gain: 0.65 * vol, pos, rate: o.role === 'nee' ? 1.12 : 1 });
         this.duckMusic(0.5, 0.55);
@@ -450,6 +451,7 @@ export class AudioManager {
         hum = { osc, osc2, lp, air, airGain, gain, pan, jitter: 0 };
         this.hums.set(role, hum);
       }
+      this.dronePos.set(role, { x: position.x, y: position.y, z: position.z });
       const n = clamp(speed / 10);
       // PIX lower and steady; NEE higher with a nervous flutter.
       const base = role === 'pix' ? 82 : 128;
@@ -515,6 +517,8 @@ export class AudioManager {
   }
 
   get alarmStage(): number { return this.alarm.stage; }
+
+  private readonly dronePos = new Map<DroneVoice, Vec3Like>();
 
   /** Test/debug snapshot (tools/verify-audio.mjs). */
   debugState(): Record<string, unknown> {
