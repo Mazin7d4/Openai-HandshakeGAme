@@ -19,6 +19,7 @@ import {
 import {
   applyRunLayout,
   generateRun,
+  getRunSeed,
   setRunSeedGetter,
   type ApplyRunLayoutTargets,
   type RunLayout,
@@ -101,11 +102,28 @@ export function readUrlRunOptions(search = window.location.search): UrlRunOption
 }
 
 /** Start a local (solo / offline) run. Does not contact the server. */
-export function startLocalRun(options?: UrlRunOptions & { mode?: RunMode }): ClientRunSnapshot {
+export function startLocalRun(
+  options?: UrlRunOptions & { mode?: RunMode; floor?: number; captures?: number },
+): ClientRunSnapshot {
   const fromUrl = { ...readUrlRunOptions(), ...options };
-  beatTarget = fromUrl.beat ?? null;
+  if (fromUrl.beat != null) beatTarget = fromUrl.beat;
   ended = false;
-  localState = createRunState({ seed: fromUrl.seed, mode: fromUrl.mode });
+
+  let seed = fromUrl.seed;
+  let floor = fromUrl.floor;
+  // Honor stash / prepared seed when URL/options omit them (Play again, Next floor, Daily).
+  if (seed == null || floor == null) {
+    const resolved = getRunSeed(seed != null ? { seed, floor: floor ?? 1 } : null);
+    seed = seed ?? resolved.seed;
+    floor = floor ?? resolved.floor;
+  }
+
+  localState = createRunState({ seed, mode: fromUrl.mode });
+  localState = {
+    ...localState,
+    floor: Math.max(1, (floor ?? localState.floor) | 0),
+    captures: Math.max(0, (fromUrl.captures ?? localState.captures) | 0),
+  };
   snapshot = toSnapshot(localState);
   applyFloorStart({ seed: localState.seed, floor: localState.floor, mode: localState.mode });
   return snapshot;

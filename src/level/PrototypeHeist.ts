@@ -13,6 +13,7 @@ import { dressMissionAreas, mergeDecorative } from './AreaDressing.ts';
 import { loadPropKit } from './PropKit.ts';
 import layout from './heist-layout.json';
 import { mergeRigidChildren } from '../scene/mergeChildren.ts';
+import { createRoundedBox } from '../scene/roundedBox.ts';
 
 const SECURITY_AMBER = Color3.FromHexString('#FFB84D');
 const SCREEN_IDLE = new Color3(0.35, 0.35, 0.35);
@@ -179,18 +180,27 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   // Museum label printed on the pedestal's front badge (diegetic: replaces the floating title card).
   const plaqueTex = new DynamicTexture('vault-plaque-type', { width: 512, height: 160 }, scene, true);
   const pc = plaqueTex.getContext() as CanvasRenderingContext2D;
-  pc.fillStyle = '#142022'; pc.fillRect(0, 0, 512, 160);
-  pc.fillStyle = '#A7B6B5'; pc.fillRect(28, 98, 456, 2);
-  pc.fillStyle = '#F4EFE6'; pc.font = "800 58px Archivo, 'Atkinson Hyperlegible Next', sans-serif"; pc.fillText('MORROW', 28, 78);
-  pc.fillStyle = '#C9C2B4'; pc.font = "26px 'Atkinson Hyperlegible Next', Archivo, sans-serif"; pc.fillText('P01  ·  Adaptive companion core', 28, 138);
-  plaqueTex.update();
+  const drawPlaque = () => {
+    pc.fillStyle = '#142022'; pc.fillRect(0, 0, 512, 160);
+    pc.fillStyle = '#A7B6B5'; pc.fillRect(28, 98, 456, 2);
+    pc.fillStyle = '#F4EFE6'; pc.font = "800 58px Archivo, 'Atkinson Hyperlegible Next', sans-serif"; pc.fillText('MORROW', 28, 78);
+    pc.fillStyle = '#C9C2B4'; pc.font = "26px 'Atkinson Hyperlegible Next', Archivo, sans-serif"; pc.fillText('P01  ·  Adaptive companion core', 28, 138);
+    plaqueTex.update();
+  };
+  drawPlaque();
+  // Archivo is preloaded by index.html; redraw once it is actually ready so the plaque never keeps the fallback face.
+  if (typeof document !== 'undefined' && document.fonts) void document.fonts.load("800 58px Archivo").then(drawPlaque, () => undefined);
   const plaqueMat = new StandardMaterial('vault-plaque-ink', scene);
   plaqueMat.diffuseTexture = plaqueTex; plaqueMat.emissiveTexture = plaqueTex;
   plaqueMat.emissiveColor.set(0.45, 0.45, 0.45); plaqueMat.specularColor.set(0.15, 0.15, 0.15);
   const plaque = CreatePlane('vault-plaque', { width: 1.62, height: 0.506 }, scene);
   plaque.position.set(protoX, 2.9, 16.255); plaque.material = plaqueMat; plaque.isPickable = false;
   // Visible source for the hero spotlight: a ceiling can (merged with the pendant fixtures below).
-  box('pendant-shell', protoX, 12.95, protoZ, 1.0, 0.5, 1.0, p.metal, false);
+  const pendantCan = createRoundedBox('pendant-shell', { width: 1.0, height: 0.5, depth: 1.0, radius: 0.08 }, scene);
+  pendantCan.position.set(protoX, 12.95, protoZ);
+  pendantCan.material = p.metal;
+  pendantCan.isPickable = false;
+  pendantCan.receiveShadows = true;
   box('pendant-diffuser', protoX, 12.68, protoZ, 0.8, 0.04, 0.8, p.light, false);
   box('pendant-wire', protoX, 13.7, protoZ, 0.05, 1.0, 0.05, p.dark, false);
   // Faked volumetric beam from that can to the plinth (additive, top-bright ramp).
@@ -263,17 +273,31 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   const officeDoor = new Door(scene, plugin, { name: 'office-access-shutter', x: -1, y: 3, z: -26, width: 6, height: 6, depth: 0.5, travel: 7 });
   officeDoor.mesh.material = p.sage; officeDoor.mesh.metadata = { cameraOccluder: true };
   const escapeDoor = new Door(scene, plugin, { name: 'pressure-relief-shutter', x: -12, y: 3, z: 13, width: 0.5, height: 6, depth: 8, travel: 7 });
-  escapeDoor.mesh.material = p.metal; // aluminium roller shutter (coral is NEE's) escapeDoor.mesh.metadata = { cameraOccluder: true };
+  escapeDoor.mesh.material = p.metal; escapeDoor.mesh.metadata = { cameraOccluder: true }; // aluminium roller shutter (coral is NEE's)
+  // Readability: graphite jamb frames make each doorway read at camera distance; the escape jambs carry exit-green strips.
+  for (const dx of [-3.25, 3.25]) box('door-jamb', -1 + dx, 3, -26, 0.5, 6.2, 1.0, p.dark, false);
+  for (const dx of [-3.05, 3.05]) box('door-jamb', dx, 2.2, 2, 0.5, 4.6, 1.1, p.dark, false);
+  box('door-jamb', -12, 6.25, 13, 1.0, 0.5, 9, p.dark, false);
+  for (const dz of [-4.25, 4.25]) {
+    box('door-jamb', -12, 3, 13 + dz, 1.0, 6.2, 0.5, p.dark, false);
+    for (const sx of [-0.52, 0.52]) box('exit-jamb-strip', -12 + sx, 3, 13 + dz, 0.05, 5.4, 0.16, p.escape, false);
+  }
   // Objective beacons: a slowly spinning diamond and a breathing floor ring above the next goal(s).
   // Purely presentational and driven from replicated mission state, so they are identical for both players.
   const beaconMat = new StandardMaterial('objective-beacon', scene);
-  beaconMat.emissiveColor = Color3.FromHexString('#FFD27A'); beaconMat.diffuseColor = Color3.Black();
+  // Objective = warm diffuser white (never security amber); mint accent only on the core's beacon, exit green on extraction.
+  beaconMat.emissiveColor = Color3.FromHexString('#FFF1D6'); beaconMat.diffuseColor = Color3.Black();
   beaconMat.specularColor = Color3.Black(); beaconMat.alpha = 0.85; beaconMat.disableLighting = true;
-  const makeBeacon = (name: string, x: number, y: number, z: number) => {
+  const accentMat = (name: string, hex: string) => {
+    const m = beaconMat.clone(name); m.emissiveColor = Color3.FromHexString(hex); return m;
+  };
+  const coreAccent = accentMat('objective-beacon-core', '#7FF0D0');
+  const exitAccent = accentMat('objective-beacon-exit', '#71B38C');
+  const makeBeacon = (name: string, x: number, y: number, z: number, gemMat = beaconMat, ringMat = beaconMat) => {
     const gem = CreatePolyhedron(`${name}-beacon`, { type: 1, size: 0.32 }, scene);
-    gem.scaling.y = 1.6; gem.position.set(x, y + 1.6, z); gem.material = beaconMat; gem.isPickable = false;
+    gem.scaling.y = 1.6; gem.position.set(x, y + 1.6, z); gem.material = gemMat; gem.isPickable = false;
     const ring = CreateTorus(`${name}-beacon-ring`, { diameter: 2.2, thickness: 0.07, tessellation: 40 }, scene);
-    ring.position.set(x, y - 0.45, z); ring.material = beaconMat; ring.isPickable = false;
+    ring.position.set(x, y - 0.45, z); ring.material = ringMat; ring.isPickable = false;
     return { gem, ring, baseY: y + 1.6 };
   };
   const t = layout.terminals;
@@ -281,8 +305,8 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     'terminal-a': makeBeacon('terminal-a', t['terminal-a'].x, t['terminal-a'].y, t['terminal-a'].z),
     'terminal-b': makeBeacon('terminal-b', t['terminal-b'].x, t['terminal-b'].y, t['terminal-b'].z),
     'terminal-c': makeBeacon('terminal-c', t['terminal-c'].x, t['terminal-c'].y, t['terminal-c'].z),
-    vault: makeBeacon('vault', layout.objects.prototype.x, layout.objects.prototype.y + 0.8, layout.objects.prototype.z),
-    pickup: makeBeacon('pickup', layout.extraction.x, 1.2, layout.extraction.z),
+    vault: makeBeacon('vault', layout.objects.prototype.x, layout.objects.prototype.y + 0.8, layout.objects.prototype.z, beaconMat, coreAccent),
+    pickup: makeBeacon('pickup', layout.extraction.x, 1.2, layout.extraction.z, exitAccent, exitAccent),
   };
   let elapsed = 0;
   let vaultProgress = 0; // 0 = closed, 1 = fully open
@@ -407,7 +431,8 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
         pickup: state.stage === 'escape',
       };
       const pulse = 0.5 + 0.5 * Math.sin(elapsed * 3);
-      beaconMat.emissiveColor.set(state.alarm ? 0.55 + 0.3 * pulse : 1, state.alarm ? 0.95 : 0.78 + 0.1 * pulse, state.alarm ? 0.6 : 0.42);
+      const lum = 0.82 + 0.18 * pulse;
+      beaconMat.emissiveColor.set(lum, 0.945 * lum, 0.84 * lum);
       for (const [key, b] of Object.entries(beacons)) {
         const on = show[key as keyof typeof beacons];
         b.gem.setEnabled(on); b.ring.setEnabled(on);
@@ -456,7 +481,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   for (const name of ['rack-upright', 'rack-tray', 'rack-status']) for (const m of scene.meshes.filter(m => m.name === name)) m.dispose();
   dressMissionAreas(scene, p, kit);
   // Batch Astra's repeated physics-free trim (rack trays/LEDs, battens, fixtures) into one mesh per material.
-  mergeDecorative(scene, ['rack-upright', 'rack-tray', 'rack-status', 'oak-batten', 'pendant-shell',
+  mergeDecorative(scene, ['door-jamb', 'exit-jamb-strip', 'rack-upright', 'rack-tray', 'rack-status', 'oak-batten', 'pendant-shell',
     'pendant-diffuser', 'pendant-wire', 'vault-mullion', 'extraction-lamp']);
   // Authored 'Coral' plastic (planters, arm caps) reads as NEE's colour: retint it to clay.
   for (const m of scene.materials) {

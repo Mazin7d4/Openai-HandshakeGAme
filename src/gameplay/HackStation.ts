@@ -1,6 +1,5 @@
 import {
   Color3,
-  CreateBox,
   CreateTorus,
   DynamicTexture,
   StandardMaterial,
@@ -10,6 +9,7 @@ import {
 } from '@babylonjs/core';
 import type { DroneRole } from '../network/NetworkTypes.ts';
 import { addStaticBody } from '../physics/staticBody.ts';
+import { createRoundedBox } from '../scene/roundedBox.ts';
 import { applySolidColor } from '../scene/solidMaterial.ts';
 import type { Interactable } from './Interactable.ts';
 
@@ -82,7 +82,7 @@ export class HackStation implements Interactable {
     this.minigameType = spec.minigameType;
     this.allowedRole = spec.allowedRole;
 
-    this.mesh = CreateBox(spec.id, { width: 1.15, height: 2.5, depth: 0.75 }, scene);
+    this.mesh = createRoundedBox(spec.id, { width: 1.15, height: 2.5, depth: 0.75, radius: 0.08 }, scene);
     this.mesh.position.copyFrom(spec.position);
     applySolidColor(this.mesh, new Color3(0.16, 0.18, 0.19), scene);
     this.aggregate = addStaticBody(this.mesh, scene);
@@ -119,7 +119,7 @@ export class HackStation implements Interactable {
     }
     this.screenTexture.update();
 
-    this.indicator = CreateBox(`${spec.id}-indicator`, { width: 0.72, height: 1.15, depth: 0.08 }, scene);
+    this.indicator = createRoundedBox(`${spec.id}-indicator`, { width: 0.72, height: 1.15, depth: 0.08, radius: 0.025, segments: 1 }, scene);
     this.indicator.position.copyFrom(spec.position);
     this.indicator.position.z -= 0.42;
 

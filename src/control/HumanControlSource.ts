@@ -46,6 +46,18 @@ export class HumanControlSource implements DroneControlSource {
     this.interactions.requestYank();
   }
 
+  requestInteract(): void {
+    this.interactions.requestInteract();
+  }
+
+  requestPause(): void {
+    this.interactions.requestPause();
+  }
+
+  requestSwitchDrone(): void {
+    this.interactions.requestSwitchDrone();
+  }
+
   dispose(): void {
     this.input.dispose();
     this.interactions.dispose();

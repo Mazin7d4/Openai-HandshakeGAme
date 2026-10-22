@@ -243,7 +243,7 @@ class HandshakeRoom extends Room {
     this.state.security = createSecurityState();
     this.securitySim = new SecuritySim(this.state.security);
     for (const [id, position] of Object.entries(layout.objects)) {
-      const radius = { 'cargo-core': 3.3, 'crate-blue': 4.8, 'crate-pink': 3, prototype: 3.2 }[id];
+      const radius = { 'cargo-core': 3.3, 'crate-blue': 4.8, 'crate-pink': 3, prototype: 3.2 }[id] ?? 2.6; // desk props: small grab radius
       this.state.objects.set(id, createGrabbable(id, position.x, position.y, position.z, radius));
     }
     this.initRun(options);
