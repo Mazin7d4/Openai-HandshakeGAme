@@ -356,6 +356,15 @@ export class GameApp {
         const point = at ?? this.gameplay.debugSecurity().patrols[index];
         if (point) this.multiplayer?.requestPatrolStun({ index, x: point.x, y: point.y, z: point.z });
       },
+      /** Force an unexpected disconnect (server holds the seat for the reconnect grace window). */
+      dropConnection: () => this.multiplayer?.dropConnectionForTest(),
+      connectionState: () => this.multiplayer?.connectionState ?? null,
+      partnerConnected: () => {
+        const status = this.multiplayer?.currentStatus;
+        if (!status?.localRole) return null;
+        const partner = status.players.get(status.localRole === 'pix' ? 'nee' : 'pix');
+        return partner?.connected ?? false;
+      },
     });
     window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKeyDown);

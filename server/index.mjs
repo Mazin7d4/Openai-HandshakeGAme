@@ -1,4 +1,4 @@
-import { CloseCode, Room, Server, WebSocketTransport, matchMaker } from 'colyseus';
+import { Room, Server, WebSocketTransport, matchMaker } from 'colyseus';
 import { schema, t } from '@colyseus/schema';
 import { createRequire } from 'node:module';
 import layout from '../src/level/heist-layout.json' with { type: 'json' };
@@ -16,6 +16,8 @@ if (process.env.HANDSHAKE_TEST_HOOKS === '1' && process.env.RENDER) {
 }
 const EMPTY_ROOM_SECONDS = Number.parseInt(process.env.EMPTY_ROOM_SECONDS ?? '60', 10);
 const LONELY_ROOM_SECONDS = Number.parseInt(process.env.LONELY_ROOM_SECONDS ?? '900', 10);
+// Seat hold after an unexpected drop. Tests may shorten via RECONNECT_SECONDS.
+const RECONNECT_SECONDS = Number.parseInt(process.env.RECONNECT_SECONDS ?? '30', 10);
 
 // --- CORS allow-list -----------------------------------------------------------
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
@@ -31,7 +33,6 @@ function isOriginAllowed(origin) {
 // --- Live-room tracking --------------------------------------------------------
 const liveRooms = new Set();
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const RECONNECT_SECONDS = 15;
 const MAX_WORLD_COORDINATE = 200;
 const MAX_PLAYER_SPEED = 28;
 const MAX_OBJECT_SPEED = 32;
@@ -260,24 +261,46 @@ class HandshakeRoom extends Room {
     }
   }
 
-  async onLeave(client, code) {
+  /** Unexpected drop: hold the seat, freeze the drone, keep match state. */
+  onDrop(client) {
     const player = this.state.players.get(client.sessionId);
     if (!player) {
       return;
     }
-    player.connected = false;
+    this.freezePlayer(player);
     this.releaseRole(player.role);
+    this.allowReconnection(client, RECONNECT_SECONDS);
+  }
 
-    try {
-      if (code === CloseCode.CONSENTED) {
-        throw new Error('consented leave');
-      }
-      await this.allowReconnection(client, RECONNECT_SECONDS);
+  onReconnect(client) {
+    const player = this.state.players.get(client.sessionId);
+    if (player) {
       player.connected = true;
-    } catch {
-      this.state.players.delete(client.sessionId);
-      this.state.started = false;
     }
+  }
+
+  /** Permanent leave (consent, or grace window expired): existing partner-left path. */
+  onLeave(client) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) {
+      return;
+    }
+    if (player.connected) {
+      this.freezePlayer(player);
+      this.releaseRole(player.role);
+    }
+    this.state.players.delete(client.sessionId);
+    this.state.started = false;
+  }
+
+  freezePlayer(player) {
+    player.connected = false;
+    player.velocity.x = 0;
+    player.velocity.y = 0;
+    player.velocity.z = 0;
+    player.boost = 'off';
+    player.movement = 'idle';
+    player.tetherPull = 0;
   }
 
   onDispose() {
@@ -293,7 +316,8 @@ class HandshakeRoom extends Room {
 
   applySnapshot(sessionId, message) {
     const player = this.state.players.get(sessionId);
-    if (!player || !message || typeof message !== 'object') {
+    // Dropped seats stay frozen until they reconnect.
+    if (!player || !player.connected || !message || typeof message !== 'object') {
       return;
     }
     const position = message.position ?? {};
@@ -645,14 +669,20 @@ class HandshakeRoom extends Room {
   }
 }
 
-// --- CORS override for matchmake routes ----------------------------------------
+// --- CORS for matchmake preflight, /__healthcheck, and other router routes -----
+// DEFAULT_CORS_HEADERS starts with ACAO '*'. When an allow-list is set, clear that
+// default so disallowed origins do not keep the wildcard via the object spread.
 if (!permissive) {
+  matchMaker.controller.DEFAULT_CORS_HEADERS = {
+    ...matchMaker.controller.DEFAULT_CORS_HEADERS,
+    'Access-Control-Allow-Origin': '',
+  };
   matchMaker.controller.getCorsHeaders = (headers) => {
     const origin = headers.get('origin');
     if (origin && ALLOWED_ORIGINS.includes(origin)) {
-      return { 'Access-Control-Allow-Origin': origin, 'Vary': 'Origin' };
+      return { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' };
     }
-    return { 'Vary': 'Origin' };
+    return { 'Access-Control-Allow-Origin': '', Vary: 'Origin' };
   };
 }
 
@@ -728,4 +758,5 @@ if (permissive) {
 } else {
   console.log(`[handshake] CORS allow-list: ${ALLOWED_ORIGINS.join(', ')}`);
 }
+console.log(`[handshake] reconnect grace ${RECONNECT_SECONDS}s`);
 console.log(`[handshake] listening on port ${PORT}`);
