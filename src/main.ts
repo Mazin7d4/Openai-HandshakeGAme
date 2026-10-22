@@ -7,6 +7,7 @@ const gameModules = { promise: null as ReturnType<typeof loadGame> | null };
 const preloadGame = () => (gameModules.promise ??= loadGame());
 import { MultiplayerSession } from './network/MultiplayerSession.ts';
 import type { RoomStatus } from './network/NetworkTypes.ts';
+import { pingServer, wakeServer } from './network/ServerEndpoint.ts';
 import './style.css';
 
 const rootNode = document.querySelector('#app');
@@ -77,7 +78,9 @@ function menuPanel(title: string, subtitle: string): HTMLElement {
 function errorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : 'Unable to connect.';
   if (message.toLowerCase().includes('failed to fetch')) {
-    return "Can't reach the game server right now. Check your connection and try again in a moment.";
+    return import.meta.env.PROD
+      ? "Can't reach the game server right now. Check your connection and try again in a moment."
+      : 'Multiplayer server unavailable. Restart with npm run dev, or run npm run server beside npm run dev:client.';
   }
   return message;
 }
@@ -127,12 +130,60 @@ function showMultiplayerMenu(): void {
     menuButton('Back', 'back', showMainMenu, 'btn--quiet'),
   );
   panel.append(actions);
+  void pingServer(2500);
+}
+
+async function ensureServerAwake(
+  panel: HTMLElement,
+  back: () => void,
+  retry: () => void,
+): Promise<boolean> {
+  panel.querySelectorAll('.wake-overlay').forEach((node) => node.remove());
+  const ui = { overlay: null as HTMLElement | null, title: null as HTMLElement | null, detail: null as HTMLElement | null };
+
+  const result = await wakeServer({
+    onWaiting(attempt) {
+      if (!ui.overlay) {
+        ui.overlay = element('div', 'wake-overlay');
+        ui.overlay.dataset.testid = 'wake-overlay';
+        ui.title = element('p', 'wake-title', 'Waking server…');
+        ui.detail = element('p', 'wake-detail', `Free server is starting up (up to a minute). Attempt ${attempt}`);
+        ui.overlay.append(ui.title, ui.detail);
+        panel.append(ui.overlay);
+      } else {
+        ui.detail!.textContent = `Free server is starting up (up to a minute). Attempt ${attempt}`;
+      }
+    },
+  });
+
+  if (result) {
+    ui.overlay?.remove();
+    return true;
+  }
+
+  // Failed — show error UI
+  if (!ui.overlay) {
+    ui.overlay = element('div', 'wake-overlay');
+    ui.overlay.dataset.testid = 'wake-overlay';
+    ui.title = element('p', 'wake-title');
+    ui.detail = element('p', 'wake-detail');
+    ui.overlay.append(ui.title, ui.detail);
+    panel.append(ui.overlay);
+  }
+  ui.title!.textContent = "Server didn't wake up";
+  ui.detail!.textContent = 'Check your connection and retry.';
+  ui.overlay.append(
+    menuButton('RETRY', 'wake-retry', retry),
+    menuButton('BACK', 'back', back),
+  );
+  return false;
 }
 
 async function createRoom(): Promise<void> {
   const panel = menuPanel('Creating room', 'Connecting to the multiplayer server…');
   const status = element('p', 'lobby-status', 'Please wait.');
   panel.append(status);
+  if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void createRoom(); }))) return;
   try {
     const session = await MultiplayerSession.createRoom();
     showLobby(session);
@@ -160,6 +211,24 @@ function showJoinRoom(): void {
   const status = element('p', 'lobby-status');
   const back = menuButton('Back', 'back', showMultiplayerMenu, 'btn--quiet');
   form.append(input, submit);
+
+  async function doJoin(code: string): Promise<void> {
+    submit.disabled = true;
+    status.textContent = 'Connecting…';
+    if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void doJoin(code); }))) {
+      submit.disabled = false;
+      return;
+    }
+    try {
+      const session = await MultiplayerSession.joinRoom(code);
+      showLobby(session);
+    } catch (error: unknown) {
+      status.textContent = errorMessage(error);
+      status.classList.add('error');
+      submit.disabled = false;
+    }
+  }
+
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const code = input.value.trim().toUpperCase();
@@ -167,17 +236,7 @@ function showJoinRoom(): void {
       status.textContent = 'Enter a four-character room code.';
       return;
     }
-    submit.disabled = true;
-    status.textContent = 'Joining…';
-    void MultiplayerSession.joinRoom(code)
-      .then((session) => {
-        showLobby(session);
-      })
-      .catch((error: unknown) => {
-        status.textContent = errorMessage(error);
-        status.classList.add('error');
-        submit.disabled = false;
-      });
+    void doJoin(code);
   });
   panel.append(form, status, back);
   input.focus();
