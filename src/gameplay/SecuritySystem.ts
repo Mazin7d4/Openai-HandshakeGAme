@@ -11,6 +11,7 @@ import {
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { DroneRole, SecurityNetworkState } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
+import type { RunLayout } from '../seed/index.ts';
 import { cordState } from './Tether.ts';
 import { gameEvents } from './GameEvents.ts';
 import { audio } from '../audio/AudioManager.ts';
@@ -41,6 +42,9 @@ class SecurityCamera {
   private readonly meters = new Map<DroneRole, number>();
   private alertCooldown = 0;
   private disabled = false;
+  private range = CAMERA_RANGE;
+  private halfAngle = CAMERA_HALF_ANGLE;
+  private detectionRateScale = 1;
 
   constructor(scene: Scene) {
     this.body = CreateSphere('security-camera', { diameter: 0.75, segments: 12 }, scene);
@@ -66,6 +70,20 @@ class SecurityCamera {
     this.cone.isPickable = false;
   }
 
+  /** Apply primary camera placement from a RunLayout. */
+  applyPlacement(origin: Vector3, forward: Vector3, range: number, halfAngle: number, detectionRateScale = 1): void {
+    this.origin.copyFrom(origin);
+    this.forward.copyFrom(forward).normalize();
+    this.range = range;
+    this.halfAngle = halfAngle;
+    this.detectionRateScale = detectionRateScale;
+    this.body.position.copyFrom(this.origin);
+    this.cone.scaling.y = range / CAMERA_RANGE;
+    this.cone.scaling.x = (range * Math.tan(halfAngle)) / (CAMERA_RANGE * Math.tan(CAMERA_HALF_ANGLE));
+    this.cone.scaling.z = this.cone.scaling.x;
+    this.cone.position.copyFrom(this.origin).addInPlace(this.forward.scale(range / 2));
+  }
+
   setDisabled(disabled: boolean): void {
     if (disabled && !this.disabled) audio.play('cameraBlind');
     this.disabled = disabled;
@@ -80,9 +98,9 @@ class SecurityCamera {
     for (const [role, drone] of drones) {
       const relative = drone.position.subtract(this.origin);
       const distance = relative.length();
-      const inside = !this.disabled && distance < CAMERA_RANGE && distance > 0.1 &&
-        Vector3.Dot(relative.scale(1 / distance), this.forward) > Math.cos(CAMERA_HALF_ANGLE);
-      const next = Math.max(0, Math.min(1, (this.meters.get(role) ?? 0) + dt * (inside ? 0.72 : -1.2)));
+      const inside = !this.disabled && distance < this.range && distance > 0.1 &&
+        Vector3.Dot(relative.scale(1 / distance), this.forward) > Math.cos(this.halfAngle);
+      const next = Math.max(0, Math.min(1, (this.meters.get(role) ?? 0) + dt * (inside ? 0.72 * this.detectionRateScale : -1.2)));
       this.meters.set(role, next);
       highest = Math.max(highest, next);
       if (next >= 1 && this.alertCooldown <= 0) {
@@ -119,6 +137,9 @@ class PatrolDrone {
   private phase: number;
   private readonly index: number;
   private requested = 0;
+  private waypoints: Vector3[] = [];
+  private waypointIndex = 0;
+  private patrolSpeed = 3.1;
 
   constructor(scene: Scene, index: number) {
     this.phase = index * Math.PI;
@@ -155,6 +176,13 @@ class PatrolDrone {
   }
 
   get position(): Vector3 { return this.mesh.position; }
+
+  applyRoute(waypoints: { x: number; y: number; z: number }[], speed: number): void {
+    this.waypoints = waypoints.map((w) => new Vector3(w.x, w.y, w.z));
+    this.waypointIndex = 0;
+    this.patrolSpeed = speed;
+    if (this.waypoints[0]) this.mesh.position.copyFrom(this.waypoints[0]);
+  }
 
   /**
    * Multiplayer: the server owns position and stun. Ease toward the latest server sample
@@ -236,10 +264,19 @@ class PatrolDrone {
     const nearest = roles.sort((a, b) =>
       Vector3.DistanceSquared(a[1].position, this.mesh.position) -
       Vector3.DistanceSquared(b[1].position, this.mesh.position))[0];
-    let target = new Vector3(Math.sin(elapsed * 0.55 + this.phase) * 5, 2.2, 10 + Math.cos(elapsed * 0.55 + this.phase) * 4);
+    let target: Vector3;
+    if (this.waypoints.length > 0) {
+      const wp = this.waypoints[this.waypointIndex % this.waypoints.length]!;
+      if (Vector3.Distance(this.mesh.position, wp) < 0.85) {
+        this.waypointIndex = (this.waypointIndex + 1) % this.waypoints.length;
+      }
+      target = this.waypoints[this.waypointIndex % this.waypoints.length]!.clone();
+    } else {
+      target = new Vector3(Math.sin(elapsed * 0.55 + this.phase) * 5, 2.2, 10 + Math.cos(elapsed * 0.55 + this.phase) * 4);
+    }
     if (nearest && Vector3.Distance(nearest[1].position, this.mesh.position) < 9) target = nearest[1].position;
     this.velocity.copyFrom(target).subtractInPlace(this.mesh.position);
-    if (this.velocity.lengthSquared() > 0.05) this.velocity.normalize().scaleInPlace(3.1);
+    if (this.velocity.lengthSquared() > 0.05) this.velocity.normalize().scaleInPlace(this.patrolSpeed);
     this.mesh.position.addInPlace(this.velocity.scale(dt));
     const pix = drones.get('pix');
     const nee = drones.get('nee');
@@ -286,6 +323,7 @@ class PatrolDrone {
 export class SecuritySystem {
   private readonly camera: SecurityCamera;
   private readonly patrols: PatrolDrone[];
+  private readonly scene: Scene;
   private elapsed = 0;
   private warningCooldown = 0;
   private lastNetworkedAt = 0;
@@ -298,10 +336,36 @@ export class SecuritySystem {
     callbacks: SecurityCallbacks,
     audio?: GameAudio,
   ) {
+    this.scene = scene;
     this.callbacks = callbacks;
     this.audio = audio;
     this.camera = new SecurityCamera(scene);
     this.patrols = [new PatrolDrone(scene, 0), new PatrolDrone(scene, 1)];
+  }
+
+  /** Solo: apply patrol routes + primary camera from generateRun. */
+  applyRunLayout(layout: RunLayout): void {
+    const routes = layout.patrolRoutes;
+    while (this.patrols.length < routes.length) {
+      this.patrols.push(new PatrolDrone(this.scene, this.patrols.length));
+    }
+    while (this.patrols.length > Math.max(2, routes.length)) {
+      this.patrols.pop()?.dispose();
+    }
+    for (let i = 0; i < this.patrols.length; i++) {
+      const route = routes[i] ?? routes[i % Math.max(1, routes.length)];
+      if (route) this.patrols[i]!.applyRoute(route.waypoints, route.speed);
+    }
+    const cam = layout.cameras[0];
+    if (cam) {
+      this.camera.applyPlacement(
+        new Vector3(cam.origin.x, cam.origin.y, cam.origin.z),
+        new Vector3(cam.forward.x, cam.forward.y, cam.forward.z),
+        cam.range,
+        cam.sweepAngle,
+        layout.escalation.detectionRateScale,
+      );
+    }
   }
 
   remoteStun(index: number, at: Vector3): void { this.patrols[index]?.stun(at); }

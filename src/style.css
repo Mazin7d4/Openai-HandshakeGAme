@@ -162,6 +162,7 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 .boot-bar { width: 220px; height: var(--cord); background: var(--aluminium); position: relative; }
 .boot-bar span { display: block; height: 100%; width: calc(var(--boot-progress, 0.33) * 100%); background: var(--graphite); transition: width 0.6s var(--ease-out); }
 .boot-step { margin: 0; color: var(--pencil); font-size: 16px; }
+.boot-seed { margin: 8px 0 0; color: var(--graphite); font: 700 14px/1.2 var(--font-screen); font-variant-numeric: tabular-nums; }
 #dev-readout { bottom: 42px; font-size: 14px; font-variant-numeric: tabular-nums; white-space: pre; line-height: 1.5; }
 #dev-controls { bottom: 16px; font-size: 14px; opacity: 0.8; }
 
@@ -194,6 +195,7 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 .mission-objective::before { content: ''; position: absolute; left: 50%; bottom: 100%; width: var(--cord); height: 16px; background: var(--graphite); transform: translateX(-50%); }
 .mission-objective h2 { margin: 4px 0 2px; font-size: 20px; }
 .mission-objective p { margin-bottom: 8px; color: var(--pencil); font-size: 16px; line-height: 1.35; }
+.mission-seed { display: block; margin: 0 0 8px; color: var(--graphite); font: 700 13px/1.2 var(--font-screen); font-variant-numeric: tabular-nums; }
 .mission-objective.alarm { border-color: var(--security); box-shadow: 0 3px 0 var(--security-ink), var(--float-shadow); animation: alarm-border 520ms ease-in-out infinite alternate; }
 .mission-objective.alarm > span { color: var(--security-ink); }
 @keyframes alarm-border { to { border-color: var(--alarm); } }

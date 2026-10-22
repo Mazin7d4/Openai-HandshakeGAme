@@ -13,6 +13,8 @@ import { createFaceGlyph, drawFaceGlyph, type FaceMood } from './FaceGlyph.ts';
 export interface HeistReportHandlers {
   onPlayAgain: () => void;
   onLeave?: () => void;
+  /** Night Shift only: advance to the next seeded floor. */
+  onNextFloor?: () => void;
   audio?: GameAudio | null;
 }
 
@@ -96,6 +98,11 @@ export class HeistReport {
     save.addEventListener('click', () => void this.saveCard());
 
     actions.append(this.playAgainBtn, challenge, save);
+    if (handlers.onNextFloor) {
+      const next = button('Next floor', 'btn', 'next-floor');
+      next.addEventListener('click', () => handlers.onNextFloor?.());
+      actions.append(next);
+    }
     if (handlers.onLeave) {
       const leave = button('Leave game', 'btn btn--quiet', 'leave-heist');
       leave.addEventListener('click', () => handlers.onLeave?.());
