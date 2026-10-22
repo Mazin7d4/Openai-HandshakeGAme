@@ -8,6 +8,10 @@ const preloadGame = () => (gameModules.promise ??= loadGame());
 import { MultiplayerSession } from './network/MultiplayerSession.ts';
 import type { RoomStatus } from './network/NetworkTypes.ts';
 import './style.css';
+import { audio } from './audio/AudioManager.ts';
+
+// Unlock-on-first-gesture, menu UI sounds and M to mute; sound files load lazily once the page is idle.
+audio.install();
 
 const rootNode = document.querySelector('#app');
 if (!rootNode || !(rootNode instanceof HTMLElement)) {
