@@ -1,3 +1,4 @@
+import { gameEvents } from './GameEvents.ts';
 import { Color3, Vector3, type HavokPlugin, type Scene } from '@babylonjs/core';
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { MultiplayerSession } from '../network/MultiplayerSession.ts';
@@ -27,6 +28,9 @@ function terminalPos(
 }
 
 /** Owns station proximity, minigame lifetime, completion state and the shared door target. */
+/** Seconds the CPU partner needs on its own console. */
+const BOT_HACK_SECONDS = 5;
+
 export class HackSession {
   readonly stations: readonly HackStation[];
   readonly door: Door;
@@ -135,6 +139,35 @@ export class HackSession {
     return station ? [`[F] Hack ${station.label}`] : [];
   }
 
+  /**
+   * Solo only: the CPU partner works its own console (e.g. NEE's signal console)
+   * while parked in range. Returns true while it is working.
+   */
+  botWork(role: DroneRole, position: Vector3, dt: number): boolean {
+    if (this.multiplayer) return false;
+    const station = this.botStation(role);
+    if (!station || !station.canInteract(role, position, false)) {
+      if (station && this.ownerFor(station.id) === role) this.setOwner(station.id, null);
+      return false;
+    }
+    this.setOwner(station.id, role);
+    this.botProgress += dt / BOT_HACK_SECONDS;
+    if (this.botProgress >= 1) {
+      this.botProgress = 0;
+      this.setComplete(station.id, true);
+      this.setOwner(station.id, null);
+      this.doorOpen = this.allComplete();
+      this.audio?.success();
+      gameEvents.emit('toast', { text: role === 'nee' ? 'NEE cracked her console' : 'PIX cracked his console', tone: role });
+    }
+    return true;
+  }
+
+  /** Solo: the console only this role can hack and that is still locked. */
+  botStation(role: DroneRole): HackStation | null {
+    return this.stations.find((s) => s.allowedRole === role && !this.completeFor(s.id)) ?? null;
+  }
+
   isRoleHacking(role: DroneRole): boolean {
     return this.active?.role === role;
   }
@@ -181,6 +214,8 @@ export class HackSession {
   allComplete(): boolean {
     return this.completionCount() === this.stations.length;
   }
+
+  private botProgress = 0;
 
   isComplete(id: HackStationId): boolean { return this.completed[id]; }
 

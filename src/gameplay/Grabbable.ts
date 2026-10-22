@@ -142,6 +142,21 @@ export class Grabbable implements Interactable {
     return this.velocity.length();
   }
 
+  /** Free, unheld and simulated on this client (so a local push is authoritative). */
+  get pushable(): boolean {
+    return this.motionMode === 'dynamic' && !this.cradled && this.holder === null;
+  }
+
+  /** Add a velocity change to a free local body (cord sweeps, bumps). */
+  nudge(delta: Vector3): boolean {
+    if (!this.pushable) return false;
+    this.aggregate.body.getLinearVelocityToRef(this.velocity);
+    this.velocity.addInPlace(delta);
+    clampMagnitude(this.velocity, MAX_FREE_SPEED * 0.5);
+    this.aggregate.body.setLinearVelocity(this.velocity);
+    return true;
+  }
+
   distanceTo(point: Vector3): number {
     return Vector3.Distance(this.mesh.position, point);
   }

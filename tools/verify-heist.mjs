@@ -108,7 +108,8 @@ async function solveSignal() {
 async function solveMemory() {
   const overlay = page.getByTestId('memory-trace');
   await overlay.waitFor({ state: 'visible' });
-  for (let round = 0; round < 3; round++) {
+  const rounds = Number((await overlay.getAttribute('data-rounds')) ?? 3);
+  for (let round = 0; round < rounds; round++) {
     await overlay.locator('.hack-status').filter({ hasText: 'REPEAT' }).waitFor({ timeout: 15_000 });
     const sequence = (await overlay.getAttribute('data-sequence')).split(',').map(Number);
     for (const index of sequence) {

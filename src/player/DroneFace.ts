@@ -2,7 +2,7 @@ import { DynamicTexture, Texture, type Color3, type Scene } from '@babylonjs/cor
 
 export type Expression =
   | 'neutral' | 'happy' | 'focused' | 'strained' | 'shocked' | 'stunned'
-  | 'yanked' | 'panic' | 'dizzy' | 'proud';
+  | 'yanked' | 'panic' | 'dizzy' | 'proud' | 'sheepish';
 
 /** Expressions that animate on their own and never blink. */
 const ANIMATED: ReadonlySet<Expression> = new Set(['panic', 'dizzy']);
@@ -148,6 +148,9 @@ export class DroneFace {
         case 'proud':
           this.drawProud(ctx, side);
           break;
+        case 'sheepish':
+          this.drawSheepish(ctx, side);
+          break;
         default:
           this.drawNeutral(ctx);
       }
@@ -155,6 +158,22 @@ export class DroneFace {
     }
 
     this.texture.update(false);
+  }
+
+  /** Embarrassed: small smiling arcs glancing down-left, a sweat drop on the right. */
+  private drawSheepish(ctx: CanvasRenderingContext2D, side: number): void {
+    ctx.translate(-10, 12);
+    ctx.lineWidth = 11;
+    ctx.beginPath();
+    ctx.arc(0, 8, 15, Math.PI * 1.15, Math.PI * 1.85);
+    ctx.stroke();
+    if (side === 1) {
+      ctx.beginPath();
+      ctx.moveTo(40, -40);
+      ctx.quadraticCurveTo(50, -20, 40, -16);
+      ctx.quadraticCurveTo(30, -20, 40, -40);
+      ctx.fill();
+    }
   }
 
   /** Two vertical rounded bars. */

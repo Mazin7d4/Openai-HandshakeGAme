@@ -51,6 +51,10 @@ export class FlightController {
   private readonly desired = new Vector3();
   private bankPitch = 0;
   private bankRoll = 0;
+  private wasBoosting = false;
+  private burstCooldown = 0;
+  /** Set for one frame when a boost dash fires (presentation hook). */
+  burstFired = false;
 
   step(input: FlightAxes, basis: PlanarBasis, dt: number): FlightPose {
     const tuning = FLIGHT_TUNING;
@@ -78,6 +82,22 @@ export class FlightController {
       ? tuning.acceleration * (against ? tuning.counterSteerBoost : 1)
       : tuning.deceleration;
     moveTowards(this.velocity, this.desired, rate * dt);
+    // Boost dash: a short, punchy burst along the stick on the press, then the
+    // regular acceleration settles it back to boost cruise.
+    this.burstCooldown = Math.max(0, this.burstCooldown - dt);
+    this.burstFired = false;
+    if (boosting && !this.wasBoosting && this.burstCooldown <= 0) {
+      const len = Math.hypot(wishX, input.lift * 0.6, wishZ);
+      if (len > 0.2) {
+        const k = tuning.boostBurst / len;
+        this.velocity.x += wishX * k;
+        this.velocity.y += input.lift * 0.6 * k;
+        this.velocity.z += wishZ * k;
+        this.burstCooldown = tuning.boostBurstCooldown;
+        this.burstFired = true;
+      }
+    }
+    this.wasBoosting = boosting;
 
     const forwardSpeed = this.velocity.x * forward.x + this.velocity.z * forward.z;
     const rightSpeed = this.velocity.x * right.x + this.velocity.z * right.z;

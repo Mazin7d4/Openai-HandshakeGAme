@@ -16,6 +16,8 @@ export interface GameHudOptions {
   onYank?: () => void;
   /** Settings → Replay tutorial. */
   onReplayTutorial?: () => void;
+  /** Night Shift: seed shown small on pause home and in Settings. */
+  runSeed?: number | null;
 }
 
 /** Lightweight contextual HUD and pause/settings/controls navigation. */
@@ -28,6 +30,7 @@ export class GameHud {
   private readonly controlsCard: HTMLDivElement;
   private readonly toastLayer: HTMLDivElement;
   private readonly touch: boolean;
+  private readonly runSeed: number | null;
   private controlsTimer = 0;
   private paused = false;
   private promptKey = '';
@@ -60,6 +63,7 @@ export class GameHud {
   constructor(parent: HTMLElement, options: GameHudOptions) {
     this.options = options;
     this.touch = isTouchPlayDevice();
+    this.runSeed = options.runSeed ?? null;
     this.prompt = document.createElement('div');
     this.prompt.className = 'interaction-prompt';
     this.prompt.dataset.testid = 'interaction-prompt';
@@ -200,6 +204,13 @@ export class GameHud {
   private showPauseHome(): void {
     this.closeSettings();
     this.panel.replaceChildren(this.heading('Paused'));
+    if (this.runSeed != null) {
+      const seed = document.createElement('p');
+      seed.className = 'pause-seed';
+      seed.dataset.testid = 'pause-seed';
+      seed.textContent = `Seed ${this.runSeed}`;
+      this.panel.append(seed);
+    }
     this.panel.append(
       this.button('Resume', this.options.onResume, 'btn--primary'),
       this.button('Settings', () => this.showSettings(), '', 'pause-settings'),
@@ -214,6 +225,7 @@ export class GameHud {
     this.panel.replaceChildren();
     this.settingsMenu = new SettingsMenu(this.panel, {
       embedded: true,
+      runSeed: this.runSeed,
       onClose: () => this.showPauseHome(),
       onGraphicsQuality: this.options.onGraphicsQuality,
       onReplayTutorial: () => {

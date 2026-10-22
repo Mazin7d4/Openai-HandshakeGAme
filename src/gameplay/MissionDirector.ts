@@ -12,6 +12,7 @@ import { SecuritySystem } from './SecuritySystem.ts';
 import layout from '../level/heist-layout.json';
 import type { RunLayout } from '../seed/index.ts';
 import { nextFloorSeed, stashRunSeed } from '../seed/index.ts';
+import { clearRunIntent, formatBeatMs, getRunInfo, prepareRun } from '../net/runInfo.ts';
 import { updateHeistPresentation } from '../level/PrototypeHeist.ts';
 import { gameEvents } from './GameEvents.ts';
 
@@ -58,11 +59,15 @@ export class MissionDirector {
   private readonly securityHistory: { t: number; p: { x: number; y: number; z: number }[] }[] = [];
   private readonly unsubscribe: (() => void) | null;
   private readonly scene: Scene;
+  private warmup: () => string | null = () => null;
   private routeHint = 'Enter beneath reception, then rise together through the service vent.';
   private vault = new Vector3(layout.objects.prototype.x, layout.objects.prototype.y, layout.objects.prototype.z);
   private extraction = new Vector3(layout.extraction.x, layout.extraction.y, layout.extraction.z);
   private runLayout: RunLayout | null = null;
-  private seedHud: HTMLElement | null = null;
+  private runChrome: HTMLElement | null = null;
+  private floorChip: HTMLElement | null = null;
+  private beatChip: HTMLElement | null = null;
+  private timeToBeatMs: number | undefined;
 
   constructor(
     scene: Scene,
@@ -87,6 +92,7 @@ export class MissionDirector {
         ? (index, at) => multiplayer.requestPatrolStun({ index, x: at.x, y: at.y, z: at.z })
         : undefined,
     }, audio);
+    grab.setAimTargets(() => this.security.aimTargets());
     const offStun = multiplayer?.onPatrolStunned((m) => {
       this.clotheslines = m.clotheslines ?? this.clotheslines + 1;
       this.security.remoteStun(m.index, new Vector3(m.x, m.y, m.z));
@@ -123,25 +129,61 @@ export class MissionDirector {
       detection.className = 'detection-meter';
       this.detectionFill = document.createElement('div');
       detection.append(this.detectionFill);
-      this.seedHud = document.createElement('span');
-      this.seedHud.className = 'mission-seed';
-      this.seedHud.dataset.testid = 'mission-seed';
-      this.seedHud.hidden = !runLayout;
-      objective.append(kicker, this.objectiveTitle, this.objectiveDetail, this.seedHud, detection);
+      objective.append(kicker, this.objectiveTitle, this.objectiveDetail, detection);
       uiParent.append(objective);
+
+      // Night Shift chrome lives left of center so it clears the right-side touch / active-drone HUD.
+      if (mode === 'night-shift' || runLayout) {
+        const info = getRunInfo();
+        this.timeToBeatMs = info.timeToBeatMs;
+        this.runChrome = document.createElement('aside');
+        this.runChrome.className = 'run-hud';
+        this.runChrome.dataset.testid = 'run-hud';
+        this.floorChip = document.createElement('span');
+        this.floorChip.className = 'floor-chip';
+        this.floorChip.dataset.testid = 'floor-counter';
+        this.runChrome.append(this.floorChip);
+        if (info.timeToBeatMs != null) {
+          this.beatChip = document.createElement('span');
+          this.beatChip.className = 'beat-chip';
+          this.beatChip.dataset.testid = 'beat-chip';
+          this.beatChip.textContent = `Beat ${formatBeatMs(info.timeToBeatMs)}`;
+          this.runChrome.append(this.beatChip);
+        }
+        uiParent.append(this.runChrome);
+      }
+
+      const restartNightShift = (next: { seed: number; floor: number }, keepBeat = true) => {
+        stashRunSeed(next);
+        prepareRun({
+          seed: next.seed,
+          floor: next.floor,
+          captures: 0,
+          ...(keepBeat && this.timeToBeatMs != null ? { timeToBeatMs: this.timeToBeatMs } : {}),
+        });
+        try { sessionStorage.setItem('pixnee.pendingMode', mode); } catch { /* private mode */ }
+        onLeave?.();
+      };
 
       this.report = new HeistReport(uiParent, {
         audio,
         onLeave,
         onPlayAgain: () => {
           if (mode === 'multiplayer') multiplayer?.retryMission();
-          else this.resetLocal();
+          else if (mode === 'night-shift' && this.runLayout) {
+            restartNightShift({ seed: this.runLayout.seed, floor: this.runLayout.floor });
+          } else {
+            this.resetLocal();
+          }
         },
+        onNewSeed: mode === 'night-shift' ? () => {
+          clearRunIntent();
+          restartNightShift({ seed: (Math.random() * 0x100000000) >>> 0, floor: 0 }, false);
+        } : undefined,
         // Night Shift stub: stash floor+1 for getRunSeed, then restart in the same mode.
         onNextFloor: mode === 'night-shift' ? () => {
-          if (this.runLayout) stashRunSeed(nextFloorSeed({ seed: this.runLayout.seed, floor: this.runLayout.floor }));
-          try { sessionStorage.setItem('pixnee.pendingMode', mode); } catch { /* private mode */ }
-          onLeave?.();
+          if (!this.runLayout) return;
+          restartNightShift(nextFloorSeed({ seed: this.runLayout.seed, floor: this.runLayout.floor }));
         } : undefined,
       });
       // TEST / screenshot hook: window.__heistReport.show(stats?)
@@ -149,6 +191,7 @@ export class MissionDirector {
         show: (stats?: RunStats) => this.presentReport(stats ?? this.snapshotStats('win'), true),
         hide: () => this.report?.hide(),
         visible: () => this.report?.visible ?? false,
+        challengeUrl: () => this.report?.challengeUrl() ?? null,
       };
     } else {
       this.objective = null;
@@ -156,19 +199,21 @@ export class MissionDirector {
       this.objectiveDetail = null;
       this.detectionFill = null;
       this.report = null;
-      this.seedHud = null;
+      this.runChrome = null;
+      this.floorChip = null;
+      this.beatChip = null;
     }
     if (runLayout) this.applyRunLayout(runLayout);
     this.renderObjective(0);
   }
 
-  /** Solo / seed hook: update loot + extraction anchors and HUD seed line. */
+  /** Solo / seed hook: update loot + extraction anchors and HUD floor chip. */
   applyRunLayout(run: RunLayout): void {
     this.runLayout = run;
     this.vault.set(run.loot.x, run.loot.y, run.loot.z);
     this.extraction.set(run.extraction.x, run.extraction.y, run.extraction.z);
     this.security.applyRunLayout(run);
-    this.renderSeedHud();
+    this.renderFloorHud();
   }
 
   sync(status: RoomStatus): void {
@@ -307,6 +352,7 @@ export class MissionDirector {
     this.security.dispose();
     this.alarmLight.dispose();
     this.objective?.remove();
+    this.runChrome?.remove();
     this.report?.dispose();
     const hook = window as unknown as { __heistReport?: unknown };
     if (hook.__heistReport) delete hook.__heistReport;
@@ -357,27 +403,35 @@ export class MissionDirector {
     }
   }
 
+  /** Apron warm-up checklist provider (CordPlayground); null once done. */
+  setWarmup(provider: () => string | null): void { this.warmup = provider; }
+
+  /** Warm-up checklist line, exposed for tests. */
+  get warmupLine(): string | null { return this.warmup(); }
+  get stage(): string { return this.state.stage; }
+
   private renderObjective(hackCount: number): void {
     if (!this.objectiveTitle || !this.objectiveDetail || !this.detectionFill) return;
+    const warm = this.state.stage === 'infiltrate' ? this.warmup() : null;
     const [title, detail] = this.state.stage === 'infiltrate'
-      ? ['A SMALL DELIVERY', this.routeHint]
+      ? warm ? ['Warm up on the apron', `${warm} · then fly in under reception`] : ['Sneak in under reception', this.routeHint]
       : this.state.stage === 'hack-security'
-        ? ['INSIDE MORROW', `${hackCount} / 3 access keys · ${this.routeHint}`]
+        ? ['Crack the office consoles', `${hackCount} / 3 access keys · ${this.routeHint}`]
         : this.state.stage === 'steal-prototype'
-          ? ['MEET THE PROTOTYPE', 'The vault is open. Rise to the display cradle; [E] to carry the core.']
+          ? ['Grab the prototype', 'The vault is open. Rise to the display cradle; [E] to carry the core.']
           : this.state.stage === 'escape'
-            ? ['EVERYBODY OUT!', 'Main shutter sealed! West relief vent is open. Heavy Lab Crate is jamming the relief vent - haul it clear together. Follow green floor lights; throw loose objects at patrols. Both drones must reach PICKUP / 01.']
-            : ['PROTOTYPE SECURED', 'Extraction complete'];
+            ? ['Get out through the west vent', 'Main shutter sealed! West relief vent is open. Heavy Lab Crate is jamming the relief vent - haul it clear together. Follow green floor lights; throw loose objects at patrols. Both drones must reach Pickup / 01.']
+            : ['Prototype secured', 'Extraction complete'];
     this.objectiveTitle.textContent = title;
     this.objectiveDetail.textContent = detail;
     this.detectionFill.style.width = `${Math.round(this.security.detection * 100)}%`;
     this.objective?.classList.toggle('alarm', this.state.alarm);
   }
 
-  private renderSeedHud(): void {
-    if (!this.seedHud || !this.runLayout) return;
-    const twist = this.runLayout.twist.label;
-    this.seedHud.textContent = `Seed ${this.runLayout.seed} · Floor ${this.runLayout.floor} · ${twist}`;
+  private renderFloorHud(): void {
+    if (!this.floorChip || !this.runLayout) return;
+    // Player-facing floors are 1-based (layout floor 0 → "Floor 1").
+    this.floorChip.textContent = `Floor ${this.runLayout.floor + 1}`;
   }
 
   private presentReport(stats: RunStats, force = false): void {
@@ -399,6 +453,7 @@ export class MissionDirector {
       spottedBy: [...this.spottedLog],
       yankBy: [...this.yankBy],
       outcome,
+      ...(this.runLayout ? { seed: this.runLayout.seed } : {}),
     };
   }
 
