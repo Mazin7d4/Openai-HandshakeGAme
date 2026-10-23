@@ -859,6 +859,7 @@ export class GameApp {
 
   private setPaused(paused: boolean): void {
     this.paused = paused;
+    if (!paused) this.pingEmote.resetPadEdges();
     this.hud?.setPaused(paused);
     this.touch?.setVisible(!paused);
   }

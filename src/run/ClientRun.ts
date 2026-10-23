@@ -35,6 +35,11 @@ export interface ClientRunSnapshot {
   beatTarget: number | null;
   startedAt: number;
   floorTimes: readonly number[];
+  score: number;
+  streak: number;
+  multiplier: number;
+  lastFloorPoints: number;
+  floorCleared: boolean;
   ended: boolean;
 }
 
@@ -49,6 +54,7 @@ const floorListeners = new Set<FloorStartListener>();
 let layoutSinkProvider: LayoutSinkProvider | null = null;
 
 function toSnapshot(state: RunState): ClientRunSnapshot {
+  const scored = state as RunState & Partial<Pick<ClientRunSnapshot, 'score' | 'streak' | 'multiplier' | 'lastFloorPoints' | 'floorCleared'>>;
   return {
     mode: state.mode,
     seed: state.seed,
@@ -59,6 +65,11 @@ function toSnapshot(state: RunState): ClientRunSnapshot {
     beatTarget,
     startedAt: state.startedAt,
     floorTimes: [...state.floorTimes],
+    score: scored.score ?? 0,
+    streak: scored.streak ?? 0,
+    multiplier: scored.multiplier ?? 1,
+    lastFloorPoints: scored.lastFloorPoints ?? 0,
+    floorCleared: scored.floorCleared ?? false,
     ended,
   };
 }
@@ -138,11 +149,16 @@ export function syncNetworkRun(partial: {
   maxCaptures: number;
   startedAt: number;
   floorTimes: readonly number[];
+  score: number;
+  streak: number;
+  multiplier: number;
+  lastFloorPoints: number;
+  floorCleared: boolean;
   ended?: boolean;
 }): ClientRunSnapshot {
   localState = null;
   if (partial.ended != null) ended = partial.ended;
-  const state: RunState = {
+  const state = {
     mode: partial.mode,
     seed: partial.seed >>> 0,
     floor: partial.floor,
@@ -150,7 +166,12 @@ export function syncNetworkRun(partial: {
     maxCaptures: partial.maxCaptures,
     startedAt: partial.startedAt,
     floorTimes: [...partial.floorTimes],
-  };
+    score: partial.score ?? 0,
+    streak: partial.streak ?? 0,
+    multiplier: partial.multiplier ?? 1,
+    lastFloorPoints: partial.lastFloorPoints ?? 0,
+    floorCleared: partial.floorCleared ?? false,
+  } as RunState;
   snapshot = toSnapshot(state);
   return snapshot;
 }

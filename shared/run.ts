@@ -28,6 +28,10 @@ export interface FloorStartPayload {
   floor: number;
   /** Present when mirrored from room state / floor-start (Night Shift remix gate). */
   mode?: RunMode;
+  score?: number;
+  streak?: number;
+  multiplier?: number;
+  captures?: number;
 }
 
 const UINT32 = 0xffffffff;
