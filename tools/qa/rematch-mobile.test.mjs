@@ -30,9 +30,16 @@ await runTest('rematch-mobile', async (browser, notes) => {
     await rematch.waitFor({ state: 'visible' });
     const box = await rematch.boundingBox();
     assert(box && box.width >= 44 && box.height >= 44, `rematch target too small: ${JSON.stringify(box)}`);
-    assert(box.left >= 0 && box.top >= 0 && box.right <= 360 && box.bottom <= 640, `rematch target outside viewport: ${JSON.stringify(box)}`);
+    assert(box.x >= 0 && box.y >= 0 && box.x + box.width <= 360 && box.y + box.height <= 640, `rematch target outside viewport: ${JSON.stringify(box)}`);
     assert(await host.getByTestId('rematch-status').innerText() === 'Rematch?', 'initial rematch status incorrect');
     assert(await host.getByTestId('player-stats').isVisible(), 'player stats table hidden');
+    const tableFits = await host.getByTestId('player-stats').evaluate((el) => {
+      const t = el.querySelector('table'); const r = t?.getBoundingClientRect();
+      return Boolean(r && r.left >= 0 && r.right <= 360);
+    });
+    assert(tableFits, 'player stats table overflows the phone viewport');
+    const focused = await host.evaluate(() => document.activeElement?.getAttribute('data-testid'));
+    assert(focused === 'rematch', `initial focus should be rematch, got ${focused}`);
     const overflow = await host.evaluate(() => ({
       scrollWidth: document.scrollingElement?.scrollWidth ?? 0,
       clientWidth: document.scrollingElement?.clientWidth ?? innerWidth,

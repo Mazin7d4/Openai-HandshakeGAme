@@ -106,6 +106,8 @@ async function main() {
   const oldSeed = standard.pix.state.run.seed;
   const starts = await voteBoth(standard.pix, standard.nee);
   assert(standard.pix.roomId === standard.nee.roomId, 'room changed during rematch');
+  assert(standard.pix.state.players.size === 2 && [...standard.pix.state.players.values()].every((p) => p.connected), 'players dropped during rematch');
+  assert(standard.pix.connection.isOpen && standard.nee.connection.isOpen, 'a client socket closed during rematch');
   assert(starts[0].message.seed !== oldSeed, 'standard rematch reused its seed');
   assert(standard.pix.state.objects.get('prototype').mode === 'free', 'prototype remained held after rematch');
   assert([...standard.pix.state.players.values()].every((player) => !player.captured && !player.rematchVote &&

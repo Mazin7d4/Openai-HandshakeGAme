@@ -208,6 +208,7 @@ export class HeistReport {
   }
 
   private currentCoopState: CoopReportState | null = null;
+  private statsKey = '';
 
   show(stats: RunStats, nightShift?: NightShiftSummary, coop?: CoopReportState): void {
     this.stats = stats;
@@ -367,7 +368,7 @@ export class HeistReport {
     this.rematchBtn.textContent = localVoted ? 'Cancel rematch' : 'Rematch';
     this.rematchBtn.setAttribute('aria-label', this.rematchBtn.textContent);
     this.rematchBtn.setAttribute('aria-pressed', String(localVoted));
-    this.rematchStatusEl.textContent = partnerLeft
+    const statusText = partnerLeft
       ? 'Partner left the room'
       : localVoted && partnerVoted
         ? 'Rematch?'
@@ -376,17 +377,22 @@ export class HeistReport {
           : partnerVoted
             ? 'Partner wants a rematch!'
             : 'Rematch?';
+    if (this.rematchStatusEl.textContent !== statusText) this.rematchStatusEl.textContent = statusText;
 
     const stats = [
       state?.players.get('pix'),
       state?.players.get('nee'),
     ];
+    // Room status ticks often; only rebuild the table when a shown value changed.
+    const key = JSON.stringify(stats.map((p) => p && [p.lootDelivered, Math.round(p.lootCarrySeconds * 10), p.passes, p.rescues, p.capturedCount, p.grabs, p.hacks]));
+    if (key === this.statsKey) return;
+    this.statsKey = key;
     this.playerStatsEl.replaceChildren();
     const scroll = document.createElement('div');
     scroll.className = 'heist-report__player-stats-scroll';
     const table = document.createElement('table');
     table.className = 'heist-report__player-stats-table';
-    table.innerHTML = '<caption>Player statistics</caption><thead><tr><th scope="col">Player</th><th scope="col">Loot</th><th scope="col">Carry time</th><th scope="col">Passes</th><th scope="col">Rescues</th><th scope="col">Captured</th><th scope="col">Grabs</th><th scope="col">Hacks</th></tr></thead>';
+    table.innerHTML = '<caption>Player statistics</caption><thead><tr><th scope="col">Player</th><th scope="col" title="Loot delivered">Loot</th><th scope="col" title="Time carrying the loot">Carry</th><th scope="col" title="Passes made">Pass</th><th scope="col" title="Rescues">Save</th><th scope="col" title="Times captured">Caught</th><th scope="col" title="Grabs">Grab</th><th scope="col" title="Hacks">Hack</th></tr></thead>';
     const body = document.createElement('tbody');
     for (const [index, role] of (['pix', 'nee'] as const).entries()) {
       const player = stats[index];
