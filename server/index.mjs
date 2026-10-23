@@ -3,6 +3,7 @@ import { schema, t } from '@colyseus/schema';
 import { createRequire } from 'node:module';
 import layout from '../src/level/heist-layout.json' with { type: 'json' };
 import { Security, createSecurityState, SecuritySim } from './security.mjs';
+import { canPass, facingYaw } from './passRules.mjs';
 import {
   createRunState,
   advanceFloor,
@@ -50,7 +51,9 @@ const HOLD_OFFSET = { x: 0, y: -1.15, z: 0.35 };
 const MAX_RELEASE_SPEED = Math.max(MAX_OBJECT_SPEED, MAX_PLAYER_SPEED + 10 + 1.8);
 const RELEASE_RANGE = 3.5;
 const HELD_SNAPSHOT_RANGE = 4;
-const HANDOFF_RANGE = 4.5;
+const HANDOFF_RANGE = 2.0;
+// Server range/cone are looser than the client to absorb snapshot latency.
+const HANDOFF_CONE_DEG = 65;
 const STEAL_RANGE = 2.0;
 const STEAL_LOCK_MS = 1000;
 const GRAB_COOLDOWN_MS = 250;
@@ -756,7 +759,13 @@ class HandshakeRoom extends Room {
     const now = Date.now();
     if (now - (this.lastGrabMs.get(sessionId) ?? 0) < GRAB_COOLDOWN_MS) return;
     this.lastGrabMs.set(sessionId, now);
-    if (distance(player.position, partner.position) > HANDOFF_RANGE) return;
+    if (!canPass({
+      holder: player.position,
+      holderYaw: facingYaw(player.orientation.yaw),
+      partner: partner.position,
+      range: HANDOFF_RANGE,
+      coneDeg: HANDOFF_CONE_DEG,
+    }).ok) return;
     if (Array.from(this.state.objects.values()).some((candidate) => candidate.id !== object.id && candidate.holderId === partner.playerId)) return;
     const from = player.role;
     this.setOwnership(object, partner, 'handoff');

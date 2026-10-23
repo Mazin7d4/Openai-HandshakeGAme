@@ -181,6 +181,11 @@ export class GameApp {
     }
     this.juice = new Juice(scene);
     const audio = gameplay.sfx;
+    if (multiplayer) {
+      this.unsubscribers.push(multiplayer.onObjectEvent((event) => {
+        if (event.event === 'handoff') audioHub.play('pass');
+      }));
+    }
     this.moves = new TetherMoves(
       audio,
       cameraRig,
