@@ -92,11 +92,14 @@ async function body(browser, notes) {
   const pasteCtx = await browser.newContext(phone); const paste = await pasteCtx.newPage();
   collectErrors(paste, 'paste', tagged(errors)); await openMultiplayer(paste); await paste.getByTestId('join-room').tap();
   const pasteInput = paste.getByTestId('room-code-input');
-  await pasteInput.evaluate((el, value) => {
-    const event = new ClipboardEvent('paste', { bubbles: true, clipboardData: new DataTransfer() });
+  // The paste handler fills the input and starts the join synchronously; a fast join removes
+  // the lobby (and this input) right after, so read the extracted code in the same tick.
+  const extracted = await pasteInput.evaluate((el, value) => {
+    const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: new DataTransfer() });
     event.clipboardData.setData('text/plain', value); el.dispatchEvent(event);
+    return el.value;
   }, pasteInvite);
-  assert(await pasteInput.inputValue() === pasteCode, `invite URL paste did not extract code: got "${await pasteInput.inputValue()}", want ${pasteCode}`);
+  assert(extracted === pasteCode, `invite URL paste did not extract code: got "${extracted}", want ${pasteCode}`);
   await Promise.all([waitForGame(pasteHost), waitForGame(paste)]).catch(async (e) => {
     const status = await paste.locator('.lobby-status').innerText({ timeout: 1000 }).catch(() => '(no status)');
     throw new Error(`paste auto-join did not reach the game: ${status} :: ${e.message.split('\n')[0]}`);
