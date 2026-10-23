@@ -4,6 +4,8 @@ export function isFullscreen(): boolean {
 }
 
 export async function enterImmersive(): Promise<void> {
+  // Automated browsers (Playwright) resize the window; fullscreen would block that.
+  if (navigator.webdriver) return;
   const doc = document as Document & { webkitFullscreenElement?: Element | null };
   const element = document.documentElement as HTMLElement & {
     webkitRequestFullscreen?: (options?: { navigationUI?: string }) => Promise<void> | void;
