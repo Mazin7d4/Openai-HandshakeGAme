@@ -4,6 +4,8 @@ import {
 import type { createLabPalette } from './LabPalette.ts';
 import type { PropPlacement } from './PropKit.ts';
 import { addStaticBody } from '../physics/staticBody.ts';
+import { initialTier } from '../scene/Quality.ts';
+import { createRoundedBox } from '../scene/roundedBox.ts';
 
 type Palette = ReturnType<typeof createLabPalette>;
 
@@ -12,8 +14,11 @@ type Palette = ReturnType<typeof createLabPalette>;
  * Everything is batched per material and merged into a handful of static meshes, so the extra detail
  * costs roughly one draw call per material. Nothing here owns physics, mission or network state, and
  * all props sit outside the authored flight routes (under-desk crawl, vent, office door, rack aisles).
+ * On graphicsQuality low / auto-low, purely decorative clutter (mugs, sticky notes, gallery frames,
+ * parcel shelf boxes) is skipped; structural trims and wayfinding remain.
  */
 export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: PropPlacement): unknown }): Mesh[] {
+  const lowFx = initialTier() === 'low';
   // Big props get one simple invisible static box so drones no longer fly visually through them.
   const collide = (x: number, y: number, z: number, w: number, h: number, d: number) => {
     const c = CreateBox('prop-collider', { width: w, height: h, depth: d }, scene);
@@ -44,7 +49,11 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
     return mesh;
   };
   const box = (x: number, y: number, z: number, w: number, h: number, d: number, m: Material, ry = 0) => {
-    const mesh = CreateBox('dress', { width: w, height: h, depth: d }, scene);
+    // Bevel hard edges on larger furniture-scale volumes; keep thin tape/trim as cheap boxes.
+    const useRound = Math.min(w, h, d) >= 0.18 && Math.max(w, h, d) >= 0.6;
+    const mesh = useRound
+      ? createRoundedBox('dress', { width: w, height: h, depth: d, radius: Math.min(0.06, Math.min(w, h, d) * 0.12) }, scene)
+      : CreateBox('dress', { width: w, height: h, depth: d }, scene);
     mesh.position.set(x, y, z); mesh.rotation.y = ry; return add(mesh, m);
   };
   const cyl = (x: number, y: number, z: number, h: number, top: number, bottom: number, m: Material, tess = 20) => {
@@ -114,75 +123,77 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
     }
   }
 
-  // Wall-mounted everyday props:
-  // Round wall clock on south wall high (y≈10):
-  const clockRim = CreateTorus('dress', { diameter: 1.6, thickness: 0.12, tessellation: 32 }, scene);
-  clockRim.position.set(0, 10, -66.62); clockRim.rotation.x = Math.PI / 2; add(clockRim, p.dark);
-  cyl(0, 10, -66.64, 0.04, 1.48, 1.48, white, 32).rotation.x = Math.PI / 2;
-  const hHand = box(0.12, 10.12, -66.60, 0.04, 0.36, 0.02, p.dark);
-  hHand.rotation.z = -Math.PI / 4;
-  const mHand = box(-0.16, 10.20, -66.59, 0.03, 0.52, 0.02, p.dark);
-  mHand.rotation.z = Math.PI / 3;
-  cyl(0, 10, -66.58, 0.04, 0.08, 0.08, p.dark, 12).rotation.x = Math.PI / 2;
+  // Wall-mounted everyday props (skipped on low — pure storytelling clutter):
+  if (!lowFx) {
+    // Round wall clock on south wall high (y≈10):
+    const clockRim = CreateTorus('dress', { diameter: 1.6, thickness: 0.12, tessellation: 32 }, scene);
+    clockRim.position.set(0, 10, -66.62); clockRim.rotation.x = Math.PI / 2; add(clockRim, p.dark);
+    cyl(0, 10, -66.64, 0.04, 1.48, 1.48, white, 32).rotation.x = Math.PI / 2;
+    const hHand = box(0.12, 10.12, -66.60, 0.04, 0.36, 0.02, p.dark);
+    hHand.rotation.z = -Math.PI / 4;
+    const mHand = box(-0.16, 10.20, -66.59, 0.03, 0.52, 0.02, p.dark);
+    mHand.rotation.z = Math.PI / 3;
+    cyl(0, 10, -66.58, 0.04, 0.08, 0.08, p.dark, 12).rotation.x = Math.PI / 2;
 
-  // Two wall sconces with p.light diffusers on the south wall (symmetric at x=±8):
-  for (const sx of [-8, 8]) {
-    box(sx, 7.5, -66.66, 0.5, 0.8, 0.04, p.metal);
-    box(sx, 7.5, -66.52, 0.1, 0.1, 0.24, p.metal);
-    box(sx, 7.5, -66.35, 0.5, 0.6, 0.16, p.metal);
-    box(sx, 7.81, -66.35, 0.46, 0.04, 0.14, p.light);
-    box(sx, 7.19, -66.35, 0.46, 0.04, 0.14, p.light);
-    box(sx, 7.5, -66.26, 0.46, 0.28, 0.03, p.light);
+    // Two wall sconces with p.light diffusers on the south wall (symmetric at x=±8):
+    for (const sx of [-8, 8]) {
+      box(sx, 7.5, -66.66, 0.5, 0.8, 0.04, p.metal);
+      box(sx, 7.5, -66.52, 0.1, 0.1, 0.24, p.metal);
+      box(sx, 7.5, -66.35, 0.5, 0.6, 0.16, p.metal);
+      box(sx, 7.81, -66.35, 0.46, 0.04, 0.14, p.light);
+      box(sx, 7.19, -66.35, 0.46, 0.04, 0.14, p.light);
+      box(sx, 7.5, -66.26, 0.46, 0.28, 0.03, p.light);
+    }
+
+    // Fire extinguisher on alu bracket beside the entry (north wall, east of doorway at x=3.8):
+    box(3.8, 3.0, -55.28, 0.3, 1.2, 0.04, p.metal);
+    box(3.8, 3.1, -55.45, 0.55, 0.06, 0.35, p.metal);
+    cyl(3.8, 2.9, -55.55, 1.3, 0.52, 0.52, p.dark);
+    cyl(3.8, 3.6, -55.55, 0.12, 0.32, 0.52, p.dark);
+    cyl(3.8, 2.9, -55.55, 0.48, 0.54, 0.54, white); // paper-white label band
+    box(3.8, 3.75, -55.55, 0.14, 0.18, 0.18, p.metal);
+    box(3.8, 3.86, -55.50, 0.06, 0.04, 0.30, p.metal);
+    box(4.02, 3.25, -55.55, 0.05, 0.9, 0.05, cable);
+    cyl(4.02, 2.7, -55.55, 0.2, 0.06, 0.1, p.dark);
+
+    // Light switch plate and thermostat by doorway (north wall, west of doorway at x=-6.8):
+    box(-6.8, 3.2, -55.28, 0.35, 0.5, 0.04, p.paint);
+    box(-6.8, 3.2, -55.31, 0.14, 0.22, 0.03, white);
+    box(-6.8, 3.2, -55.33, 0.14, 0.02, 0.01, p.dark);
+    box(-6.8, 3.8, -55.28, 0.48, 0.48, 0.04, white);
+    cyl(-6.8, 3.8, -55.31, 0.03, 0.4, 0.4, p.metal, 24).rotation.x = Math.PI / 2;
+    cyl(-6.8, 3.8, -55.33, 0.02, 0.3, 0.3, p.dark, 24).rotation.x = Math.PI / 2;
+    box(-6.8, 3.8, -55.345, 0.1, 0.03, 0.01, p.light);
+
+    // Cork notice board with paper sheets and push pins on the east wall:
+    box(18.64, 6.0, -58.5, 0.08, 2.1, 3.3, p.wood);
+    box(18.62, 6.0, -58.5, 0.06, 1.9, 3.1, cork);
+    box(18.575, 6.4, -59.3, 0.015, 0.65, 0.5, white);
+    box(18.575, 6.3, -58.5, 0.015, 0.75, 0.55, white);
+    box(18.575, 6.35, -57.8, 0.015, 0.6, 0.5, yellow, 0.08);
+    box(18.575, 5.5, -59.1, 0.015, 0.5, 0.7, white);
+    box(18.575, 5.45, -58.1, 0.015, 0.45, 0.45, white, -0.06);
+    cyl(18.555, 6.68, -59.3, 0.03, 0.04, 0.04, p.dark, 8).rotation.z = Math.PI / 2;
+    cyl(18.555, 6.62, -58.5, 0.03, 0.04, 0.04, yellow, 8).rotation.z = Math.PI / 2;
+    cyl(18.555, 6.60, -57.8, 0.03, 0.04, 0.04, p.metal, 8).rotation.z = Math.PI / 2;
+    cyl(18.555, 5.70, -59.1, 0.03, 0.04, 0.04, p.dark, 8).rotation.z = Math.PI / 2;
+    cyl(18.555, 5.63, -58.1, 0.03, 0.04, 0.04, yellow, 8).rotation.z = Math.PI / 2;
+
+    // Wall-mounted parcel shelf with 3 cardboard boxes (mustard/oak tones) high on east wall (y≈7.5):
+    box(18.0, 7.5, -63.5, 1.36, 0.08, 4.5, p.metal);
+    for (const bz of [-65.0, -62.0]) {
+      box(18.65, 7.0, bz, 0.06, 0.9, 0.12, p.metal);
+      box(18.05, 7.42, bz, 1.25, 0.08, 0.12, p.metal);
+      const brace = box(18.3, 7.15, bz, 0.85, 0.06, 0.1, p.metal);
+      brace.rotation.z = -Math.PI / 4;
+    }
+    box(18.0, 7.94, -64.7, 1.0, 0.8, 1.1, mustard);
+    box(18.0, 7.95, -64.7, 1.02, 0.06, 0.15, p.paint);
+    box(18.0, 8.04, -63.4, 1.1, 1.0, 1.3, p.wood);
+    box(18.0, 8.05, -63.4, 1.12, 0.06, 0.16, mustard);
+    box(18.0, 7.89, -62.1, 0.9, 0.7, 0.9, mustard);
+    box(18.0, 7.90, -62.1, 0.92, 0.05, 0.12, p.paint);
   }
-
-  // Fire extinguisher on alu bracket beside the entry (north wall, east of doorway at x=3.8):
-  box(3.8, 3.0, -55.28, 0.3, 1.2, 0.04, p.metal);
-  box(3.8, 3.1, -55.45, 0.55, 0.06, 0.35, p.metal);
-  cyl(3.8, 2.9, -55.55, 1.3, 0.52, 0.52, p.dark);
-  cyl(3.8, 3.6, -55.55, 0.12, 0.32, 0.52, p.dark);
-  cyl(3.8, 2.9, -55.55, 0.48, 0.54, 0.54, white); // paper-white label band
-  box(3.8, 3.75, -55.55, 0.14, 0.18, 0.18, p.metal);
-  box(3.8, 3.86, -55.50, 0.06, 0.04, 0.30, p.metal);
-  box(4.02, 3.25, -55.55, 0.05, 0.9, 0.05, cable);
-  cyl(4.02, 2.7, -55.55, 0.2, 0.06, 0.1, p.dark);
-
-  // Light switch plate and thermostat by doorway (north wall, west of doorway at x=-6.8):
-  box(-6.8, 3.2, -55.28, 0.35, 0.5, 0.04, p.paint);
-  box(-6.8, 3.2, -55.31, 0.14, 0.22, 0.03, white);
-  box(-6.8, 3.2, -55.33, 0.14, 0.02, 0.01, p.dark);
-  box(-6.8, 3.8, -55.28, 0.48, 0.48, 0.04, white);
-  cyl(-6.8, 3.8, -55.31, 0.03, 0.4, 0.4, p.metal, 24).rotation.x = Math.PI / 2;
-  cyl(-6.8, 3.8, -55.33, 0.02, 0.3, 0.3, p.dark, 24).rotation.x = Math.PI / 2;
-  box(-6.8, 3.8, -55.345, 0.1, 0.03, 0.01, p.light);
-
-  // Cork notice board with paper sheets and push pins on the east wall:
-  box(18.64, 6.0, -58.5, 0.08, 2.1, 3.3, p.wood);
-  box(18.62, 6.0, -58.5, 0.06, 1.9, 3.1, cork);
-  box(18.575, 6.4, -59.3, 0.015, 0.65, 0.5, white);
-  box(18.575, 6.3, -58.5, 0.015, 0.75, 0.55, white);
-  box(18.575, 6.35, -57.8, 0.015, 0.6, 0.5, yellow, 0.08);
-  box(18.575, 5.5, -59.1, 0.015, 0.5, 0.7, white);
-  box(18.575, 5.45, -58.1, 0.015, 0.45, 0.45, white, -0.06);
-  cyl(18.555, 6.68, -59.3, 0.03, 0.04, 0.04, p.dark, 8).rotation.z = Math.PI / 2;
-  cyl(18.555, 6.62, -58.5, 0.03, 0.04, 0.04, yellow, 8).rotation.z = Math.PI / 2;
-  cyl(18.555, 6.60, -57.8, 0.03, 0.04, 0.04, p.metal, 8).rotation.z = Math.PI / 2;
-  cyl(18.555, 5.70, -59.1, 0.03, 0.04, 0.04, p.dark, 8).rotation.z = Math.PI / 2;
-  cyl(18.555, 5.63, -58.1, 0.03, 0.04, 0.04, yellow, 8).rotation.z = Math.PI / 2;
-
-  // Wall-mounted parcel shelf with 3 cardboard boxes (mustard/oak tones) high on east wall (y≈7.5):
-  box(18.0, 7.5, -63.5, 1.36, 0.08, 4.5, p.metal);
-  for (const bz of [-65.0, -62.0]) {
-    box(18.65, 7.0, bz, 0.06, 0.9, 0.12, p.metal);
-    box(18.05, 7.42, bz, 1.25, 0.08, 0.12, p.metal);
-    const brace = box(18.3, 7.15, bz, 0.85, 0.06, 0.1, p.metal);
-    brace.rotation.z = -Math.PI / 4;
-  }
-  box(18.0, 7.94, -64.7, 1.0, 0.8, 1.1, mustard);
-  box(18.0, 7.95, -64.7, 1.02, 0.06, 0.15, p.paint);
-  box(18.0, 8.04, -63.4, 1.1, 1.0, 1.3, p.wood);
-  box(18.0, 8.05, -63.4, 1.12, 0.06, 0.16, mustard);
-  box(18.0, 7.89, -62.1, 0.9, 0.7, 0.9, mustard);
-  box(18.0, 7.90, -62.1, 0.92, 0.05, 0.12, p.paint);
 
   // Floor: painted floor tape (white, 0.15 wide, y=0.02) framing the apron 1.5 units in from the walls,
   // with a gap at the doorway x[-6..3].
@@ -199,13 +210,15 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
 
   box(11.5, 1.6, -47.5, 4, 0.22, 5, p.wood);
   for (const [dx, dz] of [[-1.6, -2.1], [1.6, -2.1], [-1.6, 2.1], [1.6, 2.1]]) cyl(11.5 + dx, 0.75, -47.5 + dz, 1.5, 0.16, 0.16, p.metal, 8);
-  box(11, 1.82, -48.4, 1.6, 0.18, 2.1, pink); box(11.2, 1.98, -48.2, 1.5, 0.14, 2, teal);
-  mug(12.4, 1.72, -46.6, yellow);
-  // Reception desk dressing: monitor-facing keyboard, a mug and a tiny potted succulent.
-  keyboard(-3, 3.97, -48); mug(-8.5, 3.92, -48.6, p.coral); kit.place({ prop: 'PlantSmall', x: -9.4, y: 3.92, z: -50, scale: 0.6 });
-  // Gallery wall: three colourful framed prints on the east wall.
-  frame(18.65, 8.5, -50, 4, 3, p.blue, true); frame(18.65, 8.5, -45, 2.8, 3.6, p.coral, true);
-  frame(18.65, 5.5, -42.6, 2.2, 1.6, yellow, true);
+  if (!lowFx) {
+    box(11, 1.82, -48.4, 1.6, 0.18, 2.1, pink); box(11.2, 1.98, -48.2, 1.5, 0.14, 2, teal);
+    mug(12.4, 1.72, -46.6, yellow);
+    // Reception desk dressing: monitor-facing keyboard, a mug and a tiny potted succulent.
+    keyboard(-3, 3.97, -48); mug(-8.5, 3.92, -48.6, p.coral); kit.place({ prop: 'PlantSmall', x: -9.4, y: 3.92, z: -50, scale: 0.6 });
+    // Gallery wall: three colourful framed prints on the east wall.
+    frame(18.65, 8.5, -50, 4, 3, p.blue, true); frame(18.65, 8.5, -45, 2.8, 3.6, p.coral, true);
+    frame(18.65, 5.5, -42.6, 2.2, 1.6, yellow, true);
+  }
   pendant(4, -49); pendant(12, -46);
   // Floor: oak entry mat and a soft wayfinding stripe toward the staff vent.
   box(-1.5, 0.02, -53, 8, 0.03, 3, p.dark);
@@ -224,17 +237,21 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   // ---------- 02 OFFICE ----------
   // PIX's desk chair stands south of its console; NEE's patch-bay desk is left clear underneath.
   kit.place({ prop: 'Chair', x: -5, z: -37.2, ry: Math.PI }); kit.place({ prop: 'Chair', x: 7.5, z: -35.5, ry: Math.PI + 0.35 });
-  keyboard(-6, 3.97, -34.2); keyboard(7.2, 3.97, -32.4); mug(-1.7, 3.92, -33.6, pink); mug(9.6, 3.92, -30.4, p.blue);
-  // Notebooks and sticky notes on the desks.
-  box(-8.2, 4.0, -33.8, 1.6, 0.14, 2.1, p.coral, 0.2); box(9.8, 4.0, -32, 1.4, 0.12, 1.9, yellow, -0.3);
-  for (let i = 0; i < 5; i++) box(-2.0 + (i % 2) * 0.32, 4.6 + i * 0.35, -32.3, 0.3, 0.3, 0.02, i % 2 ? yellow : pink);
+  if (!lowFx) {
+    keyboard(-6, 3.97, -34.2); keyboard(7.2, 3.97, -32.4); mug(-1.7, 3.92, -33.6, pink); mug(9.6, 3.92, -30.4, p.blue);
+    // Notebooks and sticky notes on the desks.
+    box(-8.2, 4.0, -33.8, 1.6, 0.14, 2.1, p.coral, 0.2); box(9.8, 4.0, -32, 1.4, 0.12, 1.9, yellow, -0.3);
+    for (let i = 0; i < 5; i++) box(-2.0 + (i % 2) * 0.32, 4.6 + i * 0.35, -32.3, 0.3, 0.3, 0.02, i % 2 ? yellow : pink);
+  }
   // Under-desk cables: bundled runs from each screen to floor boxes.
   for (const [x, z] of [[-3.5, -32.2], [8.7, -30.2]] as const) {
     cyl(x, 2, z, 3.9, 0.14, 0.14, cable, 6); box(x, 0.2, z, 1.4, 0.4, 0.9, p.dark);
   }
   // Whiteboard with a hand-drawn plan of the heist, on the west wall.
   frame(-18.6, 7, -35, 9, 4.6, white, true);
-  for (let i = 0; i < 5; i++) box(-18.5, 6 + i * 0.55, -38.5 + i * 0.9, 0.04, 0.12, 2 + (i % 3), i % 2 ? p.blue : p.coral);
+  if (!lowFx) {
+    for (let i = 0; i < 5; i++) box(-18.5, 6 + i * 0.55, -38.5 + i * 0.9, 0.04, 0.12, 2 + (i % 3), i % 2 ? p.blue : p.coral);
+  }
   // Bookshelf and planter beyond the office glass.
   kit.place({ prop: 'Bookshelf', x: 17.6, z: -33 }); collide(17.6, 5, -33, 2, 10, 7);
 

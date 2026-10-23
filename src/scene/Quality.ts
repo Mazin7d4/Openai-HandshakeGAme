@@ -67,7 +67,14 @@ export function initialTier(): QualityTier {
 export interface QualityHooks { sun: DirectionalLight; shadows: ShadowGenerator; glow: GlowLayer | null }
 
 /** Accent lights a level may add; disabled on low (emissive cues carry the look instead). */
-const ACCENT_LIGHTS = new Set(['vault-spot', 'alarm-light']);
+const ACCENT_LIGHTS = new Set([
+  'vault-spot',
+  'alarm-light',
+  'opening-path-apron',
+  'opening-path-reception',
+  'opening-path-vent',
+  'opening-path-office',
+]);
 
 export interface QualityStatus { tier: QualityTier; auto: boolean; reason: string; renderer: string; avgFps: number; changes: string[] }
 

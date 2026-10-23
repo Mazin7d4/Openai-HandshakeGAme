@@ -12,6 +12,8 @@ import { mergeStaticByMaterial, isDynamicOrInteractive } from '../scene/mergeSta
 import { createLabPalette } from './LabPalette.ts';
 import { dressMissionAreas, mergeDecorative } from './AreaDressing.ts';
 import { loadPropKit } from './PropKit.ts';
+import { dressOpeningKit } from './kit/KitDressing.ts';
+import { addOpeningPathLights } from './OpeningPathLights.ts';
 import layout from './heist-layout.json';
 import { mergeRigidChildren } from '../scene/mergeChildren.ts';
 import { createRoundedBox } from '../scene/roundedBox.ts';
@@ -482,6 +484,14 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   for (const name of ['rack-upright', 'rack-tray', 'rack-status']) for (const m of scene.meshes.filter(m => m.name === name)) m.dispose();
   dressMissionAreas(scene, p, kit);
   kit.commit();
+  // Blender kit thin instances for the first 90s (apron / reception / office) + path composition lights.
+  addOpeningPathLights(scene);
+  try {
+    const kitHandle = await dressOpeningKit(scene);
+    console.info(`[opening-kit] +${kitHandle.drawCalls} draw calls, ${kitHandle.placed} props`);
+  } catch (err) {
+    console.warn('[opening-kit] dress failed', err);
+  }
   // Batch Astra's repeated physics-free trim (rack trays/LEDs, battens, fixtures) into one mesh per material.
   mergeDecorative(scene, ['door-jamb', 'exit-jamb-strip', 'rack-upright', 'rack-tray', 'rack-status', 'oak-batten', 'pendant-shell',
     'pendant-diffuser', 'pendant-wire', 'vault-mullion', 'extraction-lamp']);
