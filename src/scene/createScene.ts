@@ -35,17 +35,13 @@ export function createEngine(canvas: HTMLCanvasElement): Engine {
 
 // Intentional glow include-list (prod-art): core, screens, face-screens, security lenses, alarm/objective beacons.
 const GLOW_NAMES = /^(p01-core|p01-core-halo|alarm-beacon-lamp|alarm-beacon-beam|security-camera|security-drone-\d+-eye|instrument-screen|.*-beacon)$/;
-// Strong decorative emitters that still read at the layer intensity (merged with the include-list approach).
-const GLOW_MATERIALS = /^(sign-lip-glow|dress-status-led-warm|dress-status-led-soft|dress-wall-washer|lab-warm-diffuser|Glow|Glow-antenna|LedAmber|LedCyan|objective-beacon|vault-beam)$/;
-
-/** Glow include-list: named gameplay emitters + strong decorative materials (not every faint emissive). */
+/** Glow include-list: face-screens, lenses, beacons and the core only. */
 function isGlowMesh(mesh: AbstractMesh): boolean {
   if (GLOW_NAMES.test(mesh.name)) return true;
   const mat = mesh.material;
   if (!mat) return false;
   // Mascot face-screens: the drone GLB's 'Screen' material carries the animated face texture.
   if (mat.name === 'Screen' && !!(mat as { emissiveTexture?: unknown }).emissiveTexture) return true;
-  if (GLOW_MATERIALS.test(mat.name)) return true;
   return false;
 }
 

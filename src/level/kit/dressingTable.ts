@@ -11,11 +11,22 @@ export interface DressRow {
   chance?: number; /* 0..1 seed-gated */
   twist?: TwistId; /* row only used when this twist active */
   scale?: number;
+  low?: boolean; /* low-tier decorative clutter is omitted */
 }
 
 export const DRESSING: Record<string, DressRow[]> = {
   // ARRIVAL VARIANTS
   'arrival.open-apron': [
+    // First 90 seconds: a readable security welcome, cargo staging and a clear route to reception.
+    { asset: 'Desk', x: 0.19, z: 0.28, ry: 1.57, scale: 0.82 },
+    { asset: 'Monitor', x: 0.19, z: 0.28, ry: 1.57, y: 3.7, scale: 0.78 },
+    { asset: 'DeskPhone', x: 0.23, z: 0.29, ry: 1.57, y: 3.7, scale: 0.72 },
+    { asset: 'KeycardReader', x: 0.25, z: 0.29, ry: 1.57, y: 3.85, scale: 0.72 },
+    { asset: 'CoffeeMug', x: 0.16, z: 0.25, y: 3.7, scale: 0.75 },
+    { asset: 'Whiteboard', x: 0.83, z: 0.19, ry: 1.57, y: 5.2, scale: 0.48, low: true },
+    { asset: 'CableTray', x: 0.51, z: 0.08, y: 10.8, scale: 0.8, low: true },
+    { asset: 'CrateStack', x: 0.82, z: 0.78, scale: 0.82 },
+    { asset: 'PlantPot', x: 0.88, z: 0.24, scale: 0.82, low: true },
     { asset: 'PlantPot', x: 0.08, z: 0.12, jitter: 0.8, chance: 0.85 },
     { asset: 'Sofa', x: 0.12, z: 0.88, ry: 0, jitter: 0.6, chance: 0.9 },
     { asset: 'WaterCooler', x: 0.09, z: 0.45, ry: 1.57, jitter: 0.5, chance: 0.75 },
@@ -39,6 +50,13 @@ export const DRESSING: Record<string, DressRow[]> = {
   ],
 
   'arrival.tight-delivery': [
+    { asset: 'Desk', x: 0.18, z: 0.31, ry: 1.57, scale: 0.78 },
+    { asset: 'Monitor', x: 0.18, z: 0.31, ry: 1.57, y: 3.55, scale: 0.74 },
+    { asset: 'DeskPhone', x: 0.22, z: 0.32, ry: 1.57, y: 3.55, scale: 0.7 },
+    { asset: 'KeycardReader', x: 0.24, z: 0.32, ry: 1.57, y: 3.7, scale: 0.7 },
+    { asset: 'CoffeeMug', x: 0.15, z: 0.28, y: 3.55, scale: 0.72 },
+    { asset: 'Whiteboard', x: 0.8, z: 0.18, ry: 1.57, y: 5.1, scale: 0.44, low: true },
+    { asset: 'CableTray', x: 0.5, z: 0.08, y: 10.0, scale: 0.76, low: true },
     { asset: 'CrateStack', x: 0.08, z: 0.14, jitter: 0.7, chance: 0.85 },
     { asset: 'BoxSmall', x: 0.12, z: 0.18, jitter: 0.6, chance: 0.75 },
     { asset: 'TrashBin', x: 0.07, z: 0.85, jitter: 0.5, chance: 0.8 },
@@ -62,6 +80,13 @@ export const DRESSING: Record<string, DressRow[]> = {
   ],
 
   'arrival.side-ramp': [
+    { asset: 'Desk', x: 0.18, z: 0.3, ry: 1.57, scale: 0.8 },
+    { asset: 'Monitor', x: 0.18, z: 0.3, ry: 1.57, y: 3.65, scale: 0.76 },
+    { asset: 'DeskPhone', x: 0.22, z: 0.31, ry: 1.57, y: 3.65, scale: 0.7 },
+    { asset: 'KeycardReader', x: 0.24, z: 0.31, ry: 1.57, y: 3.8, scale: 0.7 },
+    { asset: 'CoffeeMug', x: 0.15, z: 0.27, y: 3.65, scale: 0.72 },
+    { asset: 'Whiteboard', x: 0.8, z: 0.18, ry: 1.57, y: 5.2, scale: 0.46, low: true },
+    { asset: 'CableTray', x: 0.5, z: 0.08, y: 10.8, scale: 0.8, low: true },
     { asset: 'PlantPot', x: 0.1, z: 0.1, jitter: 0.8, chance: 0.85 },
     { asset: 'Sofa', x: 0.09, z: 0.82, ry: 1.57, jitter: 0.6, chance: 0.8 },
     { asset: 'Bookshelf', x: 0.9, z: 0.15, ry: -1.57, jitter: 0.5, chance: 0.85 },
@@ -86,6 +111,13 @@ export const DRESSING: Record<string, DressRow[]> = {
 
   // OFFICE VARIANTS
   'office.split-desks': [
+    { asset: 'Desk', x: 0.27, z: 0.48, ry: 1.57, scale: 0.72 },
+    { asset: 'Desk', x: 0.68, z: 0.45, ry: -1.57, scale: 0.72 },
+    { asset: 'Monitor', x: 0.27, z: 0.48, ry: 1.57, y: 3.2, scale: 0.7 },
+    { asset: 'Monitor', x: 0.68, z: 0.45, ry: -1.57, y: 3.2, scale: 0.7 },
+    { asset: 'PlantPot', x: 0.88, z: 0.2, scale: 0.72, low: true },
+    { asset: 'CableTray', x: 0.5, z: 0.08, y: 10.8, scale: 0.72, low: true },
+    { asset: 'Whiteboard', x: 0.08, z: 0.48, ry: 1.57, y: 5.4, scale: 0.4, low: true },
     { asset: 'Desk', x: 0.12, z: 0.2, ry: 1.57, jitter: 0.5, chance: 0.9 },
     { asset: 'OfficeChair', x: 0.17, z: 0.2, ry: -1.57, jitter: 0.4, chance: 0.85 },
     { asset: 'Monitor', x: 0.11, z: 0.2, ry: 1.57, y: 1.5, jitter: 0.2, chance: 0.9 },
@@ -115,6 +147,13 @@ export const DRESSING: Record<string, DressRow[]> = {
   ],
 
   'office.aisle-cluster': [
+    { asset: 'Desk', x: 0.28, z: 0.48, ry: 1.57, scale: 0.7 },
+    { asset: 'Desk', x: 0.68, z: 0.45, ry: -1.57, scale: 0.7 },
+    { asset: 'Monitor', x: 0.28, z: 0.48, ry: 1.57, y: 3.15, scale: 0.68 },
+    { asset: 'Monitor', x: 0.68, z: 0.45, ry: -1.57, y: 3.15, scale: 0.68 },
+    { asset: 'PlantPot', x: 0.9, z: 0.2, scale: 0.7, low: true },
+    { asset: 'CableTray', x: 0.5, z: 0.08, y: 9.8, scale: 0.68, low: true },
+    { asset: 'Whiteboard', x: 0.08, z: 0.48, ry: 1.57, y: 5.3, scale: 0.38, low: true },
     { asset: 'Desk', x: 0.1, z: 0.25, ry: 1.57, jitter: 0.5, chance: 0.9 },
     { asset: 'OfficeChair', x: 0.15, z: 0.25, ry: -1.57, jitter: 0.4, chance: 0.85 },
     { asset: 'Monitor', x: 0.09, z: 0.25, ry: 1.57, y: 1.5, jitter: 0.2, chance: 0.9 },
@@ -142,6 +181,13 @@ export const DRESSING: Record<string, DressRow[]> = {
   ],
 
   'office.gallery-rail': [
+    { asset: 'Desk', x: 0.28, z: 0.48, ry: 1.57, scale: 0.72 },
+    { asset: 'Desk', x: 0.68, z: 0.45, ry: -1.57, scale: 0.72 },
+    { asset: 'Monitor', x: 0.28, z: 0.48, ry: 1.57, y: 3.2, scale: 0.7 },
+    { asset: 'Monitor', x: 0.68, z: 0.45, ry: -1.57, y: 3.2, scale: 0.7 },
+    { asset: 'PlantPot', x: 0.9, z: 0.2, scale: 0.72, low: true },
+    { asset: 'CableTray', x: 0.5, z: 0.08, y: 10.8, scale: 0.72, low: true },
+    { asset: 'Whiteboard', x: 0.08, z: 0.48, ry: 1.57, y: 5.4, scale: 0.4, low: true },
     { asset: 'DeskL', x: 0.1, z: 0.2, ry: 1.57, jitter: 0.5, chance: 0.9 },
     { asset: 'OfficeChair', x: 0.15, z: 0.2, ry: -1.57, jitter: 0.4, chance: 0.85 },
     { asset: 'Monitor', x: 0.09, z: 0.2, ry: 1.57, y: 1.5, jitter: 0.2, chance: 0.9 },
