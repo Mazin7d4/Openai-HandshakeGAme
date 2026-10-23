@@ -349,7 +349,7 @@ export class Drone implements CameraSubject {
   }
 
   get inTrouble(): boolean {
-    return this.hurtTimer > 0;
+    return this.hurtTimer > 0 || this.captured;
   }
 
   get speed(): number {
