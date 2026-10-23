@@ -36,6 +36,18 @@ const SHOVE_COOLDOWN = 1.2;
 const SHOVE_STRENGTH = 4.2;
 const SHOVE_Y = 1.2;
 const CHASE_RANGE = 9;
+/** Capture-and-carry (matches client SecuritySystem solo tuning). */
+const CAPTURE_RANGE = 1.55;
+const CAPTURE_COOLDOWN = 3;
+const CARRY_MAX = 4.5;
+const CARRY_POINT = { x: 0, y: 3.5, z: 10 };
+const CARRY_HAUL_SPEED = 2.2;
+const HOLD_OFFSET_Y = -0.95;
+const STRUGGLE_NEEDED = 3;
+const STRAIN_TETHER = 0.85;
+const STRAIN_HOLD = 0.6;
+/** Approx cord length where strain reads high enough to yank-free. */
+const STRAIN_DISTANCE = 11;
 
 const HOME_POSITIONS = [
   { x: -4, y: 2.2, z: 10 },
@@ -55,6 +67,21 @@ function normalize(v) {
 }
 
 function round2(v) { return Math.round(v * 100) / 100; }
+
+function emptyPatrolRuntime() {
+  return {
+    stunnedFor: 0,
+    shoveCooldown: 0,
+    waypoint: 0,
+    captureCooldown: 0,
+    dazedFor: 0,
+    carryingRole: null,
+    carryFor: 0,
+    strainFor: 0,
+    struggles: 0,
+    partnerPrevPos: null,
+  };
+}
 
 const DEFAULT_CAMERA = {
   origin: { x: 0, y: 3.7, z: 8.5 },
@@ -85,8 +112,8 @@ export class SecuritySim {
   constructor(state) {
     this.state = state;
     this.patrol = [
-      { stunnedFor: 0, shoveCooldown: 0, waypoint: 0 },
-      { stunnedFor: 0, shoveCooldown: 0, waypoint: 0 },
+      emptyPatrolRuntime(),
+      emptyPatrolRuntime(),
     ];
     this.camera = {
       meters: { pix: 0, nee: 0 },
@@ -118,7 +145,7 @@ export class SecuritySim {
     while (this.state.patrols.length < count) {
       const p = new SecurityPatrol();
       this.state.patrols.push(p);
-      this.patrol.push({ stunnedFor: 0, shoveCooldown: 0, waypoint: 0 });
+      this.patrol.push(emptyPatrolRuntime());
     }
     while (this.state.patrols.length > count) {
       this.state.patrols.pop();
@@ -138,9 +165,7 @@ export class SecuritySim {
       sp.y = home.y;
       sp.z = home.z;
       sp.stunned = false;
-      this.patrol[i].stunnedFor = 0;
-      this.patrol[i].shoveCooldown = 0;
-      this.patrol[i].waypoint = 0;
+      Object.assign(this.patrol[i], emptyPatrolRuntime());
     }
 
     const cams = layout?.cameras ?? [];
@@ -173,12 +198,17 @@ export class SecuritySim {
   }
 
   /**
-   * Main tick. Returns { spotted: role[], shoves: [{role,index,impulse:{x,y,z}}] }.
+   * Main tick.
+   * Returns { spotted, shoves, captures, releases, overrides }.
+   * Capture/rescue uses the same ranges and timers as solo SecuritySystem.
    */
   update(dtSeconds, ctx) {
     const dt = dtSeconds;
     const spotted = [];
     const shoves = [];
+    const captures = [];
+    const releases = [];
+    const overrides = [];
     const detectScale = this.tuning.detectionRateScale ?? 1;
 
     // ── Cameras (any seeded placement can fill the detection meter) ─────
@@ -231,8 +261,17 @@ export class SecuritySim {
     this.state.cameraDisabled = ctx.cameraDisabled;
 
     // ── Patrols ─────────────────────────────────────────────────────────
-    if (!ctx.active) return { spotted, shoves };
+    if (!ctx.active) {
+      for (let i = 0; i < this.patrol.length; i++) {
+        if (this.patrol[i].carryingRole) {
+          const freed = this.releaseCarry(i, 'timeout');
+          if (freed) releases.push(freed);
+        }
+      }
+      return { spotted, shoves, captures, releases, overrides };
+    }
 
+    const partnerOf = (role) => ctx.players.find((p) => p.role !== role && p.connected) ?? null;
     const patrolCount = this.state.patrols.length;
     for (let i = 0; i < patrolCount; i++) {
       const rt = this.patrol[i];
@@ -241,9 +280,17 @@ export class SecuritySim {
 
       rt.stunnedFor = Math.max(0, rt.stunnedFor - dt);
       rt.shoveCooldown = Math.max(0, rt.shoveCooldown - dt);
+      rt.captureCooldown = Math.max(0, rt.captureCooldown - dt);
+      rt.dazedFor = Math.max(0, rt.dazedFor - dt);
       sp.stunned = rt.stunnedFor > 0;
 
-      if (rt.stunnedFor > 0) continue;
+      if (rt.stunnedFor > 0) {
+        if (rt.carryingRole) {
+          const freed = this.releaseCarry(i, 'stun');
+          if (freed) releases.push(freed);
+        }
+        continue;
+      }
 
       // Fast-object stun
       let objectStunned = false;
@@ -258,7 +305,86 @@ export class SecuritySim {
           break;
         }
       }
-      if (objectStunned) continue;
+      if (objectStunned) {
+        if (rt.carryingRole) {
+          const freed = this.releaseCarry(i, 'stun');
+          if (freed) releases.push(freed);
+        }
+        continue;
+      }
+
+      // Active carry: haul to holding pen; free on yank / struggle / strain / timeout.
+      if (rt.carryingRole) {
+        const captive = ctx.players.find((p) => p.role === rt.carryingRole);
+        // A captive who drops keeps their seat (reconnect grace): stay held so the
+        // rejoining client gets the same capture back. Only a vanished player frees.
+        if (!captive) {
+          const freed = this.releaseCarry(i, 'timeout');
+          if (freed) releases.push(freed);
+          continue;
+        }
+        // Sync struggle count from room (boost presses while captured).
+        if (typeof captive.struggles === 'number') rt.struggles = Math.max(rt.struggles, captive.struggles | 0);
+        if (captive.yankedRecently) {
+          const freed = this.releaseCarry(i, 'yank');
+          if (freed) releases.push(freed);
+          continue;
+        }
+        rt.carryFor += dt;
+        const partner = partnerOf(captive.role);
+        const tetherDist = partner ? dist(captive.position, partner.position) : 0;
+        let separationRate = 0;
+        if (partner && rt.partnerPrevPos && dt > 0) {
+          // Partner's own speed away from the captive (guard haul must not count).
+          const away = { x: partner.position.x - captive.position.x, y: partner.position.y - captive.position.y, z: partner.position.z - captive.position.z };
+          const len = Math.hypot(away.x, away.y, away.z) || 1;
+          const moved = { x: partner.position.x - rt.partnerPrevPos.x, y: partner.position.y - rt.partnerPrevPos.y, z: partner.position.z - rt.partnerPrevPos.z };
+          separationRate = dot(moved, away) / len / dt;
+        }
+        if (partner) {
+          rt.partnerPrevPos = { x: partner.position.x, y: partner.position.y, z: partner.position.z };
+        } else {
+          rt.partnerPrevPos = null;
+        }
+        // Only the partner's own pull counts: a taut cord from an idle partner
+        // (or from the guard hauling the captive away) never frees.
+        const taut = tetherDist >= STRAIN_DISTANCE || ((captive.tetherPull ?? 0) >= STRAIN_TETHER && tetherDist <= STRAIN_DISTANCE + 2);
+        const strained = Boolean(partner && taut && separationRate > 1.5);
+        rt.strainFor = strained ? rt.strainFor + dt : 0;
+        if (rt.struggles >= STRUGGLE_NEEDED) {
+          const freed = this.releaseCarry(i, 'struggle');
+          if (freed) releases.push(freed);
+          continue;
+        }
+        if (rt.strainFor > STRAIN_HOLD) {
+          const freed = this.releaseCarry(i, 'strain');
+          if (freed) releases.push(freed);
+          continue;
+        }
+        if (rt.carryFor > CARRY_MAX) {
+          const freed = this.releaseCarry(i, 'timeout');
+          if (freed) releases.push(freed);
+          continue;
+        }
+        // Haul toward the lab holding pen.
+        const to = { x: CARRY_POINT.x - sp.x, y: CARRY_POINT.y - sp.y, z: CARRY_POINT.z - sp.z };
+        const toLen = Math.hypot(to.x, to.y, to.z);
+        if (toLen > 0.45) {
+          sp.x = round2(sp.x + (to.x / toLen) * CARRY_HAUL_SPEED * dt);
+          sp.y = round2(sp.y + (to.y / toLen) * CARRY_HAUL_SPEED * dt);
+          sp.z = round2(sp.z + (to.z / toLen) * CARRY_HAUL_SPEED * dt);
+        }
+        const hold = { x: sp.x, y: sp.y + HOLD_OFFSET_Y, z: sp.z };
+        overrides.push({
+          role: captive.role,
+          index: i,
+          position: hold,
+          carryFor: rt.carryFor,
+          struggles: rt.struggles,
+          rescueProgress: Math.min(1, rt.struggles / STRUGGLE_NEEDED),
+        });
+        continue;
+      }
 
       // Waypoint patrol (fallback: legacy sine orbit if route missing)
       let routeTarget;
@@ -280,19 +406,20 @@ export class SecuritySim {
         };
       }
 
-      // Find nearest connected player
+      // Find nearest connected free player
       let nearest = null;
       let nearestDist = Infinity;
       for (const p of ctx.players) {
-        if (!p.connected) continue;
+        if (!p.connected || p.captured) continue;
         const d = dist(p.position, sp);
         if (d < nearestDist) { nearestDist = d; nearest = p; }
       }
 
       let target = routeTarget;
-      if (nearest && nearestDist < CHASE_RANGE) target = nearest.position;
+      let speed = route?.speed ?? this.tuning.patrolSpeed ?? DEFAULT_PATROL_SPEED;
+      if (rt.dazedFor > 0) speed = 0.6;
+      else if (nearest && nearestDist < CHASE_RANGE) target = nearest.position;
 
-      const patrolSpeed = route?.speed ?? this.tuning.patrolSpeed ?? DEFAULT_PATROL_SPEED;
       const dx = target.x - sp.x;
       const dy = target.y - sp.y;
       const dz = target.z - sp.z;
@@ -300,9 +427,9 @@ export class SecuritySim {
       let vx, vy, vz;
       if (dSq > 0.05) {
         const len = Math.sqrt(dSq);
-        vx = (dx / len) * patrolSpeed;
-        vy = (dy / len) * patrolSpeed;
-        vz = (dz / len) * patrolSpeed;
+        vx = (dx / len) * speed;
+        vy = (dy / len) * speed;
+        vz = (dz / len) * speed;
       } else {
         vx = dx; vy = dy; vz = dz;
       }
@@ -311,23 +438,103 @@ export class SecuritySim {
       sp.y = round2(sp.y + vy * dt);
       sp.z = round2(sp.z + vz * dt);
 
-      // Shove
-      if (nearest && rt.shoveCooldown <= 0 && nearestDist < SHOVE_DISTANCE) {
-        const dir = normalize({
-          x: nearest.position.x - sp.x,
-          y: nearest.position.y - sp.y,
-          z: nearest.position.z - sp.z,
-        });
-        shoves.push({
-          role: nearest.role,
-          index: i,
-          impulse: { x: dir.x * SHOVE_STRENGTH, y: SHOVE_Y, z: dir.z * SHOVE_STRENGTH },
-        });
-        rt.shoveCooldown = SHOVE_COOLDOWN;
+      // Capture (preferred) or shove — same range as solo.
+      if (nearest && rt.dazedFor <= 0 && nearestDist < CAPTURE_RANGE) {
+        if (rt.captureCooldown <= 0) {
+          rt.carryingRole = nearest.role;
+          rt.carryFor = 0;
+          rt.strainFor = 0;
+          rt.struggles = 0;
+          rt.partnerPrevPos = null;
+          captures.push({ role: nearest.role, index: i });
+          const hold = { x: sp.x, y: sp.y + HOLD_OFFSET_Y, z: sp.z };
+          overrides.push({
+            role: nearest.role,
+            index: i,
+            position: hold,
+            carryFor: 0,
+            struggles: 0,
+            rescueProgress: 0,
+          });
+        } else if (rt.shoveCooldown <= 0 && nearestDist < SHOVE_DISTANCE) {
+          const dir = normalize({
+            x: nearest.position.x - sp.x,
+            y: nearest.position.y - sp.y,
+            z: nearest.position.z - sp.z,
+          });
+          shoves.push({
+            role: nearest.role,
+            index: i,
+            impulse: { x: dir.x * SHOVE_STRENGTH, y: SHOVE_Y, z: dir.z * SHOVE_STRENGTH },
+          });
+          rt.shoveCooldown = SHOVE_COOLDOWN;
+        }
       }
     }
 
-    return { spotted, shoves };
+    return { spotted, shoves, captures, releases, overrides };
+  }
+
+  /** Free whoever this patrol is carrying. Returns { role, index, reason } or null. */
+  releaseCarry(index, reason) {
+    const rt = this.patrol[index];
+    if (!rt?.carryingRole) return null;
+    const role = rt.carryingRole;
+    rt.carryingRole = null;
+    rt.carryFor = 0;
+    rt.strainFor = 0;
+    rt.struggles = 0;
+    rt.partnerPrevPos = null;
+    rt.captureCooldown = CAPTURE_COOLDOWN;
+    rt.dazedFor = reason === 'stun' ? 0 : 1.1;
+    if (reason !== 'timeout' && reason !== 'stun') {
+      const sp = this.state.patrols[index];
+      // Kick the pod away from the holding pen a bit (solo release shove).
+      const kick = normalize({ x: sp.x - CARRY_POINT.x, y: 0, z: sp.z - CARRY_POINT.z });
+      if (kick.x || kick.z) {
+        sp.x = round2(sp.x + kick.x * 0.8);
+        sp.z = round2(sp.z + kick.z * 0.8);
+      }
+    }
+    return { role, index, reason };
+  }
+
+  /** Partner yank / explicit free: release the patrol holding `role`. */
+  releaseRole(role, reason = 'yank') {
+    for (let i = 0; i < this.patrol.length; i++) {
+      if (this.patrol[i].carryingRole === role) return this.releaseCarry(i, reason);
+    }
+    return null;
+  }
+
+  /** TEST / room hook: force a patrol to grab a role at its current position. */
+  forceCapture(role, index = 0) {
+    if (index < 0 || index >= this.patrol.length) return null;
+    const rt = this.patrol[index];
+    if (rt.carryingRole || rt.stunnedFor > 0) return null;
+    // Drop any other hold on this role.
+    this.releaseRole(role, 'timeout');
+    rt.carryingRole = role;
+    rt.carryFor = 0;
+    rt.strainFor = 0;
+    rt.struggles = 0;
+    rt.partnerPrevPos = null;
+    return { role, index };
+  }
+
+  carryInfo(role) {
+    for (let i = 0; i < this.patrol.length; i++) {
+      const rt = this.patrol[i];
+      if (rt.carryingRole === role) {
+        return {
+          index: i,
+          carryFor: rt.carryFor,
+          struggles: rt.struggles,
+          rescueProgress: Math.min(1, rt.struggles / STRUGGLE_NEEDED),
+        };
+      }
+    }
+    return null;
   }
 
   /**
@@ -368,9 +575,7 @@ export class SecuritySim {
       sp.y = home.y;
       sp.z = home.z;
       sp.stunned = false;
-      this.patrol[i].stunnedFor = 0;
-      this.patrol[i].shoveCooldown = 0;
-      this.patrol[i].waypoint = 0;
+      Object.assign(this.patrol[i], emptyPatrolRuntime());
     }
     this.camera.meters.pix = 0;
     this.camera.meters.nee = 0;

@@ -16,6 +16,7 @@ import { mixSeed, mulberry32 } from '../../seed/index.ts';
 import kitManifest from './kit-manifest.json';
 import { DRESSING } from './dressingTable.ts';
 import { applyTwistMood } from './TwistMood.ts';
+import { getQuality } from '../../scene/createScene.ts';
 
 export interface KitDressingHandle {
   dispose(): void;
@@ -234,6 +235,10 @@ export async function dressRunLayout(scene: Scene, layout: RunLayout): Promise<K
     const rand = mulberry32(mixSeed(layout.seed, hash(variant.id)));
 
     for (const row of rows) {
+      if (row.low && getQuality(scene)?.status.tier === 'low') {
+        skipped++;
+        continue;
+      }
       if (row.twist && row.twist !== layout.twist.id) {
         continue;
       }
