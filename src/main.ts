@@ -29,6 +29,8 @@ import { getBest } from './run/nightShiftScore.ts';
 import './style.css';
 import { audio } from './audio/AudioManager.ts';
 import { titleMenuNav } from './ui/MenuNavigator.ts';
+import { enterImmersive } from './ui/fullscreen.ts';
+import { isTouchPlayDevice } from './ui/touchDetect.ts';
 
 // Unlock-on-first-gesture, menu UI sounds and M to mute; sound files load lazily once the page is idle.
 audio.install();
@@ -104,7 +106,10 @@ function menuButton(label: string, testId: string, action: () => void, variant: 
   button.type = 'button';
   button.dataset.testid = testId;
   button.setAttribute('aria-label', label || testId.replace(/-/g, ' '));
-  button.addEventListener('click', action);
+  button.addEventListener('click', () => {
+    if (isTouchPlayDevice() && ['singleplayer', 'start-singleplayer', 'night-shift', 'create-room'].includes(testId)) void enterImmersive();
+    action();
+  });
   return button;
 }
 
@@ -351,6 +356,7 @@ function showJoinRoom(prefill?: string, initialError = ''): void {
   form.append(input, submit);
 
   async function doJoin(code: string): Promise<void> {
+    if (isTouchPlayDevice()) void enterImmersive();
     submit.disabled = true;
     status.textContent = 'Connecting…';
     if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void doJoin(code); }))) {
@@ -453,6 +459,7 @@ function showLobby(session: MultiplayerSession): void {
 }
 
 async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<void> {
+  if (isTouchPlayDevice() && (mode === 'singleplayer' || mode === 'night-shift' || mode === 'multiplayer')) void enterImmersive();
   titleMenuNav.detach();
   try { sessionStorage.removeItem(MODE_STASH_KEY); } catch { /* private mode */ }
   const canvas = element('canvas');
