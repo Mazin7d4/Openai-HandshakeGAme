@@ -527,6 +527,15 @@ export class GameApp {
       debugRunEscape: () => this.multiplayer?.debugRunEscape(),
       /** TEST-ONLY Night Shift capture (HANDSHAKE_TEST_HOOKS=1). */
       debugRunCapture: () => this.multiplayer?.debugRunCapture(),
+      /** TEST-ONLY: force patrol grab / free (HANDSHAKE_TEST_HOOKS=1). */
+      debugForceCapture: (role: DroneRole, index = 0) => this.multiplayer?.debugForceCapture(role, index),
+      debugForceRelease: (role: DroneRole, reason = 'yank') => this.multiplayer?.debugForceRelease(role, reason),
+      /** TEST-ONLY: freeze autonomous patrol AI grabs/shoves (HANDSHAKE_TEST_HOOKS=1). */
+      debugPatrolFreeze: (frozen = true) => this.multiplayer?.debugPatrolFreeze(frozen),
+      /** TEST-ONLY: clear patrol stuns (HANDSHAKE_TEST_HOOKS=1). */
+      debugClearStuns: () => this.multiplayer?.debugClearStuns(),
+      /** Capture snapshot from synced room state. */
+      captures: () => this.gameplay.debugSecurity().captures ?? {},
     });
     // QA / debug: expose camera look yaw ("alpha") for Playwright touch-look checks.
     if (new URLSearchParams(window.location.search).has('debug')) {
@@ -593,22 +602,34 @@ export class GameApp {
     let coachActions = null as ReturnType<HumanControlSource['sample']>['interactions'] | null;
     for (const player of this.players) {
       const control = player.control.sample(dt);
+      const net = this.multiplayer?.currentStatus.players.get(player.role) ?? null;
       if (control.remoteState) {
         player.drone.applyRemoteState(control.remoteState);
+        this.applyNetworkCapture(player.drone, control.remoteState);
       } else if (player.control.kind !== 'remote') {
-        const piloted = this.autopilot?.steer(player.role, player.drone.position, basis) ?? null;
-        const actions = this.gameplay.isRoleHacking(player.role)
-          ? this.idleAxes
-          : piloted ?? control.actions;
-        player.drone.steer(dt, actions, basis, faceGameplayCamera);
+        // Co-op: server overrides pose while captured; boost still counts as struggle.
+        if (net?.captured) {
+          this.applyNetworkCapture(player.drone, net);
+          const actions = control.actions;
+          player.drone.steer(dt, actions, basis, faceGameplayCamera);
+        } else {
+          if (player.drone.isCaptured) player.drone.setCaptured(null);
+          const piloted = this.autopilot?.steer(player.role, player.drone.position, basis) ?? null;
+          const actions = this.gameplay.isRoleHacking(player.role)
+            ? this.idleAxes
+            : piloted ?? control.actions;
+          player.drone.steer(dt, actions, basis, faceGameplayCamera);
+        }
       }
       if (player.control.kind !== 'remote') {
         const interactions = this.autopilot
           ? this.autopilot.interactions(player.role, control.interactions)
           : control.interactions;
-        this.gameplay.handle(player.role, player.drone, interactions);
+        if (!net?.captured) {
+          this.gameplay.handle(player.role, player.drone, interactions);
+        }
         const wantsYank = interactions.yank || (this.yankRequested && player.role === this.hudRole());
-        if (wantsYank && !this.gameplay.isRoleHacking(player.role)) this.yank(player);
+        if (wantsYank && !net?.captured && !this.gameplay.isRoleHacking(player.role)) this.yank(player);
         if (interactions.pause) {
           if (this.coach?.isActive) this.coach.skip();
           else this.setPaused(true);
@@ -647,6 +668,13 @@ export class GameApp {
       this.snapshots.push(drone.captureSnapshot());
     }
     if (this.multiplayer) {
+      // Server owns captured poses — re-snap after physics so the hold doesn't drift.
+      for (const player of this.players) {
+        const net = this.multiplayer.currentStatus.players.get(player.role);
+        if (net?.captured && player.control.kind !== 'remote') {
+          player.drone.debugTeleport(net.position.x, net.position.y, net.position.z);
+        }
+      }
       const localIndex = this.players.findIndex(
         (player) => player.role === this.multiplayer?.currentStatus.localRole,
       );
@@ -735,13 +763,53 @@ export class GameApp {
     );
   }
 
+  /**
+   * Apply server capture: lock pose to the hold point and mark the drone captured
+   * so partner yanks read as rescues (same solo feel).
+   */
+  private applyNetworkCapture(drone: Drone, net: {
+    captured: boolean;
+    position: { x: number; y: number; z: number };
+  }): void {
+    if (!net.captured) {
+      if (drone.isCaptured) {
+        drone.setCaptured(null);
+        gameEvents.emit('capture', {
+          droneId: drone.id,
+          position: drone.position.clone(),
+          freed: true,
+        });
+      }
+      return;
+    }
+    const was = drone.isCaptured;
+    drone.debugTeleport(net.position.x, net.position.y, net.position.z);
+    // Pull toward the hold so steer() keeps the capture haul feel.
+    drone.setCaptured(new Vector3(0, 0, 0));
+    if (!was) {
+      gameEvents.emit('capture', {
+        droneId: drone.id,
+        position: drone.position.clone(),
+        freed: false,
+      });
+    }
+  }
+
   /** Contextual tether-move prompts. Only shown when the move is meaningful right now. */
   private tetherPrompts(player: LocalPlayer, dt: number): string[] {
+    const net = this.multiplayer?.currentStatus.players.get(player.role);
+    if (net?.captured || player.drone.isCaptured) {
+      return [byInput({
+        keyboard: 'Mash [Shift] to struggle — or wait for a yank',
+        touch: 'Mash Jump to struggle — or wait for a yank',
+        gamepad: 'Mash boost to struggle — or wait for a yank',
+      })];
+    }
     const partner = this.partnerOf(player);
     if (!partner || this.gameplay.isRoleHacking(player.role)) return [];
     const name = partner.role.toUpperCase();
     if (this.moves.cooldown(player.role) > 0) return [];
-    if (partner.drone.inTrouble) return [`[R] Yank ${name} to safety`];
+    if (partner.drone.inTrouble || partner.drone.isCaptured) return [`[R] Yank ${name} to safety`];
     const strain = this.tether.currentStrain;
     const kind: YankKind | null = this.moves.preview(player.drone, partner.drone, strain, this.partnerAnchored(partner));
     if (kind === 'sling') return [`[R] Slingshot past ${name}`];

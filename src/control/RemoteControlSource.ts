@@ -106,6 +106,18 @@ export class RemoteControlSource implements DroneControlSource {
     current.connected = target.connected;
     current.selfPowered = target.selfPowered;
     current.tetherPull = damp(current.tetherPull, target.tetherPull, VELOCITY_RESPONSE, dt);
+    current.captured = target.captured === true;
+    current.capturedBy = target.capturedBy ?? -1;
+    current.struggles = target.struggles ?? 0;
+    current.carryFor = target.carryFor ?? 0;
+    current.rescueProgress = target.rescueProgress ?? 0;
+    // While captured, snap to the server hold point (no extrapolation drift).
+    if (current.captured) {
+      current.position.x = target.position.x;
+      current.position.y = target.position.y;
+      current.position.z = target.position.z;
+      current.velocity = { x: 0, y: 0, z: 0 };
+    }
 
     return { actions: this.actions, interactions: this.interactions, remoteState: current };
   }
