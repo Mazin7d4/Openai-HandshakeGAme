@@ -49,6 +49,8 @@ export interface GrabbableNetworkState {
   velocity: Vec3State;
   orientation: OrientationState;
   heldBy: DroneRole | null;
+  holderId: string;
+  lastEvent: string;
   authority: DroneRole;
   mode: GrabbableMode;
   revision: number;

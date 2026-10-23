@@ -95,6 +95,8 @@ interface SchemaObject {
   velocity: { x: number; y: number; z: number };
   orientation: { pitch: number; yaw: number; roll: number };
   heldBy: string;
+  holderId: string;
+  lastEvent: string;
   authority: DroneRole;
   mode: 'free' | 'held';
   revision: number;
@@ -200,6 +202,8 @@ function copyObject(object: SchemaObject): GrabbableNetworkState {
     velocity: { ...object.velocity },
     orientation: { ...object.orientation },
     heldBy: roleOrNull(object.heldBy),
+    holderId: object.holderId ?? '',
+    lastEvent: object.lastEvent ?? '',
     authority: object.authority,
     mode: object.mode,
     revision: object.revision,
@@ -361,6 +365,10 @@ export class MultiplayerSession {
 
   requestGrab(objectId: string): void {
     this.room.send('grab-object', { objectId });
+  }
+
+  requestHandoff(objectId: string): void {
+    this.room.send('handoff-object', { objectId });
   }
 
   releaseObject(

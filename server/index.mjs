@@ -45,6 +45,14 @@ const MAX_WORLD_COORDINATE = 200;
 const MAX_PLAYER_SPEED = 28;
 const MAX_OBJECT_SPEED = 32;
 const TERMINAL_RANGE = 5;
+const HOLD_OFFSET = { x: 0, y: -1.15, z: 0.35 };
+const MAX_RELEASE_SPEED = Math.max(MAX_OBJECT_SPEED, MAX_PLAYER_SPEED + 10 + 1.8);
+const RELEASE_RANGE = 3.5;
+const HELD_SNAPSHOT_RANGE = 4;
+const HANDOFF_RANGE = 4.5;
+const STEAL_RANGE = 2.0;
+const STEAL_LOCK_MS = 1000;
+const GRAB_COOLDOWN_MS = 250;
 /** Mutable per-room world sinks filled by applyRunLayout (defaults match heist-layout.json). */
 function createWorldSinks() {
   return {
@@ -110,6 +118,8 @@ const Grabbable = schema(
     velocity: Vec3,
     orientation: Orientation,
     heldBy: t.string().default(''),
+    holderId: t.string().default(''),
+    lastEvent: t.string().default(''),
     authority: t.string().default('pix'),
     mode: t.string().default('free'),
     revision: t.float32().default(0),
@@ -229,6 +239,8 @@ class HandshakeRoom extends Room {
   nightshiftEscapedFloor = 0;
   world = createWorldSinks();
   runLayout = null;
+  heldSinceMs = new Map();
+  lastGrabMs = new Map();
 
   onCreate(options = {}) {
     liveRooms.add(this);
@@ -261,6 +273,7 @@ class HandshakeRoom extends Room {
       this.applySnapshot(client.sessionId, message);
     });
     this.onMessage('grab-object', (client, message) => this.grabObject(client.sessionId, message));
+    this.onMessage('handoff-object', (client, message) => this.handoffObject(client.sessionId, message));
     this.onMessage('release-object', (client, message) => this.releaseObject(client.sessionId, message));
     this.onMessage('object-snapshot', (client, message) => this.applyObjectSnapshot(client.sessionId, message));
     this.onMessage('hack-start', (client, message) => this.startHack(client.sessionId, message));
@@ -308,6 +321,13 @@ class HandshakeRoom extends Room {
         this.debugForceCapture(client, m);
       });
       this.onMessage('debug-force-release', (client, m) => this.debugForceRelease(client, m));
+      this.onMessage('debug-object-place', (_client, m) => {
+        const object = this.state.objects.get(m?.objectId);
+        if (!object || object.mode !== 'free') return;
+        copyVec3(object.position, m, MAX_WORLD_COORDINATE, 'object.position');
+        object.velocity.x = 0; object.velocity.y = 0; object.velocity.z = 0;
+        object.revision += 1;
+      });
 
       // Frozen test patrols also ignore cord clotheslines, so teleporting a drone
       // across the room cannot stun-free a captive mid-check.
@@ -363,6 +383,7 @@ class HandshakeRoom extends Room {
     this.setSimulationInterval((deltaMs) => {
       this.updateHack();
       this.updateMission();
+      this.updateHeldObjects();
       this.updateSecurity(deltaMs / 1000);
     });
   }
@@ -493,10 +514,10 @@ class HandshakeRoom extends Room {
     if (!player) {
       return;
     }
-    if (player.connected) {
-      this.freezePlayer(player);
-      this.releaseRole(player.role);
-    }
+    if (player.connected) this.freezePlayer(player);
+    // Hold expired (or consented leave): the carried item finally drops where the drone was.
+    this.dropHeldForRole(player.role, 'disconnect');
+    this.releaseRole(player.role);
     this.state.players.delete(client.sessionId);
     this.state.started = false;
   }
@@ -566,50 +587,104 @@ class HandshakeRoom extends Room {
   grabObject(sessionId, message) {
     const player = this.state.players.get(sessionId);
     const object = this.state.objects.get(message?.objectId);
-    if (!player || !object || distance(player.position, object.position) > object.grabRadius) {
+    if (!player?.connected || player.captured || !object || distance(player.position, object.position) > object.grabRadius) {
       return;
     }
     if (object.id === 'prototype' && !this.state.hack.doorOpen) return;
-    if (object.heldBy && object.heldBy !== player.role) return;
+    const now = Date.now();
+    if (now - (this.lastGrabMs.get(sessionId) ?? 0) < GRAB_COOLDOWN_MS) return;
+    this.lastGrabMs.set(sessionId, now);
     for (const other of this.state.objects.values()) {
-      if (other.id !== object.id && other.heldBy === player.role) {
+      if (other.id !== object.id && other.holderId === sessionId) {
         return;
       }
     }
-    object.heldBy = player.role;
-    object.authority = player.role;
-    object.mode = 'held';
-    object.revision += 1;
+    if (object.mode === 'held') {
+      if (object.heldBy === player.role) return;
+      const holder = this.state.players.get(object.holderId);
+      if (!holder?.connected || now - (this.heldSinceMs.get(object.id) ?? now) < STEAL_LOCK_MS) return;
+      if (distance(player.position, object.position) > Math.min(STEAL_RANGE, object.grabRadius)) return;
+      const from = object.heldBy;
+      this.setOwnership(object, player, 'steal');
+      this.broadcast('object-event', { objectId: object.id, event: 'steal', from, to: player.role });
+    } else {
+      this.setOwnership(object, player, 'grab');
+    }
     if (object.id === 'prototype') this.triggerAlarm(player.role);
   }
 
-  releaseObject(sessionId, message) {
-    const role = this.roleForSession(sessionId);
+  handoffObject(sessionId, message) {
+    const player = this.state.players.get(sessionId);
     const object = this.state.objects.get(message?.objectId);
-    if (!role || !object || object.heldBy !== role) {
+    const partner = Array.from(this.state.players.values()).find((candidate) => candidate.role !== player?.role);
+    if (!player?.connected || player.captured || !object || object.holderId !== sessionId || !partner?.connected || partner.captured) return;
+    const now = Date.now();
+    if (now - (this.lastGrabMs.get(sessionId) ?? 0) < GRAB_COOLDOWN_MS) return;
+    this.lastGrabMs.set(sessionId, now);
+    if (distance(player.position, partner.position) > HANDOFF_RANGE) return;
+    if (Array.from(this.state.objects.values()).some((candidate) => candidate.id !== object.id && candidate.holderId === partner.playerId)) return;
+    const from = player.role;
+    this.setOwnership(object, partner, 'handoff');
+    this.broadcast('object-event', { objectId: object.id, event: 'handoff', from, to: partner.role });
+  }
+
+  releaseObject(sessionId, message) {
+    const player = this.state.players.get(sessionId);
+    const object = this.state.objects.get(message?.objectId);
+    if (!player?.connected || player.captured || !object || object.holderId !== sessionId) {
       return;
     }
-    copyVec3(object.position, message.position, MAX_WORLD_COORDINATE, 'object.position');
-    copyVec3(object.velocity, message.velocity, MAX_OBJECT_SPEED, 'object.velocity');
-    object.heldBy = '';
-    object.authority = role;
-    object.mode = 'free';
-    object.revision += 1;
+    const release = { x: finite(message?.position?.x, player.position.x + HOLD_OFFSET.x), y: finite(message?.position?.y, player.position.y + HOLD_OFFSET.y), z: finite(message?.position?.z, player.position.z + HOLD_OFFSET.z) };
+    if (distance(player.position, release) > RELEASE_RANGE) Object.assign(release, { x: player.position.x + HOLD_OFFSET.x, y: player.position.y + HOLD_OFFSET.y, z: player.position.z + HOLD_OFFSET.z });
+    copyVec3(object.position, release, MAX_WORLD_COORDINATE, 'object.position');
+    copyVec3(object.velocity, message.velocity, MAX_RELEASE_SPEED, 'object.velocity');
+    this.setOwnership(object, null, message?.thrown === true ? 'throw' : 'drop', player.role);
     if (message?.thrown === true) this.state.mission.objectsThrown += 1;
   }
 
   applyObjectSnapshot(sessionId, message) {
-    const role = this.roleForSession(sessionId);
+    const player = this.state.players.get(sessionId);
     const object = this.state.objects.get(message?.objectId);
-    if (!role || !object || object.authority !== role) {
+    if (!player?.connected || !object || (object.mode === 'held' ? object.holderId !== sessionId : object.authority !== player.role)) {
       return;
     }
-    copyVec3(object.position, message.position, MAX_WORLD_COORDINATE, 'object.position');
+    if (object.mode === 'held' && distance(player.position, message.position ?? {}) > HELD_SNAPSHOT_RANGE) {
+      copyVec3(object.position, { x: player.position.x + HOLD_OFFSET.x, y: player.position.y + HOLD_OFFSET.y, z: player.position.z + HOLD_OFFSET.z }, MAX_WORLD_COORDINATE, 'object.position');
+    } else {
+      copyVec3(object.position, message.position, MAX_WORLD_COORDINATE, 'object.position');
+    }
     copyVec3(object.velocity, message.velocity, MAX_OBJECT_SPEED, 'object.velocity');
     const orientation = message.orientation ?? {};
     object.orientation.pitch = finite(orientation.pitch, object.orientation.pitch);
     object.orientation.yaw = finite(orientation.yaw, object.orientation.yaw);
     object.orientation.roll = finite(orientation.roll, object.orientation.roll);
+  }
+
+  setOwnership(object, holder, event, freeAuthority = holder?.role ?? object.authority) {
+    object.heldBy = holder?.role ?? '';
+    object.holderId = holder?.playerId ?? '';
+    object.mode = holder ? 'held' : 'free';
+    object.authority = freeAuthority;
+    object.lastEvent = event;
+    object.revision += 1;
+    if (holder) this.heldSinceMs.set(object.id, Date.now());
+    else this.heldSinceMs.delete(object.id);
+  }
+
+  heldPosition(player) {
+    return { x: player.position.x + HOLD_OFFSET.x, y: player.position.y + HOLD_OFFSET.y, z: player.position.z + HOLD_OFFSET.z };
+  }
+
+  updateHeldObjects() {
+    for (const object of this.state.objects.values()) {
+      if (object.mode !== 'held') continue;
+      const holder = this.state.players.get(object.holderId);
+      if (!holder?.connected) {
+        const p = holder ? this.heldPosition(holder) : object.position;
+        object.position.x = p.x; object.position.y = p.y; object.position.z = p.z;
+        object.velocity.x = 0; object.velocity.y = 0; object.velocity.z = 0;
+      }
+    }
   }
 
   stationFields(stationId) {
@@ -776,6 +851,16 @@ class HandshakeRoom extends Room {
     player.struggles = 0;
     player.carryFor = 0;
     player.rescueProgress = 0;
+    for (const object of this.state.objects.values()) {
+      if (object.holderId !== player.playerId) continue;
+      const partner = Array.from(this.state.players.values()).find((candidate) => candidate.role !== role && candidate.connected && !candidate.captured);
+      const from = object.heldBy;
+      const p = this.heldPosition(player);
+      object.position.x = p.x; object.position.y = p.y; object.position.z = p.z;
+      object.velocity.x = 0; object.velocity.y = 0; object.velocity.z = 0;
+      this.setOwnership(object, null, 'captured', partner?.role ?? role);
+      this.broadcast('object-event', { objectId: object.id, event: 'captured', from, to: partner?.role ?? '' });
+    }
     player.velocity.x = 0;
     player.velocity.y = 0;
     player.velocity.z = 0;
@@ -997,8 +1082,7 @@ class HandshakeRoom extends Room {
     this.state.hack.doorOpen = false;
     const prototype = this.state.objects.get('prototype');
     if (prototype) {
-      prototype.heldBy = '';
-      prototype.mode = 'free';
+      this.setOwnership(prototype, null, 'reset', 'pix');
       const loot = this.runLayout?.loot ?? layout.objects.prototype;
       prototype.position.x = loot.x;
       prototype.position.y = loot.y;
@@ -1007,6 +1091,15 @@ class HandshakeRoom extends Room {
       prototype.velocity.y = 0;
       prototype.velocity.z = 0;
       prototype.revision += 1;
+    }
+    for (const player of this.state.players.values()) {
+      for (const object of this.state.objects.values()) {
+        if (object.holderId !== player.playerId || object.id === 'prototype') continue;
+        const p = this.heldPosition(player);
+        object.position.x = p.x; object.position.y = p.y; object.position.z = p.z;
+        object.velocity.x = 0; object.velocity.y = 0; object.velocity.z = 0;
+        this.setOwnership(object, null, 'reset', player.role);
+      }
     }
     const mission = this.state.mission;
     mission.stage = 'infiltrate';
@@ -1030,17 +1123,28 @@ class HandshakeRoom extends Room {
       (player) => player.role === fallback && player.connected,
     );
     for (const object of this.state.objects.values()) {
-      if (object.heldBy === role) {
-        object.heldBy = '';
-        object.mode = 'free';
-      }
-      if (object.authority === role) {
+      if (object.mode === 'free' && object.authority === role) {
         object.authority = fallbackConnected ? fallback : 'pix';
         object.velocity.x = 0;
         object.velocity.y = 0;
         object.velocity.z = 0;
         object.revision += 1;
       }
+    }
+  }
+
+  dropHeldForRole(role, event) {
+    const player = Array.from(this.state.players.values()).find((candidate) => candidate.role === role);
+    if (!player) return;
+    const partner = Array.from(this.state.players.values()).find((candidate) => candidate.role !== role && candidate.connected && !candidate.captured);
+    for (const object of this.state.objects.values()) {
+      if (object.holderId !== player.playerId) continue;
+      const from = object.heldBy;
+      const p = this.heldPosition(player);
+      object.position.x = p.x; object.position.y = p.y; object.position.z = p.z;
+      object.velocity.x = 0; object.velocity.y = 0; object.velocity.z = 0;
+      this.setOwnership(object, null, event, partner?.role ?? role);
+      this.broadcast('object-event', { objectId: object.id, event, from, to: partner?.role ?? '' });
     }
   }
 }

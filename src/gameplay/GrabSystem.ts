@@ -10,6 +10,8 @@ const HOLD_OFFSET = new Vector3(0, -1.15, 0.35);
 const THROW_SPEED = 10;
 const THROW_LIFT = 1.8;
 const DRONE_CLEARANCE = 0.82;
+const HANDOFF_PROMPT_RANGE = 2.4;
+const STEAL_RANGE = 2.0;
 
 /** Owns proximity selection, carry springs, stealing, release and throw semantics. */
 export class GrabSystem {
@@ -26,6 +28,8 @@ export class GrabSystem {
   private readonly sweepCooldown = new Map<string, number>();
   private readonly sweepPush = new Vector3();
   private readonly closest = new Vector3();
+  private drones: ReadonlyMap<DroneRole, Drone> = new Map();
+  private readonly pendingRequests = new Map<string, { revision: number; sentAt: number }>();
 
   constructor(
     objects: readonly Grabbable[],
@@ -50,7 +54,13 @@ export class GrabSystem {
     if (!this.localRole) return;
     for (const object of this.objects) {
       const state = status.objects.get(object.id);
-      if (state) object.applyNetworkState(state, this.localRole);
+      if (state) {
+        const pending = this.pendingRequests.get(object.id);
+        if (pending && (pending.revision !== state.revision || performance.now() - pending.sentAt >= 400)) {
+          this.pendingRequests.delete(object.id);
+        }
+        object.applyNetworkState(state, this.localRole);
+      }
     }
   }
 
@@ -70,6 +80,16 @@ export class GrabSystem {
   grabOrDrop(role: DroneRole, drone: Drone): boolean {
     const held = this.objects.find((object) => object.heldBy === role);
     if (held) {
+      const partnerRole = role === 'pix' ? 'nee' : 'pix';
+      const partner = this.drones.get(partnerRole);
+      const partnerEmpty = partner && !this.objects.some((object) => object.heldBy === partnerRole);
+      if (this.session && partner && partnerEmpty && Vector3.Distance(partner.position, drone.position) <= HANDOFF_PROMPT_RANGE) {
+        if (this.canRequest(held.id)) {
+          this.session.requestHandoff(held.id);
+          this.pendingRequests.set(held.id, { revision: this.revisionOf(held.id), sentAt: performance.now() });
+        }
+        return true;
+      }
       this.drop(role, drone);
       return true;
     }
@@ -84,10 +104,31 @@ export class GrabSystem {
         nearestDistance = distance;
       }
     }
-    if (!nearest) return false;
+    if (!nearest) {
+      if (!this.session) return false;
+      let steal: Grabbable | null = null;
+      let stealDistance = Number.POSITIVE_INFINITY;
+      for (const object of this.objects) {
+        if (!object.heldBy || object.heldBy === role) continue;
+        const distance = object.distanceTo(drone.position);
+        if (distance <= STEAL_RANGE && distance <= object.grabRadius && distance < stealDistance) {
+          steal = object;
+          stealDistance = distance;
+        }
+      }
+      if (!steal || !this.canRequest(steal.id)) return false;
+      if (role === this.localRole) {
+        this.session.requestGrab(steal.id);
+        this.pendingRequests.set(steal.id, { revision: this.revisionOf(steal.id), sentAt: performance.now() });
+      }
+      return true;
+    }
     if (this.canGrab && !this.canGrab(nearest.id, role)) return false;
     if (this.session) {
-      if (role === this.localRole) this.session.requestGrab(nearest.id);
+      if (role === this.localRole && this.canRequest(nearest.id)) {
+        this.session.requestGrab(nearest.id);
+        this.pendingRequests.set(nearest.id, { revision: this.revisionOf(nearest.id), sentAt: performance.now() });
+      }
     } else {
       nearest.grab(role);
       this.onGrab?.(nearest.id, role);
@@ -136,6 +177,7 @@ export class GrabSystem {
   }
 
   update(dt: number, drones: ReadonlyMap<DroneRole, Drone>): void {
+    this.drones = drones;
     this.cordSweep(dt, drones);
     for (const object of this.objects) {
       const holder = object.heldBy ? drones.get(object.heldBy) : undefined;
@@ -257,10 +299,20 @@ export class GrabSystem {
 
   promptsFor(role: DroneRole, drone: Drone): string[] {
     const held = this.objects.find((object) => object.heldBy === role);
+    const partnerRole = role === 'pix' ? 'nee' : 'pix';
+    const partner = this.drones.get(partnerRole);
+    const partnerEmpty = partner && !this.objects.some((object) => object.heldBy === partnerRole);
+    if (held && this.session && partner && partnerEmpty && Vector3.Distance(partner.position, drone.position) <= HANDOFF_PROMPT_RANGE) {
+      return [`[E] Pass ${held.label}`, `[Q] Throw ${held.label}`];
+    }
     if (held?.heavy && !held.helped) {
       return [`Too heavy. Fly it with ${role === 'pix' ? 'NEE' : 'PIX'}`, `[E] Drop ${held.label}`];
     }
-    if (held) return [`[E] Drop ${held.label}`, `[Q] Throw ${held.label}`];
+    if (held) {
+      const action = this.session && partner && partnerEmpty && Vector3.Distance(partner.position, drone.position) <= HANDOFF_PROMPT_RANGE
+        ? `[E] Pass ${held.label}` : `[E] Drop ${held.label}`;
+      return [action, `[Q] Throw ${held.label}`];
+    }
     let nearest: Grabbable | null = null;
     let nearestDistance = Number.POSITIVE_INFINITY;
     for (const object of this.objects) {
@@ -271,7 +323,21 @@ export class GrabSystem {
         nearestDistance = distance;
       }
     }
-    return nearest ? [`[E] Grab ${nearest.label}`] : [];
+    if (nearest) return [`[E] Grab ${nearest.label}`];
+    if (this.session) {
+      const steal = this.objects.find((object) => object.heldBy && object.heldBy !== role && object.distanceTo(drone.position) <= Math.min(STEAL_RANGE, object.grabRadius));
+      if (steal) return [`[E] Snatch ${steal.label}`];
+    }
+    return [];
+  }
+
+  private revisionOf(id: string): number {
+    return this.objects.find((object) => object.id === id)?.networkRevision ?? -1;
+  }
+
+  private canRequest(id: string): boolean {
+    const pending = this.pendingRequests.get(id);
+    return !pending || performance.now() - pending.sentAt >= 400;
   }
 
   dispose(): void {
