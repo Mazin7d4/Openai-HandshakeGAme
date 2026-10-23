@@ -111,6 +111,7 @@ try {
   for (const page of [host, guest]) {
     await page.waitForFunction(() => window.__autotest.security().securityActive, null, { timeout: 10_000 });
   }
+  await host.evaluate(() => window.__autotest.debugPatrolFreeze?.(true));
 
   // ── 1. Capture ────────────────────────────────────────────────────────
   await host.evaluate(() => window.__autotest.debugForceCapture('pix', 0));
@@ -128,10 +129,18 @@ try {
   assert(hCap.pix?.captured && gCap.pix?.captured, `capture disagree host=${JSON.stringify(hCap)} guest=${JSON.stringify(gCap)}`);
   assert(hCap.pix.capturedBy === 0 && gCap.pix.capturedBy === 0, 'capturedBy should be patrol 0');
   assert(!hCap.nee?.captured && !gCap.nee?.captured, 'NEE should still be free');
+  assert(typeof hCap.pix.rescueProgress === 'number' && typeof gCap.pix.rescueProgress === 'number', 'rescue progress should sync');
+  assert(hCap.pix.rescueProgress === gCap.pix.rescueProgress, 'rescue progress should match');
+  // Verify input locked: steering or key inputs do not override server-held capture position
+  const beforeX = hCap.pix.x, beforeZ = hCap.pix.z;
+  await host.keyboard.press('KeyW');
+  await host.waitForTimeout(100);
+  const lockCap = (await caps(host)).pix;
+  assert(Math.hypot(lockCap.x - beforeX, lockCap.z - beforeZ) < 0.25, 'captured drone input should be locked');
   result.notes.capture = { pix: hCap.pix };
 
   // ── 2. Rescue success ─────────────────────────────────────────────────
-  const hold = hCap.pix;
+  const hold = (await caps(host)).pix;
   await guest.evaluate((p) => window.__autotest.teleport('nee', p.x + 1.5, p.y, p.z + 1.5), hold);
   await host.waitForTimeout(250);
   await guest.getByTestId('game-canvas').focus();
@@ -146,34 +155,59 @@ try {
     null,
     { timeout: 5_000 },
   );
-  assert(!(await caps(host)).pix?.captured, 'PIX still captured after yank rescue');
   result.notes.rescueSuccess = true;
 
   // ── 3. Rescue failure (timeout window) ────────────────────────────────
-  // Keep NEE far so a yank cannot succeed; confirm the carry timer advances,
-  // then force the timeout free (same server path as CARRY_MAX expiry).
-  await host.evaluate(() => window.__autotest.debugForceCapture('pix', 0));
+  // Clear any stuns from the previous rescue clothesline and force-capture PIX
+  await host.evaluate(() => {
+    window.__autotest.debugClearStuns?.();
+    window.__autotest.debugForceCapture('pix', 0);
+  });
   await host.waitForFunction(
     () => window.__autotest.security()?.captures?.pix?.captured === true,
     null,
-    { timeout: 8_000 },
+    { timeout: 5_000 },
   );
-  await guest.evaluate(() => window.__autotest.teleport('nee', -20, 3, -60));
+  await guest.waitForFunction(
+    () => window.__autotest.security()?.captures?.pix?.captured === true,
+    null,
+    { timeout: 5_000 },
+  );
+  assert((await caps(host)).pix?.captured === true, 'PIX could not be re-captured for the failure case');
+
+  // (a) with NEE parked far (>12 m) and idle, the drone stays captured for at least 1.5 s of carry
+  const holdPix = (await caps(host)).pix;
+  await guest.evaluate((p) => window.__autotest.teleport('nee', p.x, p.y, p.z - 12.5), holdPix);
   await host.waitForFunction(
     () => {
       const c = window.__autotest.security()?.captures?.pix;
-      return c && c.captured === true && c.carryFor > 0.6;
+      return c && c.captured === true && c.carryFor >= 1.5;
     },
     null,
     { timeout: 8_000 },
   );
   const ticking = (await caps(host)).pix?.carryFor ?? 0;
-  assert(ticking > 0.6, `carry timer did not advance (${ticking})`);
-  await host.evaluate(() => window.__autotest.debugForceRelease('pix', 'timeout'));
+  assert(ticking >= 1.5, `carry timer did not advance past 1.5s (${ticking})`);
+  assert((await caps(host)).pix?.captured === true, 'PIX should stay captured while NEE is idle');
+
+  // (b) a 'tether-yank' kind 'yank' sent from beyond 11 m does NOT clear captured
+  const midPix = (await caps(host)).pix;
+  // Position NEE ~11.3 m away (within 11-13.5 m: client preview allows yank, server accepts message but distance > 11 prevents rescue)
+  await guest.evaluate((p) => {
+    window.__autotest.teleport('nee', p.x, p.y, p.z - 11.3);
+  }, midPix);
+  await host.waitForTimeout(100);
+  await guest.getByTestId('game-canvas').focus();
+  await guest.keyboard.press('r');
+  await host.waitForTimeout(300);
+  const afterYank = (await caps(host)).pix;
+  assert(afterYank?.captured === true, 'a tether-yank from beyond 11 m must not clear captured');
+
+  // (c) after the carry window (CARRY_MAX 4.5 s, allow up to ~7 s) the server runs the timeout outcome
   await host.waitForFunction(
     () => window.__autotest.security()?.captures?.pix?.captured === false,
     null,
-    { timeout: 8_000 },
+    { timeout: 7_000 },
   );
   await guest.waitForFunction(
     () => window.__autotest.security()?.captures?.pix?.captured === false,
@@ -184,7 +218,10 @@ try {
   result.notes.rescueFailure = { carryFor: ticking, freed: true };
 
   // ── 4. Reconnect while captured ───────────────────────────────────────
-  await host.evaluate(() => window.__autotest.debugForceCapture('nee', 1));
+  await host.evaluate(() => {
+    window.__autotest.debugClearStuns?.();
+    window.__autotest.debugForceCapture('nee', 1);
+  });
   await guest.waitForFunction(
     () => window.__autotest.security()?.captures?.nee?.captured === true,
     null,

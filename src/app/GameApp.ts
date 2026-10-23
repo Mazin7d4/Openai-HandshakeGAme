@@ -498,6 +498,10 @@ export class GameApp {
       /** TEST-ONLY: force patrol grab / free (HANDSHAKE_TEST_HOOKS=1). */
       debugForceCapture: (role: DroneRole, index = 0) => this.multiplayer?.debugForceCapture(role, index),
       debugForceRelease: (role: DroneRole, reason = 'yank') => this.multiplayer?.debugForceRelease(role, reason),
+      /** TEST-ONLY: freeze autonomous patrol AI grabs/shoves (HANDSHAKE_TEST_HOOKS=1). */
+      debugPatrolFreeze: (frozen = true) => this.multiplayer?.debugPatrolFreeze(frozen),
+      /** TEST-ONLY: clear patrol stuns (HANDSHAKE_TEST_HOOKS=1). */
+      debugClearStuns: () => this.multiplayer?.debugClearStuns(),
       /** Capture snapshot from synced room state. */
       captures: () => this.gameplay.debugSecurity().captures ?? {},
     });

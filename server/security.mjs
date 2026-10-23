@@ -79,6 +79,7 @@ function emptyPatrolRuntime() {
     carryFor: 0,
     strainFor: 0,
     struggles: 0,
+    partnerPrevPos: null,
   };
 }
 
@@ -315,7 +316,9 @@ export class SecuritySim {
       // Active carry: haul to holding pen; free on yank / struggle / strain / timeout.
       if (rt.carryingRole) {
         const captive = ctx.players.find((p) => p.role === rt.carryingRole);
-        if (!captive || !captive.connected) {
+        // A captive who drops keeps their seat (reconnect grace): stay held so the
+        // rejoining client gets the same capture back. Only a vanished player frees.
+        if (!captive) {
           const freed = this.releaseCarry(i, 'timeout');
           if (freed) releases.push(freed);
           continue;
@@ -330,7 +333,22 @@ export class SecuritySim {
         rt.carryFor += dt;
         const partner = partnerOf(captive.role);
         const tetherDist = partner ? dist(captive.position, partner.position) : 0;
-        const strained = (captive.tetherPull ?? 0) >= STRAIN_TETHER || tetherDist >= STRAIN_DISTANCE;
+        let separationRate = 0;
+        if (partner && rt.partnerPrevPos && dt > 0) {
+          // Partner's own speed away from the captive (guard haul must not count).
+          const away = { x: partner.position.x - captive.position.x, y: partner.position.y - captive.position.y, z: partner.position.z - captive.position.z };
+          const len = Math.hypot(away.x, away.y, away.z) || 1;
+          const moved = { x: partner.position.x - rt.partnerPrevPos.x, y: partner.position.y - rt.partnerPrevPos.y, z: partner.position.z - rt.partnerPrevPos.z };
+          separationRate = dot(moved, away) / len / dt;
+        }
+        if (partner) {
+          rt.partnerPrevPos = { x: partner.position.x, y: partner.position.y, z: partner.position.z };
+        } else {
+          rt.partnerPrevPos = null;
+        }
+        const activelyPulling = tetherDist >= STRAIN_DISTANCE && separationRate > 1.5;
+        const clientStrained = (captive.tetherPull ?? 0) >= STRAIN_TETHER && tetherDist <= STRAIN_DISTANCE + 2;
+        const strained = Boolean(partner && (activelyPulling || clientStrained));
         rt.strainFor = strained ? rt.strainFor + dt : 0;
         if (rt.struggles >= STRUGGLE_NEEDED) {
           const freed = this.releaseCarry(i, 'struggle');
@@ -426,6 +444,7 @@ export class SecuritySim {
           rt.carryFor = 0;
           rt.strainFor = 0;
           rt.struggles = 0;
+          rt.partnerPrevPos = null;
           captures.push({ role: nearest.role, index: i });
           const hold = { x: sp.x, y: sp.y + HOLD_OFFSET_Y, z: sp.z };
           overrides.push({
@@ -464,6 +483,7 @@ export class SecuritySim {
     rt.carryFor = 0;
     rt.strainFor = 0;
     rt.struggles = 0;
+    rt.partnerPrevPos = null;
     rt.captureCooldown = CAPTURE_COOLDOWN;
     rt.dazedFor = reason === 'stun' ? 0 : 1.1;
     if (reason !== 'timeout' && reason !== 'stun') {
@@ -497,6 +517,7 @@ export class SecuritySim {
     rt.carryFor = 0;
     rt.strainFor = 0;
     rt.struggles = 0;
+    rt.partnerPrevPos = null;
     return { role, index };
   }
 

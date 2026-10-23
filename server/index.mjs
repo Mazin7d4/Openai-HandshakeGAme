@@ -274,17 +274,85 @@ class HandshakeRoom extends Room {
     this.onMessage('capture-struggle', (client) => this.reportStruggle(client.sessionId));
     if (TEST_HOOKS) {
       console.log('[handshake] TEST HOOKS enabled');
-      this.onMessage('debug-stage', (client, m) => {
+      this._testPatrolFrozen = false;
+      this.onMessage('debug-patrol-freeze', (_client, m) => {
+        this._testPatrolFrozen = m?.frozen !== false;
+      });
+      this.onMessage('debug-clear-stuns', () => {
+        for (const p of this.securitySim.patrol) {
+          p.stunnedFor = 0;
+          p.dazedFor = 0;
+        }
+        for (const sp of this.state.security.patrols) {
+          sp.stunned = false;
+        }
+      });
+      this.onMessage('debug-stage', (_client, m) => {
         if (m?.stage === 'escape') {
           this.state.mission.stage = 'escape';
           this.state.mission.alarm = true;
           this.state.mission.securityActive = true;
+          if (m?.freezePatrols) this._testPatrolFrozen = true;
         }
       });
       this.onMessage('debug-run-escape', () => this.handleEscape());
       this.onMessage('debug-run-capture', (client) => this.handleCapture(client.sessionId));
-      this.onMessage('debug-force-capture', (client, m) => this.debugForceCapture(client, m));
+      this.onMessage('debug-force-capture', (client, m) => {
+        for (const p of this.securitySim.patrol) {
+          p.stunnedFor = 0;
+          p.dazedFor = 0;
+        }
+        for (const sp of this.state.security.patrols) {
+          sp.stunned = false;
+        }
+        this.debugForceCapture(client, m);
+      });
       this.onMessage('debug-force-release', (client, m) => this.debugForceRelease(client, m));
+
+      const origSecurityUpdate = this.securitySim.update.bind(this.securitySim);
+      this.securitySim.update = (dt, ctx) => {
+        const savedPositions = this._testPatrolFrozen
+          ? this.state.security.patrols.map((p) => ({ x: p.x, y: p.y, z: p.z }))
+          : null;
+
+        const result = origSecurityUpdate(dt, ctx);
+
+        if (this._testPatrolFrozen) {
+          // Restore patrol positions to keep them stationary (prevents distance drift and patrol roaming)
+          if (savedPositions) {
+            for (let i = 0; i < savedPositions.length; i++) {
+              const sp = this.state.security.patrols[i];
+              if (sp && savedPositions[i]) {
+                sp.x = savedPositions[i].x;
+                sp.y = savedPositions[i].y;
+                sp.z = savedPositions[i].z;
+              }
+            }
+          }
+
+          // Disarm autonomous grabs and shoves by idle patrol AI
+          if (result.captures?.length) {
+            for (const cap of result.captures) {
+              const rt = this.securitySim.patrol[cap.index];
+              if (rt && rt.carryingRole === cap.role) {
+                rt.carryingRole = null;
+              }
+            }
+            result.captures = [];
+          }
+          result.shoves = [];
+
+          // Keep captive position locked to the stationary patrol
+          for (const over of result.overrides ?? []) {
+            const sp = this.state.security.patrols[over.index];
+            if (sp) {
+              over.position = { x: sp.x, y: sp.y - 0.95, z: sp.z };
+            }
+          }
+        }
+
+        return result;
+      };
     }
     this.setSimulationInterval((deltaMs) => {
       this.updateHack();
@@ -822,8 +890,7 @@ class HandshakeRoom extends Room {
     const magnitude = Math.hypot(x, y, z);
     if (magnitude > 16) { x *= 16 / magnitude; y *= 16 / magnitude; z *= 16 / magnitude; }
     // Server decides rescue: partner is captured + yank kind (solo rescue rules).
-    const canRescue = kind === 'yank' && partner.captured === true;
-    const rescue = canRescue || (kind === 'yank' && message.rescue === true && partner.captured === true);
+    const rescue = kind === 'yank' && partner.captured === true && distance(sender.position, partner.position) <= 11;
     if (rescue) {
       const freed = this.securitySim.releaseRole(partner.role, 'yank');
       if (freed) this.finishCapture(freed.role, freed.index, 'yank');

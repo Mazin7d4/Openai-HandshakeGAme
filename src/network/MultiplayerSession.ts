@@ -436,6 +436,16 @@ export class MultiplayerSession {
     this.room.send('debug-force-release', { role, reason });
   }
 
+  /** TEST-ONLY: freeze autonomous patrol AI grabs/shoves (HANDSHAKE_TEST_HOOKS=1). */
+  debugPatrolFreeze(frozen = true): void {
+    this.room.send('debug-patrol-freeze', { frozen });
+  }
+
+  /** TEST-ONLY: clear patrol stuns (HANDSHAKE_TEST_HOOKS=1). */
+  debugClearStuns(): void {
+    this.room.send('debug-clear-stuns');
+  }
+
   /** Boost-struggle while captured (also inferred from snapshot boost edges). */
   reportStruggle(): void {
     this.room.send('capture-struggle');
