@@ -54,6 +54,11 @@ interface SchemaPlayer {
   movement: 'idle' | 'cruising' | 'boosting';
   selfPowered: boolean;
   tetherPull: number;
+  captured?: boolean;
+  capturedBy?: number;
+  struggles?: number;
+  carryFor?: number;
+  rescueProgress?: number;
 }
 
 interface SchemaRun {
@@ -176,6 +181,11 @@ function copyPlayer(player: SchemaPlayer): DroneNetworkState {
     movement: player.movement,
     selfPowered: player.selfPowered,
     tetherPull: player.tetherPull,
+    captured: player.captured === true,
+    capturedBy: Number.isFinite(player.capturedBy) ? (player.capturedBy as number) : -1,
+    struggles: Math.max(0, (player.struggles ?? 0) | 0),
+    carryFor: Number.isFinite(player.carryFor) ? Number(player.carryFor) : 0,
+    rescueProgress: Math.max(0, Math.min(1, Number(player.rescueProgress) || 0)),
   };
 }
 
@@ -414,6 +424,21 @@ export class MultiplayerSession {
   /** TEST-ONLY: Night Shift capture (HANDSHAKE_TEST_HOOKS=1). */
   debugRunCapture(): void {
     this.room.send('debug-run-capture');
+  }
+
+  /** TEST-ONLY: force a patrol to grab a role (HANDSHAKE_TEST_HOOKS=1). */
+  debugForceCapture(role: DroneRole, index = 0): void {
+    this.room.send('debug-force-capture', { role, index });
+  }
+
+  /** TEST-ONLY: force-free a captured role (HANDSHAKE_TEST_HOOKS=1). */
+  debugForceRelease(role: DroneRole, reason = 'yank'): void {
+    this.room.send('debug-force-release', { role, reason });
+  }
+
+  /** Boost-struggle while captured (also inferred from snapshot boost edges). */
+  reportStruggle(): void {
+    this.room.send('capture-struggle');
   }
 
   onFloorStart(listener: (payload: FloorStartPayload) => void): () => void {

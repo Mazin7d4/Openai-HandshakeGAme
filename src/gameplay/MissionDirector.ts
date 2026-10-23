@@ -2,7 +2,13 @@ import { Color3, PointLight, Vector3, type Scene } from '@babylonjs/core';
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { GameMode } from '../app/GameMode.ts';
 import type { MultiplayerSession } from '../network/MultiplayerSession.ts';
-import type { DroneRole, MissionNetworkState, RoomStatus, SecurityNetworkState } from '../network/NetworkTypes.ts';
+import type {
+  DroneNetworkState,
+  DroneRole,
+  MissionNetworkState,
+  RoomStatus,
+  SecurityNetworkState,
+} from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
 import { HeistReport } from '../ui/HeistReport.ts';
 import type { RunStats } from '../ui/heistAwards.ts';
@@ -76,6 +82,7 @@ export class MissionDirector {
   private floorChip: HTMLElement | null = null;
   private beatChip: HTMLElement | null = null;
   private timeToBeatMs: number | undefined;
+  private networkCaptures: ReadonlyMap<DroneRole, DroneNetworkState> | null = null;
 
   constructor(
     scene: Scene,
@@ -241,7 +248,14 @@ export class MissionDirector {
       if (this.securityHistory.length > 80) this.securityHistory.shift();
     }
     if (!previousAlarm && this.state.alarm) this.beginAlarm();
+    this.syncCaptureFromRoom(status);
     this.presentStageChange();
+  }
+
+  /** Mirror server capture onto local drones (input lock + hold pose). */
+  private syncCaptureFromRoom(status: RoomStatus): void {
+    // Applied from GameApp via applyNetworkCapture; keep last known map for debug/tests.
+    this.networkCaptures = status.players;
   }
 
   notifyGrab(objectId: string, role: DroneRole): void {
@@ -336,6 +350,28 @@ export class MissionDirector {
 
   /** TEST-ONLY snapshot for two-client agreement checks. */
   debugSecurity() {
+    const captures: Record<string, {
+      captured: boolean;
+      capturedBy: number;
+      struggles: number;
+      carryFor: number;
+      rescueProgress: number;
+      x: number;
+      y: number;
+      z: number;
+    }> = {};
+    this.networkCaptures?.forEach((player, role) => {
+      captures[role] = {
+        captured: player.captured,
+        capturedBy: player.capturedBy,
+        struggles: player.struggles,
+        carryFor: player.carryFor,
+        rescueProgress: player.rescueProgress,
+        x: player.position.x,
+        y: player.position.y,
+        z: player.position.z,
+      };
+    });
     return {
       patrols: this.security.patrolPositions(),
       server: this.securityState,
@@ -347,6 +383,8 @@ export class MissionDirector {
       timesSpotted: this.state.timesSpotted,
       spotted: [...this.spottedLog],
       clotheslines: this.clotheslines,
+      captures,
+      runCaptures: this.multiplayer?.currentStatus.run.captures ?? null,
     };
   }
 

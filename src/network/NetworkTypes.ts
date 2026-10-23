@@ -31,6 +31,14 @@ export interface DroneNetworkState {
   movement: MovementState;
   selfPowered: boolean;
   tetherPull: number;
+  /** Server-owned capture (co-op). */
+  captured: boolean;
+  /** Patrol index holding this drone; -1 when free. */
+  capturedBy: number;
+  struggles: number;
+  carryFor: number;
+  /** 0–1 rescue progress from synced struggles. */
+  rescueProgress: number;
 }
 
 export type GrabbableMode = 'free' | 'held';

@@ -89,6 +89,16 @@ const Player = schema(
     movement: t.string().default('idle'),
     selfPowered: t.boolean().default(false),
     tetherPull: t.float32().default(0),
+    /** Server-owned capture: locked input + position overridden while true. */
+    captured: t.boolean().default(false),
+    /** Patrol index holding this drone; -1 when free. */
+    capturedBy: t.int8().default(-1),
+    /** Struggle presses while captured (solo needs 3). */
+    struggles: t.uint8().default(0),
+    /** Seconds carried so far (rescue window is 4.5s). */
+    carryFor: t.float32().default(0),
+    /** 0–1 rescue progress (struggles / 3). */
+    rescueProgress: t.float32().default(0),
   },
   'Player',
 );
@@ -261,6 +271,7 @@ class HandshakeRoom extends Room {
     this.onMessage('tether-yank', (client, message) => this.relayTetherYank(client, message));
     this.onMessage('patrol-stun', (client, message) => this.stunPatrol(client, message));
     this.onMessage('run-capture', (client) => this.handleCapture(client.sessionId));
+    this.onMessage('capture-struggle', (client) => this.reportStruggle(client.sessionId));
     if (TEST_HOOKS) {
       console.log('[handshake] TEST HOOKS enabled');
       this.onMessage('debug-stage', (client, m) => {
@@ -272,6 +283,8 @@ class HandshakeRoom extends Room {
       });
       this.onMessage('debug-run-escape', () => this.handleEscape());
       this.onMessage('debug-run-capture', (client) => this.handleCapture(client.sessionId));
+      this.onMessage('debug-force-capture', (client, m) => this.debugForceCapture(client, m));
+      this.onMessage('debug-force-release', (client, m) => this.debugForceRelease(client, m));
     }
     this.setSimulationInterval((deltaMs) => {
       this.updateHack();
@@ -441,6 +454,23 @@ class HandshakeRoom extends Room {
     if (!player || !player.connected || !message || typeof message !== 'object') {
       return;
     }
+    const prevBoost = player.boost;
+    const boost = enumValue(message.boost, ['off', 'active'], 'off');
+    // Captured drones: server owns position; still accept boost for struggle presses.
+    if (player.captured) {
+      player.boost = boost;
+      player.movement = 'idle';
+      player.selfPowered = false;
+      player.tetherPull = Math.max(0, Math.min(1, finite(message.tetherPull)));
+      player.velocity.x = 0;
+      player.velocity.y = 0;
+      player.velocity.z = 0;
+      if (boost === 'active' && prevBoost !== 'active') {
+        player.struggles = Math.min(7, (player.struggles | 0) + 1);
+        player.rescueProgress = Math.min(1, player.struggles / 3);
+      }
+      return;
+    }
     const position = message.position ?? {};
     const velocity = message.velocity ?? {};
     const orientation = message.orientation ?? {};
@@ -449,7 +479,7 @@ class HandshakeRoom extends Room {
     player.orientation.pitch = finite(orientation.pitch);
     player.orientation.yaw = finite(orientation.yaw);
     player.orientation.roll = finite(orientation.roll);
-    player.boost = enumValue(message.boost, ['off', 'active'], 'off');
+    player.boost = boost;
     player.movement = enumValue(message.movement, ['idle', 'cruising', 'boosting'], 'idle');
     player.selfPowered = message.selfPowered === true;
     player.tetherPull = Math.max(0, Math.min(1, finite(message.tetherPull)));
@@ -624,6 +654,10 @@ class HandshakeRoom extends Room {
     const players = Array.from(this.state.players.values()).map((p) => ({
       role: p.role,
       connected: p.connected,
+      captured: p.captured === true,
+      struggles: p.struggles | 0,
+      tetherPull: p.tetherPull,
+      yankedRecently: false,
       position: { x: p.position.x, y: p.position.y, z: p.position.z },
     }));
     const result = this.securitySim.update(dt, {
@@ -643,7 +677,118 @@ class HandshakeRoom extends Room {
       }
     }
     // A shove goes only to the client that owns the shoved drone; it applies the impulse locally.
-    for (const shove of result.shoves) this.clientForRole(shove.role)?.send('patrol-shove', shove);
+    for (const shove of result.shoves ?? []) this.clientForRole(shove.role)?.send('patrol-shove', shove);
+
+    for (const cap of result.captures ?? []) this.beginCapture(cap.role, cap.index);
+    for (const freed of result.releases ?? []) this.finishCapture(freed.role, freed.index, freed.reason);
+    for (const over of result.overrides ?? []) this.applyCaptureOverride(over);
+
+    // Both drones caught → Night Shift capture outcome (and free them so the run can continue).
+    const live = Array.from(this.state.players.values()).filter((p) => p.connected);
+    if (live.length >= 2 && live.every((p) => p.captured)) {
+      this.onCaptureOutcome('both');
+      for (const p of live) {
+        const freed = this.securitySim.releaseRole(p.role, 'timeout');
+        if (freed) this.finishCapture(freed.role, freed.index, 'both');
+      }
+    }
+  }
+
+  beginCapture(role, index) {
+    const player = Array.from(this.state.players.values()).find((p) => p.role === role);
+    if (!player || player.captured) return;
+    player.captured = true;
+    player.capturedBy = index;
+    player.struggles = 0;
+    player.carryFor = 0;
+    player.rescueProgress = 0;
+    player.velocity.x = 0;
+    player.velocity.y = 0;
+    player.velocity.z = 0;
+    this.broadcast('drone-captured', { role, index });
+  }
+
+  applyCaptureOverride(over) {
+    const player = Array.from(this.state.players.values()).find((p) => p.role === over.role);
+    if (!player || !player.captured) return;
+    player.position.x = finite(over.position?.x, player.position.x);
+    player.position.y = finite(over.position?.y, player.position.y);
+    player.position.z = finite(over.position?.z, player.position.z);
+    player.capturedBy = over.index;
+    player.carryFor = finite(over.carryFor, player.carryFor);
+    player.struggles = Math.max(player.struggles | 0, over.struggles | 0);
+    player.rescueProgress = Math.max(0, Math.min(1, finite(over.rescueProgress, player.rescueProgress)));
+    player.velocity.x = 0;
+    player.velocity.y = 0;
+    player.velocity.z = 0;
+  }
+
+  finishCapture(role, index, reason) {
+    const player = Array.from(this.state.players.values()).find((p) => p.role === role);
+    if (!player) return;
+    const wasCaptured = player.captured;
+    player.captured = false;
+    player.capturedBy = -1;
+    player.struggles = 0;
+    player.carryFor = 0;
+    player.rescueProgress = 0;
+    if (!wasCaptured) return;
+    if (reason === 'yank' || reason === 'struggle' || reason === 'strain') {
+      this.broadcast('rescued', { role, index, reason });
+    } else if (reason === 'timeout' || reason === 'both') {
+      this.broadcast('drone-freed', { role, index, reason });
+      if (reason === 'timeout') this.onCaptureOutcome('timeout');
+    } else {
+      this.broadcast('drone-freed', { role, index, reason });
+    }
+  }
+
+  /** Night Shift: rescue window expired or both drones grabbed → recordCapture. */
+  onCaptureOutcome(kind) {
+    if (this.state.run.mode !== 'nightshift' || this.state.run.ended) return;
+    // Pick any connected session so handleCapture's seat check passes.
+    const sessionId = Array.from(this.state.players.keys())[0];
+    if (!sessionId) return;
+    this.handleCapture(sessionId);
+    this.broadcast('capture-outcome', { kind, captures: this.state.run.captures });
+  }
+
+  reportStruggle(sessionId) {
+    const player = this.state.players.get(sessionId);
+    if (!player?.captured) return;
+    player.struggles = Math.min(7, (player.struggles | 0) + 1);
+    player.rescueProgress = Math.min(1, player.struggles / 3);
+  }
+
+  debugForceCapture(client, message) {
+    if (!this.state.players.has(client.sessionId)) return;
+    const role = message?.role === 'nee' ? 'nee' : message?.role === 'pix' ? 'pix' : null;
+    if (!role) return;
+    const index = Math.max(0, Math.round(finite(message?.index, 0)));
+    this.state.mission.securityActive = true;
+    const cap = this.securitySim.forceCapture(role, index);
+    if (!cap) return;
+    this.beginCapture(cap.role, cap.index);
+    const p = this.securitySim.patrolPosition(cap.index);
+    if (p) {
+      this.applyCaptureOverride({
+        role: cap.role,
+        index: cap.index,
+        position: { x: p.x, y: p.y - 0.95, z: p.z },
+        carryFor: 0,
+        struggles: 0,
+        rescueProgress: 0,
+      });
+    }
+  }
+
+  debugForceRelease(client, message) {
+    if (!this.state.players.has(client.sessionId)) return;
+    const role = message?.role === 'nee' ? 'nee' : message?.role === 'pix' ? 'pix' : null;
+    if (!role) return;
+    const reason = typeof message?.reason === 'string' ? message.reason : 'yank';
+    const freed = this.securitySim.releaseRole(role, reason);
+    if (freed) this.finishCapture(freed.role, freed.index, reason);
   }
 
   clientForRole(role) {
@@ -658,6 +803,8 @@ class HandshakeRoom extends Room {
   relayTetherYank(client, message) {
     const sender = this.state.players.get(client.sessionId);
     if (!sender || !message || typeof message !== 'object') return;
+    // Captured drone cannot yank; rescuer must be free.
+    if (sender.captured) return;
     const now = Date.now();
     this.yankTimes ??= new Map();
     const kind = enumValue(message.kind, ['yank', 'sling', 'bump'], 'yank');
@@ -674,8 +821,14 @@ class HandshakeRoom extends Room {
     let x = finite(impulse.x), y = finite(impulse.y), z = finite(impulse.z);
     const magnitude = Math.hypot(x, y, z);
     if (magnitude > 16) { x *= 16 / magnitude; y *= 16 / magnitude; z *= 16 / magnitude; }
-    const rescue = kind === 'yank' && message.rescue === true;
-    if (rescue) this.reportTetherSave(client.sessionId);
+    // Server decides rescue: partner is captured + yank kind (solo rescue rules).
+    const canRescue = kind === 'yank' && partner.captured === true;
+    const rescue = canRescue || (kind === 'yank' && message.rescue === true && partner.captured === true);
+    if (rescue) {
+      const freed = this.securitySim.releaseRole(partner.role, 'yank');
+      if (freed) this.finishCapture(freed.role, freed.index, 'yank');
+      this.reportTetherSave(client.sessionId);
+    }
     target.send('tether-yanked', {
       kind,
       rescue,
@@ -755,6 +908,13 @@ class HandshakeRoom extends Room {
     this.doorOpenedAt = 0;
     this.spotCooldownUntil = { pix: 0, nee: 0 };
     this.clotheslines = 0;
+    for (const player of this.state.players.values()) {
+      player.captured = false;
+      player.capturedBy = -1;
+      player.struggles = 0;
+      player.carryFor = 0;
+      player.rescueProgress = 0;
+    }
     this.state.hack.stationAOwner = '';
     this.state.hack.stationBOwner = '';
     this.state.hack.stationCOwner = '';
