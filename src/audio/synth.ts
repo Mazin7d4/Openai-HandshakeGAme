@@ -135,3 +135,26 @@ export function alarmCycle(sr: number, stage: 1 | 2 | 3): Float32Array {
   }
   return out;
 }
+
+/** Low, uneasy two-note pulse for the suspicious stage. */
+export function alarmTension(sr: number): Float32Array {
+  const len = Math.round(sr * 2.4); const out = new Float32Array(len);
+  for (let i = 0; i < len; i++) {
+    const t = i / sr; const beat = t % 1.2; const f = beat < 0.52 ? 92 : 69;
+    const e = Math.min(1, beat / 0.04) * Math.exp(-Math.max(0, beat - 0.18) / 0.55);
+    out[i] = (Math.sin(2 * Math.PI * f * t) + 0.22 * Math.sin(2 * Math.PI * f * 2.01 * t)) * e * 0.34;
+  }
+  return out;
+}
+
+/** Full alarm klaxon: a bright, unmistakable up/down sweep with a sub body. */
+export function alarmKlaxon(sr: number): Float32Array {
+  const len = Math.round(sr * 1.8); const out = new Float32Array(len);
+  for (let i = 0; i < len; i++) {
+    const t = i / sr; const phase = (t % 0.9) / 0.9;
+    const f = 520 + 360 * Math.sin(Math.PI * phase) ** 2;
+    const e = Math.min(1, (t % 0.9) / 0.025) * Math.min(1, (0.9 - (t % 0.9)) / 0.06);
+    out[i] = (Math.sin(2 * Math.PI * f * t) * 0.62 + Math.sin(2 * Math.PI * f * 0.5 * t) * 0.26) * e;
+  }
+  return out;
+}

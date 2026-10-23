@@ -1,7 +1,7 @@
 import { getSettings, saveSettings, subscribeSettings } from '../ui/Settings.ts';
 import { SFX_SPRITE, type SpriteKey } from './sfxSprite.ts';
 import {
-  alarmCycle, chirpParams, roomTone, snap, stretchLoop, twang, whoosh, zz, ZZ,
+  alarmCycle, alarmKlaxon, alarmTension, chirpParams, roomTone, snap, stretchLoop, twang, whoosh, zz, ZZ,
   type ChirpMood, type Voice,
 } from './synth.ts';
 
@@ -22,7 +22,7 @@ import {
  *   positions are world {x,y,z}; anything with a position is panned/attenuated from the camera.
  *
  * Continuous state (idempotent, safe to call every frame or from replicated room state):
- *   setAlarmStage(0..3)        0 = off; 1..3 = amber pulse escalation; >= 1 also brings in the escape music layer
+ *   setAlarmStage(0..3)        0 = off; 1..3 = amber pulse escalation; stages 2..3 also bring in the escape music layer
  *   setMusic('off'|'calm'|'escape')
  *   setTension(strain 0..1)    cord stretch creak + auto twang on release / snap on hitting full length
  *   setDroneMotion(role, speed, position, isLocal)  thruster hum per drone (PIX lower, NEE higher)
@@ -89,7 +89,15 @@ export class AudioManager {
   private strainPeak = 0;
   private lastSnap = 0;
   private lastTwang = 0;
-  private alarm: { stage: number; src: AudioBufferSourceNode | null; gain: GainNode | null } = { stage: 0, src: null, gain: null };
+  private alarm: {
+    stage: number;
+    src: AudioBufferSourceNode | null;
+    gain: GainNode | null;
+    tensionSrc: AudioBufferSourceNode | null;
+    tensionGain: GainNode | null;
+    klaxonSrc: AudioBufferSourceNode | null;
+    klaxonGain: GainNode | null;
+  } = { stage: 0, src: null, gain: null, tensionSrc: null, tensionGain: null, klaxonSrc: null, klaxonGain: null };
   private music: MusicState = 'off';
   private musicBuffers: Promise<Record<'calm' | 'escape', AudioBuffer> | null> | null = null;
   private musicNodes: { calm: GainNode; escape: GainNode; srcs: AudioBufferSourceNode[] } | null = null;
@@ -523,20 +531,38 @@ export class AudioManager {
     for (const listener of this.alarmListeners) {
       try { listener(next); } catch { /* a11y must never break audio */ }
     }
-    if (next >= 1 && this.music !== 'off') this.setMusic('escape');
+    if (next >= 2 && this.music !== 'off') this.setMusic('escape');
     if (next === 0 && this.music === 'escape') this.setMusic('calm');
     if (!ctx || !buses || ctx.state !== 'running') { if (next === 0) this.alarm.src = null; return; }
     const t = ctx.currentTime;
     const old = this.alarm;
-    if (old.gain && old.src) { old.gain.gain.setTargetAtTime(0, t, 0.08); try { old.src.stop(t + 0.5); } catch { /* ended */ } }
-    this.alarm = { stage: next, src: null, gain: null };
+    for (const layer of [
+      [old.src, old.gain], [old.tensionSrc, old.tensionGain], [old.klaxonSrc, old.klaxonGain],
+    ] as const) {
+      const [src, gain] = layer;
+      if (gain && src) { gain.gain.setTargetAtTime(0, t, 0.14); try { src.stop(t + 0.7); } catch { /* ended */ } }
+    }
+    this.alarm = { stage: next, src: null, gain: null, tensionSrc: null, tensionGain: null, klaxonSrc: null, klaxonGain: null };
     if (next === 0) return;
-    const src = ctx.createBufferSource(); src.buffer = this.synth(`alarm${next}`, (r) => alarmCycle(r, next as 1 | 2 | 3)); src.loop = true;
-    const gain = ctx.createGain(); gain.gain.value = 0;
-    src.connect(gain).connect(buses.sfx); src.start();
-    gain.gain.setTargetAtTime(0.16 + next * 0.05, t, 0.05);
-    this.alarm = { stage: next, src, gain };
+    const pulse = ctx.createBufferSource(); pulse.buffer = this.synth(`alarm${next}`, (r) => alarmCycle(r, next as 1 | 2 | 3)); pulse.loop = true;
+    const pulseGain = ctx.createGain(); pulseGain.gain.value = 0; pulse.connect(pulseGain).connect(buses.sfx); pulse.start();
+    pulseGain.gain.setTargetAtTime(next === 1 ? 0.045 : next === 2 ? 0.13 : 0.2, t, 0.16);
+    this.alarm.src = pulse; this.alarm.gain = pulseGain;
     this.stats.alarm = (this.stats.alarm ?? 0) + 1;
+    if (next >= 1) {
+      const tension = ctx.createBufferSource(); tension.buffer = this.synth('alarm-tension', alarmTension); tension.loop = true;
+      const tensionGain = ctx.createGain(); tensionGain.gain.value = 0; tension.connect(tensionGain).connect(buses.sfx); tension.start();
+      tensionGain.gain.setTargetAtTime(next === 1 ? 0.22 : next === 2 ? 0.16 : 0.08, t, 0.2);
+      this.alarm.tensionSrc = tension; this.alarm.tensionGain = tensionGain;
+      this.stats.alarmTension = (this.stats.alarmTension ?? 0) + 1;
+    }
+    if (next === 3) {
+      const klaxon = ctx.createBufferSource(); klaxon.buffer = this.synth('alarm-klaxon', alarmKlaxon); klaxon.loop = true;
+      const klaxonGain = ctx.createGain(); klaxonGain.gain.value = 0; klaxon.connect(klaxonGain).connect(buses.sfx); klaxon.start();
+      klaxonGain.gain.setTargetAtTime(0.42, t, 0.2);
+      this.alarm.klaxonSrc = klaxon; this.alarm.klaxonGain = klaxonGain;
+      this.stats.alarmKlaxon = (this.stats.alarmKlaxon ?? 0) + 1;
+    }
   }
 
   get alarmStage(): number { return this.alarm.stage; }
