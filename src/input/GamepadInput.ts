@@ -37,6 +37,7 @@ export class GamepadInput {
     this.axes.lift = this.held(0) ? 1 : this.active(6) ? -1 : 0;
     this.axes.boost = this.held(0);
     if (camera && (lookX || lookY)) camera.gamepadLook(lookX, lookY, dt);
+    // D-pad (12-15) and R3 (11) are reserved for Netcode emotes and ping; never read them here.
     const edges = [1, 2, 3, 4, 5, 7, 9];
     for (const index of edges) if (this.active(index) && !this.previous.has(index)) {
       if (index === 1) this.actions.interact = true;
