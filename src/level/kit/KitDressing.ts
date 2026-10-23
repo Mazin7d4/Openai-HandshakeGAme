@@ -106,23 +106,23 @@ export function openingDressLayout(): RunLayout {
   const vault = pick(VARIANTS_BY_SLOT.vault);
   const escape = pick(VARIANTS_BY_SLOT.escape);
   const twist = TWISTS.find((t) => t.id === 'nervous_nee') ?? TWISTS[0];
-  return Object.freeze({
+  return {
     seed: 0xa71c001,
     floor: 0,
-    variants: Object.freeze({ arrival, office, server, vault, escape }),
-    spawn: Object.freeze({ ...arrival.spawnPoints[0] }),
-    loot: Object.freeze({ x: 0, y: 5.2, z: 18 }),
-    extraction: Object.freeze({ x: -15, y: 1.2, z: -61 }),
-    terminals: Object.freeze({
-      'terminal-a': Object.freeze({ x: -5, y: 4.2, z: -33 }),
-      'terminal-b': Object.freeze({ x: 7, y: 1.2, z: -31 }),
-      'terminal-c': Object.freeze({ x: -5, y: 5.2, z: -5.8 }),
-    }),
+    variants: { arrival, office, server, vault, escape },
+    spawn: { ...arrival.spawnPoints[0] },
+    loot: { x: 0, y: 5.2, z: 18 },
+    extraction: { x: -15, y: 1.2, z: -61 },
+    terminals: {
+      'terminal-a': { x: -5, y: 4.2, z: -33 },
+      'terminal-b': { x: 7, y: 1.2, z: -31 },
+      'terminal-c': { x: -5, y: 5.2, z: -5.8 },
+    },
     terminalSetId: 'opening-authored',
-    patrolRoutes: Object.freeze([]),
-    cameras: Object.freeze([]),
+    patrolRoutes: [],
+    cameras: [],
     twist,
-    escalation: Object.freeze({
+    escalation: {
       floor: 0,
       guardCount: 0,
       patrolSpeed: 1,
@@ -130,9 +130,9 @@ export function openingDressLayout(): RunLayout {
       timerSeconds: 0,
       detectionRateScale: 1,
       hasteScale: 1,
-    }),
-    cord: Object.freeze({ ...BASE_CORD }),
-  }) as RunLayout;
+    },
+    cord: { ...BASE_CORD },
+  };
 }
 
 const kitLoadingPromises = new WeakMap<Scene, Promise<KitSources>>();
