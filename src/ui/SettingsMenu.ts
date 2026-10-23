@@ -1,5 +1,5 @@
 /**
- * Full Settings + accessibility menu with keyboard / touch tabs.
+ * Full Settings + accessibility menu with keyboard / touch / gamepad tabs.
  * Reused from the title screen and the pause menu.
  */
 import { audio } from '../audio/AudioManager.ts';
@@ -7,6 +7,7 @@ import {
   getCameraTouchSettings,
   saveCameraTouchSettings,
 } from './CameraTouchSettings.ts';
+import { MenuNavigator } from './MenuNavigator.ts';
 import {
   getSettings,
   saveSettings,
@@ -71,22 +72,17 @@ function keycaps(binding: string): HTMLElement {
   return group;
 }
 
-/** Tabbed settings panel. Keyboard: arrows on tabs, Tab through controls, Esc closes. */
+/** Tabbed settings panel. Keyboard + gamepad via MenuNavigator; arrow keys on tabs. */
 export class SettingsMenu {
   readonly root: HTMLElement;
   private readonly panel: HTMLElement;
   private readonly tablist: HTMLElement;
   private readonly body: HTMLElement;
   private readonly options: SettingsMenuOptions;
+  private readonly nav = new MenuNavigator();
   private tab: SettingsTab = 'audio';
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (!this.root.isConnected) return;
-    if (event.code === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      this.options.onClose();
-      return;
-    }
     if (event.target instanceof HTMLElement && event.target.closest('[role="tablist"]')) {
       const order = TABS.map((t) => t.id);
       const idx = order.indexOf(this.tab);
@@ -120,6 +116,9 @@ export class SettingsMenu {
       this.root = document.createElement('div');
       this.root.className = 'overlay settings-overlay visible';
       this.root.dataset.testid = 'settings-menu';
+      this.root.setAttribute('role', 'dialog');
+      this.root.setAttribute('aria-modal', 'true');
+      this.root.setAttribute('aria-label', 'Settings');
       this.panel = document.createElement('section');
       this.panel.className = 'panel settings-panel';
       this.root.append(this.panel);
@@ -128,7 +127,11 @@ export class SettingsMenu {
 
     const heading = document.createElement('h2');
     heading.className = 'panel__title';
+    heading.id = 'settings-title';
     heading.textContent = 'Settings';
+    if (!options.embedded) {
+      this.root.setAttribute('aria-labelledby', 'settings-title');
+    }
 
     this.tablist = document.createElement('div');
     this.tablist.className = 'settings-tabs';
@@ -150,6 +153,7 @@ export class SettingsMenu {
       btn.id = `settings-tab-${t.id}`;
       btn.setAttribute('role', 'tab');
       btn.setAttribute('aria-selected', 'false');
+      btn.setAttribute('aria-label', `${t.label} settings`);
       btn.addEventListener('click', () => this.setTab(t.id));
       this.tablist.append(btn);
     }
@@ -159,6 +163,7 @@ export class SettingsMenu {
     back.className = 'btn btn--quiet';
     back.textContent = 'Back';
     back.dataset.testid = 'settings-back';
+    back.setAttribute('aria-label', 'Back');
     back.addEventListener('click', () => this.options.onClose());
 
     this.panel.append(heading);
@@ -173,7 +178,10 @@ export class SettingsMenu {
     parent.append(this.root);
     window.addEventListener('keydown', this.onKeyDown, true);
     this.setTab('audio');
-    this.focusTab();
+    this.nav.attach(this.root, {
+      onBack: () => this.options.onClose(),
+      initialFocus: `[data-tab="audio"]`,
+    });
   }
 
   private focusTab(): void {
@@ -285,9 +293,14 @@ export class SettingsMenu {
       this.rangeRow('Field of view', s.fovScale, 0.85, 1.2, 0.01, 'x', (v) => saveSettings({ fovScale: v }), 'settings-fov'),
       this.rangeRow('Camera distance', s.cameraDistance, 0.85, 1.25, 0.01, 'x', (v) => saveSettings({ cameraDistance: v }), 'settings-camera-distance'),
       this.checkRow('Screen shake', s.screenShake, (v) => saveSettings({ screenShake: v }), 'settings-shake'),
-      this.checkRow('Reduced motion', s.reducedMotion, (v) => saveSettings({ reducedMotion: v }), 'settings-reduced-motion'),
+      this.checkRow(
+        'Reduced motion',
+        s.reducedMotion,
+        (v) => saveSettings({ reducedMotion: v }),
+        'settings-reduced-motion',
+      ),
       this.selectRow(
-        'UI scale',
+        'UI text size',
         String(s.uiScale),
         [
           ['100', '100%'],
@@ -313,7 +326,7 @@ export class SettingsMenu {
   private renderAccessibility(s: GameSettings): void {
     this.body.append(
       this.checkRow(
-        'Colour-blind safe cues',
+        'Colourblind-safe alarm cues',
         s.colourBlindSafe,
         (v) => saveSettings({ colourBlindSafe: v }),
         'settings-colour-blind',
@@ -345,7 +358,8 @@ export class SettingsMenu {
     );
     const hint = document.createElement('p');
     hint.className = 'panel__body settings-hint';
-    hint.textContent = 'Colour-blind mode adds shapes: circle PIX, square NEE, triangle security.';
+    hint.textContent =
+      'Colourblind-safe mode adds shapes and text labels to alarm and security states (amber stays security-only). Visual alerts stay on their own toggle.';
     this.body.append(hint);
   }
 
@@ -500,6 +514,7 @@ export class SettingsMenu {
   }
 
   dispose(): void {
+    this.nav.detach();
     window.removeEventListener('keydown', this.onKeyDown, true);
     this.root.remove();
   }

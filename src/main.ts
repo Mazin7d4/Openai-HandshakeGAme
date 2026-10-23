@@ -25,11 +25,21 @@ import {
   prepareDailyRun,
   runOptionsFromSearch,
 } from './net/runInfo.ts';
+import { getBest } from './run/nightShiftScore.ts';
 import './style.css';
 import { audio } from './audio/AudioManager.ts';
+import { titleMenuNav } from './ui/MenuNavigator.ts';
 
 // Unlock-on-first-gesture, menu UI sounds and M to mute; sound files load lazily once the page is idle.
 audio.install();
+
+/** Bind keyboard + gamepad focus for the active title / lobby panel. */
+function bindMenuNav(panel: HTMLElement, onBack?: () => void, initialFocus?: string | HTMLElement): void {
+  titleMenuNav.attach(panel.closest('.menu-shell') ?? panel, {
+    onBack,
+    initialFocus: initialFocus ?? '.btn--primary',
+  });
+}
 
 function roomInviteUrl(code: string): string {
   const url = new URL(window.location.href);
@@ -78,6 +88,7 @@ function menuButton(label: string, testId: string, action: () => void, variant: 
   const button = element('button', `btn menu-button ${variant}`.trim(), label);
   button.type = 'button';
   button.dataset.testid = testId;
+  button.setAttribute('aria-label', label || testId.replace(/-/g, ' '));
   button.addEventListener('click', action);
   return button;
 }
@@ -139,6 +150,7 @@ function showMainMenu(): void {
   panel.append(element('p', 'panel__body menu-subtitle', blurb));
   const play = menuButton('', 'singleplayer', showSinglePlayer, 'btn--primary');
   play.classList.add('btn--hero');
+  play.setAttribute('aria-label', 'Play now');
   play.append(element('span', 'btn__label', 'Play now'), element('span', 'btn__hint', 'Solo · you fly PIX'));
   const daily = menuButton('Daily Heist', 'daily-heist', () => {
     prepareDailyRun(new Date());
@@ -161,10 +173,11 @@ function showMainMenu(): void {
   shell.append(panel);
   root.replaceChildren(shell);
   // PLAY NOW is first in tab order and already focused, so Enter starts it.
-  play.focus();
+  bindMenuNav(panel, undefined, play);
 }
 
 function openTitleSettings(): void {
+  titleMenuNav.detach();
   void import('./ui/SettingsMenu.ts').then(({ SettingsMenu }) => {
     const host = document.createElement('div');
     host.className = 'settings-host';
@@ -189,11 +202,17 @@ function showSinglePlayer(): void {
     clearRunIntent();
     void startGame('night-shift');
   });
-  night.title = 'Endless floors from one seed. Stubbed until Netcode owns captures.';
+  night.title = 'Endless seeded floors. Your score carries over.';
   const actions = element('div', 'menu-actions');
   actions.append(start, night, menuButton('Back', 'back', showMainMenu, 'btn--quiet'));
   panel.append(actions);
-  start.focus();
+  const best = getBest();
+  if (best) {
+    const p = element('p', 'menu-best', `Night Shift best: floor ${best.floor} · ${best.score}`);
+    p.dataset.testid = 'night-shift-best';
+    panel.append(p);
+  }
+  bindMenuNav(panel, showMainMenu, start);
 }
 
 function showMultiplayerMenu(): void {
@@ -207,6 +226,7 @@ function showMultiplayerMenu(): void {
     menuButton('Back', 'back', showMainMenu, 'btn--quiet'),
   );
   panel.append(actions);
+  bindMenuNav(panel, showMainMenu, '[data-testid="create-room"]');
   void pingServer(2500);
 }
 
@@ -260,6 +280,7 @@ async function createRoom(): Promise<void> {
   const panel = menuPanel('Creating room', 'Connecting to the multiplayer server…');
   const status = element('p', 'lobby-status', 'Please wait.');
   panel.append(status);
+  bindMenuNav(panel, showMultiplayerMenu);
   if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void createRoom(); }))) return;
   try {
     const session = await MultiplayerSession.createRoom(readUrlRunOptions());
@@ -268,6 +289,7 @@ async function createRoom(): Promise<void> {
     status.textContent = errorMessage(error);
     status.classList.add('error');
     panel.append(menuButton('Back', 'back', showMultiplayerMenu, 'btn--quiet'));
+    bindMenuNav(panel, showMultiplayerMenu, '[data-testid="back"]');
   }
 }
 
@@ -319,7 +341,7 @@ function showJoinRoom(prefill?: string): void {
     void doJoin(code);
   });
   panel.append(form, status, back);
-  input.focus();
+  bindMenuNav(panel, showMultiplayerMenu, input);
   if (initial.length === 4) {
     void doJoin(initial);
   }
@@ -343,6 +365,10 @@ function showLobby(session: MultiplayerSession): void {
   const status = element('p', 'lobby-status', 'Waiting for partner…');
   status.dataset.testid = 'lobby-status';
   panel.append(label, code, copy, role, status);
+  bindMenuNav(panel, () => {
+    void session.dispose();
+    showMultiplayerMenu();
+  }, copy);
 
   const removeStatus = session.onStatus((next) => {
     const me = next.localRole;
@@ -356,6 +382,7 @@ function showLobby(session: MultiplayerSession): void {
 }
 
 async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<void> {
+  titleMenuNav.detach();
   try { sessionStorage.removeItem(MODE_STASH_KEY); } catch { /* private mode */ }
   const canvas = element('canvas');
   canvas.id = 'game-canvas';

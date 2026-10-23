@@ -83,10 +83,18 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
   transition: transform 80ms var(--ease-out), box-shadow 80ms var(--ease-out), background var(--t-ui) var(--ease-out);
 }
 .btn:hover, .menu-button:hover, .pause-button:hover, .hack-cancel:hover, .interaction-prompt button:hover { background: var(--paper); }
-/* One visible focus ring for everything interactive: graphite cord + paper halo, readable on light and dark. */
-:focus-visible { outline: 3px solid var(--graphite); outline-offset: 3px; box-shadow: 0 0 0 3px var(--paper); }
+/* Cyan focus ring (2px+, ≥3:1 on graphite / paper halo) for keyboard + gamepad focus. */
+:focus-visible {
+  outline: 2px solid var(--pix);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 3px var(--graphite);
+}
 #game-canvas:focus-visible { outline: none; box-shadow: none; }
-.btn--primary:focus-visible { outline-color: var(--graphite); box-shadow: 0 0 0 3px var(--paper), inset 0 0 0 3px var(--screen), inset 0 0 0 4px var(--pix); }
+.btn--primary:focus-visible {
+  outline: 2px solid var(--pix);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 3px var(--graphite), inset 0 0 0 3px var(--screen), inset 0 0 0 4px var(--pix);
+}
 .btn:active, .menu-button:active, .pause-button:active, .hack-cancel:active, .interaction-prompt button:active {
   transform: translateY(2px); box-shadow: 0 1px 0 #8E9C9B;
 }
@@ -329,6 +337,29 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
   text-align: center;
 }
 .a11y-captions.visible { display: block; }
+/* Screen-reader live region (visually hidden). */
+.a11y-live {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.mission-status-badge {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  margin: 4px auto 2px; padding: 4px 10px;
+  border: var(--rim); border-radius: var(--r-control);
+  font: 800 16px/1.2 var(--font-title); font-stretch: 112%;
+}
+.mission-status-badge[data-state='alarm'] {
+  color: var(--alarm); border-color: var(--alarm); background: var(--paper);
+}
+.mission-status-badge[data-state='security'] {
+  color: var(--security-ink); border-color: var(--security); background: var(--warm-screen);
+}
+.mission-status-icon { font-size: 14px; line-height: 1; }
+.mission-objective.colourblind-cues.alarm::after { content: none; }
+.mission-objective.security-active {
+  border-color: var(--security);
+  box-shadow: 0 3px 0 var(--security-ink), var(--float-shadow);
+}
 .role-mark {
   display: inline-block; width: 12px; height: 12px; margin-right: 8px; vertical-align: -1px;
   border: 2px solid currentColor; border-radius: 50%; background: currentColor;
@@ -422,9 +453,9 @@ html[data-reduced-motion='1'] *::after {
 .heist-report__actions .btn--primary:hover { background: #1B2C2F; }
 .heist-report__play.btn--primary:focus-visible,
 .heist-report__actions .btn--primary:focus-visible {
-  outline: 3px solid var(--graphite);
+  outline: 2px solid var(--pix);
   outline-offset: 3px;
-  box-shadow: 0 0 0 3px var(--paper), 0 3px 0 #000, inset 0 0 0 3px var(--screen), inset 0 0 0 4px var(--pix);
+  box-shadow: 0 0 0 3px var(--graphite), 0 3px 0 #000, inset 0 0 0 3px var(--screen), inset 0 0 0 4px var(--pix);
 }
 .heist-report__brand {
   display: flex; align-items: center; gap: 10px; margin: 0 0 10px;
@@ -828,4 +859,64 @@ html[data-reduced-motion='1'] *::after {
   opacity: .7;
   text-decoration: line-through;
 }
+
+.twist-chip, .score-chip {
+  padding: 6px 12px;
+  border: var(--rim); border-radius: var(--r-control);
+  background: var(--paper); box-shadow: var(--lip);
+  color: var(--graphite);
+  font: 800 18px/1 var(--font-screen); font-variant-numeric: tabular-nums;
+  font-variation-settings: 'ROND' 100; letter-spacing: 0.02em;
+}
+
+.twist-chip {
+  color: #FFB020;
+}
+
+.floor-card {
+  position: fixed;
+  top: 22%;
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  max-width: 420px;
+  padding: 16px 22px;
+  background: rgba(14, 20, 22, 0.88);
+  color: #F4F1EA;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  text-align: center;
+  transition: opacity 0.4s, transform 0.4s;
+  z-index: 25;
+}
+
+.floor-card h3 {
+  margin: 4px 0;
+  font-size: 26px;
+}
+
+.floor-card--out {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.heist-report__run {
+  margin-top: 8px;
+  display: grid;
+  gap: 2px;
+  font-size: 14px;
+}
+
+.menu-best {
+  margin-top: 10px;
+  opacity: 0.8;
+  font-size: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floor-card {
+    transition-duration: 1ms;
+  }
+}
+
 

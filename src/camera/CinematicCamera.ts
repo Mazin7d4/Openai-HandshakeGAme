@@ -3,7 +3,7 @@ import {
   getCameraTouchSettings,
   subscribeCameraTouchSettings,
 } from '../ui/CameraTouchSettings.ts';
-import { getSettings, subscribeSettings } from '../ui/Settings.ts';
+import { effectiveReducedMotion, getSettings, subscribeSettings } from '../ui/Settings.ts';
 import type { CameraSubject } from './CameraSubject.ts';
 
 export interface CameraContext { alarm: boolean; vaultOpen: boolean; complete: boolean }
@@ -97,21 +97,21 @@ export class CinematicCamera {
     this.camera.inertia = 0; this.camera.inputs.clear();
     const initialSettings = getSettings();
     this.lookSensitivity = initialSettings.lookSensitivity;
-    this.screenShake = initialSettings.screenShake && !initialSettings.reducedMotion;
+    this.reducedMotion = effectiveReducedMotion(initialSettings);
+    this.screenShake = initialSettings.screenShake && !this.reducedMotion;
     this.mouseInvertY = initialSettings.invertY;
     this.fovScale = initialSettings.fovScale;
     this.distanceScale = initialSettings.cameraDistance;
-    this.reducedMotion = initialSettings.reducedMotion;
     const touch = getCameraTouchSettings();
     this.touchSensitivity = touch.camSensitivity;
     this.touchInvertY = touch.invertY;
     this.unsubscribeSettings = subscribeSettings((settings) => {
       this.lookSensitivity = settings.lookSensitivity;
-      this.screenShake = settings.screenShake && !settings.reducedMotion;
+      this.reducedMotion = effectiveReducedMotion(settings);
+      this.screenShake = settings.screenShake && !this.reducedMotion;
       this.mouseInvertY = settings.invertY;
       this.fovScale = settings.fovScale;
       this.distanceScale = settings.cameraDistance;
-      this.reducedMotion = settings.reducedMotion;
       if (!this.screenShake) {
         this.shakeAmount = 0;
       }

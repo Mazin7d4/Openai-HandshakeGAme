@@ -10,6 +10,8 @@ import {
   type RunStats,
 } from './heistAwards.ts';
 import { createFaceGlyph, drawFaceGlyph, type FaceMood } from './FaceGlyph.ts';
+import { MenuNavigator } from './MenuNavigator.ts';
+import { effectiveReducedMotion, getSettings } from './Settings.ts';
 
 export interface HeistReportHandlers {
   onPlayAgain: () => void;
@@ -19,6 +21,15 @@ export interface HeistReportHandlers {
   /** Night Shift: restart with a fresh random seed. */
   onNewSeed?: () => void;
   audio?: GameAudio | null;
+}
+
+export interface NightShiftSummary {
+  floor: number;
+  points: number;
+  total: number;
+  multiplier: number;
+  best: { floor: number; score: number } | null;
+  nextTwist?: { label: string; flavor: string };
 }
 
 /**
@@ -35,8 +46,11 @@ export class HeistReport {
   private readonly quipEl: HTMLElement;
   private readonly stampEl: HTMLElement;
   private readonly seedEl: HTMLElement;
+  private readonly nightShiftEl: HTMLElement;
   private readonly challengeHint: HTMLElement;
+  private readonly live: HTMLDivElement;
   private readonly playAgainBtn: HTMLButtonElement;
+  private readonly nav = new MenuNavigator();
   private stats: RunStats | null = null;
   private gradeTimers: number[] = [];
   private readonly onKey = (event: KeyboardEvent) => this.handleKey(event);
@@ -87,6 +101,11 @@ export class HeistReport {
 
     this.timeEl = this.panel.querySelector('[data-heist="time"]') as HTMLElement;
     this.seedEl = this.panel.querySelector('[data-heist="seed"]') as HTMLElement;
+    this.nightShiftEl = document.createElement('div');
+    this.nightShiftEl.className = 'heist-report__run';
+    this.nightShiftEl.dataset.testid = 'report-night-shift';
+    this.nightShiftEl.hidden = true;
+    this.seedEl.after(this.nightShiftEl);
     this.gradeEl = this.panel.querySelector('[data-heist="grade"]') as HTMLElement;
     this.awardsEl = this.panel.querySelector('[data-heist="awards"]') as HTMLElement;
     this.quipEl = this.panel.querySelector('[data-heist="quip"]') as HTMLElement;
@@ -125,11 +144,18 @@ export class HeistReport {
       actions.append(leave);
     }
 
-    this.root.append(this.panel);
+    this.live = document.createElement('div');
+    this.live.className = 'a11y-live';
+    this.live.dataset.testid = 'heist-report-live';
+    this.live.setAttribute('role', 'status');
+    this.live.setAttribute('aria-live', 'assertive');
+    this.live.setAttribute('aria-atomic', 'true');
+
+    this.root.append(this.panel, this.live);
     parent.append(this.root);
   }
 
-  show(stats: RunStats): void {
+  show(stats: RunStats, nightShift?: NightShiftSummary): void {
     this.stats = stats;
     this.clearGradeTimers();
     this.timeEl.textContent = formatRunTime(stats.elapsedSeconds);
@@ -148,6 +174,35 @@ export class HeistReport {
       this.seedEl.textContent = '';
     }
 
+    if (nightShift) {
+      this.nightShiftEl.hidden = false;
+      this.nightShiftEl.replaceChildren();
+
+      const multSuffix = nightShift.multiplier > 1 ? ` · x${nightShift.multiplier.toLocaleString('en-US')}` : '';
+      const clearedEl = document.createElement('p');
+      clearedEl.textContent = `Floor ${nightShift.floor.toLocaleString('en-US')} cleared · +${nightShift.points.toLocaleString('en-US')}${multSuffix}`;
+      this.nightShiftEl.append(clearedEl);
+
+      const scoreEl = document.createElement('p');
+      scoreEl.textContent = `Run score ${nightShift.total.toLocaleString('en-US')}`;
+      this.nightShiftEl.append(scoreEl);
+
+      if (nightShift.best) {
+        const bestEl = document.createElement('p');
+        bestEl.textContent = `Best: floor ${nightShift.best.floor.toLocaleString('en-US')} · ${nightShift.best.score.toLocaleString('en-US')}`;
+        this.nightShiftEl.append(bestEl);
+      }
+
+      if (nightShift.nextTwist) {
+        const nextEl = document.createElement('p');
+        nextEl.textContent = `Next floor: ${nightShift.nextTwist.label}. ${nightShift.nextTwist.flavor}`;
+        this.nightShiftEl.append(nextEl);
+      }
+    } else {
+      this.nightShiftEl.hidden = true;
+      this.nightShiftEl.replaceChildren();
+    }
+
     this.awardsEl.replaceChildren();
     for (const award of pickAwards(stats)) {
       const li = document.createElement('li');
@@ -163,7 +218,7 @@ export class HeistReport {
 
     this.gradeEl.replaceChildren();
     const faces = gradeFaces(stats);
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reduced = effectiveReducedMotion(getSettings());
     faces.forEach((face, index) => {
       const slot = document.createElement('span');
       slot.className = `heist-report__grade-slot${face.earned ? '' : ' is-missed'}`;
@@ -191,11 +246,22 @@ export class HeistReport {
 
     this.root.classList.add('visible');
     window.addEventListener('keydown', this.onKey);
-    window.setTimeout(() => this.playAgainBtn.focus(), 40);
+    const resultLine = stats.outcome === 'win'
+      ? `Heist complete. Extracted in ${formatRunTime(stats.elapsedSeconds)}.`
+      : `Heist failed. Busted after ${formatRunTime(stats.elapsedSeconds)}.`;
+    this.live.textContent = '';
+    window.requestAnimationFrame(() => {
+      this.live.textContent = resultLine;
+    });
+    this.nav.attach(this.root, {
+      onBack: this.handlers.onLeave,
+      initialFocus: this.playAgainBtn,
+    });
   }
 
   hide(): void {
     this.clearGradeTimers();
+    this.nav.detach();
     this.root.classList.remove('visible');
     window.removeEventListener('keydown', this.onKey);
   }
@@ -296,6 +362,7 @@ function button(label: string, className: string, testId: string): HTMLButtonEle
   btn.type = 'button';
   btn.className = className;
   btn.textContent = label;
+  btn.setAttribute('aria-label', label);
   btn.dataset.testid = testId;
   return btn;
 }
