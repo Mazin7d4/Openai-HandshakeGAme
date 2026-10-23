@@ -315,6 +315,7 @@ class HandshakeRoom extends Room {
     this.onMessage('hack-cancel', (client, message) => this.cancelHack(client.sessionId, message));
     this.onMessage('mission-tether-save', (client) => this.reportTetherSave(client.sessionId));
     this.onMessage('mission-retry', () => {
+      this.resetPlayerStats();
       if (this.state.run.mode === 'nightshift') {
         this.state.run.floorCleared = false;
         this.nightshiftEscapedFloor = 0;
@@ -476,6 +477,19 @@ class HandshakeRoom extends Room {
     if (begin) this.beginFloor();
   }
 
+  /** Per-player report stats span the whole run (all Night Shift floors); cleared on rematch / retry. */
+  resetPlayerStats() {
+    for (const player of this.state.players.values()) {
+      player.lootDelivered = 0;
+      player.lootCarrySeconds = 0;
+      player.passes = 0;
+      player.rescues = 0;
+      player.capturedCount = 0;
+      player.grabs = 0;
+      player.hacks = 0;
+    }
+  }
+
   resultsPhase() {
     const run = this.state.run;
     return this.state.mission.stage === 'complete' || run.ended || (run.mode === 'nightshift' && run.floorCleared);
@@ -510,6 +524,7 @@ class HandshakeRoom extends Room {
     const rematches = Math.min(65535, (run.rematches | 0) + 1);
     this.initRun({ mode, seed }, false);
     this.resetMission();
+    this.resetPlayerStats();
     this.state.run.rematches = rematches;
     this.broadcast('rematch-start', {
       seed: this.state.run.seed,
@@ -1336,13 +1351,6 @@ class HandshakeRoom extends Room {
       player.struggles = 0;
       player.carryFor = 0;
       player.rescueProgress = 0;
-      player.lootDelivered = 0;
-      player.lootCarrySeconds = 0;
-      player.passes = 0;
-      player.rescues = 0;
-      player.capturedCount = 0;
-      player.grabs = 0;
-      player.hacks = 0;
     }
     this.state.hack.stationAOwner = '';
     this.state.hack.stationBOwner = '';
