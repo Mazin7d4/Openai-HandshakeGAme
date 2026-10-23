@@ -169,6 +169,14 @@ interface SchemaPlayer {
   struggles?: number;
   carryFor?: number;
   rescueProgress?: number;
+  rematchVote?: boolean;
+  lootDelivered?: number;
+  lootCarrySeconds?: number;
+  passes?: number;
+  rescues?: number;
+  capturedCount?: number;
+  grabs?: number;
+  hacks?: number;
 }
 
 interface SchemaRun {
@@ -185,6 +193,7 @@ interface SchemaRun {
   lastFloorPoints: number;
   floorCleared: boolean;
   ended: boolean;
+  rematches: number;
 }
 
 interface SchemaRoomState {
@@ -270,6 +279,7 @@ const EMPTY_RUN: RunNetworkState = {
   lastFloorPoints: 0,
   floorCleared: false,
   ended: false,
+  rematches: 0,
 };
 
 export interface FloorClearedMessage {
@@ -292,6 +302,13 @@ export interface RunEndedMessage {
   score: number;
   multiplier: number;
   streak: number;
+}
+
+export interface RematchStartMessage {
+  seed: number;
+  mode: RunMode;
+  floor: number;
+  rematches: number;
 }
 
 export interface CreateRoomOptions {
@@ -330,6 +347,14 @@ function copyPlayer(player: SchemaPlayer): DroneNetworkState {
     struggles: Math.max(0, (player.struggles ?? 0) | 0),
     carryFor: Number.isFinite(player.carryFor) ? Number(player.carryFor) : 0,
     rescueProgress: Math.max(0, Math.min(1, Number(player.rescueProgress) || 0)),
+    rematchVote: player.rematchVote === true,
+    lootDelivered: Math.max(0, (player.lootDelivered ?? 0) | 0),
+    lootCarrySeconds: Number.isFinite(player.lootCarrySeconds) ? Number(player.lootCarrySeconds) : 0,
+    passes: Math.max(0, (player.passes ?? 0) | 0),
+    rescues: Math.max(0, (player.rescues ?? 0) | 0),
+    capturedCount: Math.max(0, (player.capturedCount ?? 0) | 0),
+    grabs: Math.max(0, (player.grabs ?? 0) | 0),
+    hacks: Math.max(0, (player.hacks ?? 0) | 0),
   };
 }
 
@@ -374,6 +399,8 @@ export class MultiplayerSession {
   private readonly floorStartListeners = new Set<(payload: FloorStartPayload) => void>();
   private readonly floorClearedListeners = new Set<(message: FloorClearedMessage) => void>();
   private readonly runEndedListeners = new Set<(message: RunEndedMessage) => void>();
+  private readonly rematchStartListeners = new Set<(message: RematchStartMessage) => void>();
+  private readonly rematchPartnerLeftListeners = new Set<(message: { role: DroneRole }) => void>();
   private readonly pingListeners = new Set<(message: PingPlacedMessage) => void>();
   private readonly emoteListeners = new Set<(message: EmotePlayedMessage) => void>();
   private readonly objectEventListeners = new Set<(message: ObjectEventMessage) => void>();
@@ -676,6 +703,20 @@ export class MultiplayerSession {
     this.room.send('mission-retry');
   }
 
+  sendRematchVote(want: boolean): void {
+    this.room.send('rematch-vote', { want: want === true });
+  }
+
+  onRematchStart(listener: (message: RematchStartMessage) => void): () => void {
+    this.rematchStartListeners.add(listener);
+    return () => this.rematchStartListeners.delete(listener);
+  }
+
+  onRematchPartnerLeft(listener: (message: { role: DroneRole }) => void): () => void {
+    this.rematchPartnerLeftListeners.add(listener);
+    return () => this.rematchPartnerLeftListeners.delete(listener);
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
@@ -683,6 +724,8 @@ export class MultiplayerSession {
     this.reconnectDeadlineMs = null;
     this.listeners.clear();
     this.objectEventListeners.clear();
+    this.rematchStartListeners.clear();
+    this.rematchPartnerLeftListeners.clear();
     clearReconnectionToken(this.roomCode);
     this.room.removeAllListeners();
     await this.room.leave(true);
@@ -741,6 +784,18 @@ export class MultiplayerSession {
     });
     room.onMessage('run-ended', (message: RunEndedMessage) => {
       for (const listener of this.runEndedListeners) listener(message);
+    });
+    room.onMessage('rematch-start', (message: RematchStartMessage) => {
+      if (!message || !Number.isFinite(message.seed) || !Number.isFinite(message.floor)) return;
+      // A pinned Night Shift seed can reuse the same seed/floor key; rematch still needs
+      // the normal floor-start layout reset to run for the new mission.
+      this.lastFloorKey = null;
+      for (const listener of this.rematchStartListeners) listener(message);
+    });
+    room.onMessage('rematch-partner-left', (message: { role?: string }) => {
+      const role = roleOrNull(message?.role ?? '');
+      if (!role) return;
+      for (const listener of this.rematchPartnerLeftListeners) listener({ role });
     });
     room.onReconnect(() => {
       this.networkState = 'connected';
@@ -928,6 +983,7 @@ export class MultiplayerSession {
       lastFloorPoints: Number.isFinite(run.lastFloorPoints) ? run.lastFloorPoints : 0,
       floorCleared: run.floorCleared === true,
       ended: run.ended === true,
+      rematches: Math.max(0, run.rematches | 0),
     };
   }
 

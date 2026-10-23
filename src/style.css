@@ -532,6 +532,21 @@ html[data-reduced-motion='1'] *::after {
 }
 .heist-report__actions .btn { min-height: 48px; }
 .heist-report__actions .btn--primary { min-height: 52px; }
+.heist-report__rematch-status {
+  margin: 0 0 8px; padding: 8px 10px; border: var(--rim); border-radius: var(--r-control);
+  color: var(--graphite); background: var(--warm-screen); font-weight: 800; text-align: center;
+}
+.heist-report__player-stats { margin: 0 0 10px; min-width: 0; }
+.heist-report__player-stats-scroll { max-width: 100%; overflow-x: auto; }
+.heist-report__player-stats-table {
+  width: 100%; min-width: 500px; border-collapse: collapse; color: var(--graphite);
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.heist-report__player-stats-table caption { margin-bottom: 5px; text-align: left; font-weight: 800; }
+.heist-report__player-stats-table th,
+.heist-report__player-stats-table td { padding: 5px 6px; border-bottom: 1px solid var(--aluminium); text-align: right; white-space: nowrap; }
+.heist-report__player-stats-table th:first-child,
+.heist-report__player-stats-table td:first-child { text-align: left; }
 .heist-report__stamp {
   position: absolute; right: 18px; top: 72px;
   padding: 6px 10px; border: 3px solid var(--exit); border-radius: var(--r-control);

@@ -15,12 +15,31 @@ import { effectiveReducedMotion, getSettings } from './Settings.ts';
 
 export interface HeistReportHandlers {
   onPlayAgain: () => void;
+  onRematchVote?: (want: boolean) => void;
   onLeave?: () => void;
   /** Night Shift only: advance to the next seeded floor. */
   onNextFloor?: () => void;
   /** Night Shift: restart with a fresh random seed. */
   onNewSeed?: () => void;
   audio?: GameAudio | null;
+}
+
+export interface CoopReportPlayer {
+  role: DroneRole;
+  rematchVote: boolean;
+  lootDelivered: number;
+  lootCarrySeconds: number;
+  passes: number;
+  rescues: number;
+  capturedCount: number;
+  grabs: number;
+  hacks: number;
+}
+
+export interface CoopReportState {
+  localRole: DroneRole | null;
+  players: ReadonlyMap<DroneRole, CoopReportPlayer>;
+  partnerLeft?: boolean;
 }
 
 export interface NightShiftSummary {
@@ -51,7 +70,10 @@ export class HeistReport {
   private readonly nightShiftEl: HTMLElement;
   private readonly challengeHint: HTMLElement;
   private readonly live: HTMLDivElement;
-  private readonly playAgainBtn: HTMLButtonElement;
+  private readonly playAgainBtn: HTMLButtonElement | null;
+  private readonly rematchBtn: HTMLButtonElement | null;
+  private readonly rematchStatusEl: HTMLElement | null;
+  private readonly playerStatsEl: HTMLElement | null;
   private readonly nav = new MenuNavigator();
   private stats: RunStats | null = null;
   private gradeTimers: number[] = [];
@@ -115,13 +137,39 @@ export class HeistReport {
 
     const actions = this.panel.querySelector('.heist-report__actions')!;
     const nightShift = Boolean(handlers.onNewSeed || handlers.onNextFloor);
-    this.playAgainBtn = button(
+    const cooperative = Boolean(handlers.onRematchVote);
+    this.playAgainBtn = cooperative ? null : button(
       nightShift ? 'Play again, same seed' : 'Play again',
       'btn btn--primary heist-report__play',
       'retry-mission',
     );
-    this.playAgainBtn.title = nightShift ? 'Play again, same seed (R)' : 'Play again (R)';
-    this.playAgainBtn.addEventListener('click', () => this.handlers.onPlayAgain());
+    if (this.playAgainBtn) {
+      this.playAgainBtn.title = nightShift ? 'Play again, same seed (R)' : 'Play again (R)';
+      this.playAgainBtn.addEventListener('click', () => this.handlers.onPlayAgain());
+    }
+    this.rematchBtn = cooperative ? button('Rematch', 'btn btn--primary heist-report__rematch', 'rematch') : null;
+    this.rematchBtn?.setAttribute('aria-pressed', 'false');
+    this.rematchBtn?.addEventListener('click', () => {
+      const current = this.currentCoopState?.players.get(this.currentCoopState.localRole ?? 'pix')?.rematchVote === true;
+      this.handlers.onRematchVote?.(!current);
+    });
+
+    this.rematchStatusEl = cooperative ? document.createElement('p') : null;
+    if (this.rematchStatusEl) {
+      this.rematchStatusEl.className = 'heist-report__rematch-status';
+      this.rematchStatusEl.dataset.testid = 'rematch-status';
+      this.rematchStatusEl.setAttribute('aria-live', 'polite');
+      this.rematchStatusEl.textContent = 'Rematch?';
+      actions.before(this.rematchStatusEl);
+    }
+    this.playerStatsEl = cooperative ? document.createElement('div') : null;
+    if (this.playerStatsEl) {
+      this.playerStatsEl.className = 'heist-report__player-stats';
+      this.playerStatsEl.dataset.testid = 'player-stats';
+      this.playerStatsEl.setAttribute('role', 'region');
+      this.playerStatsEl.setAttribute('aria-label', 'Player statistics');
+      this.nightShiftEl.after(this.playerStatsEl);
+    }
 
     const challenge = button('Copy challenge link', 'btn', 'challenge-friend');
     challenge.addEventListener('click', () => void this.copyChallengeLink());
@@ -129,7 +177,9 @@ export class HeistReport {
     const save = button('Save card', 'btn', 'save-card');
     save.addEventListener('click', () => void this.saveCard());
 
-    actions.append(this.playAgainBtn, challenge, save);
+    if (this.playAgainBtn) actions.append(this.playAgainBtn);
+    if (this.rematchBtn) actions.append(this.rematchBtn);
+    actions.append(challenge, save);
     if (handlers.onNewSeed) {
       const fresh = button('New seed', 'btn', 'new-seed');
       fresh.addEventListener('click', () => handlers.onNewSeed?.());
@@ -157,8 +207,11 @@ export class HeistReport {
     parent.append(this.root);
   }
 
-  show(stats: RunStats, nightShift?: NightShiftSummary): void {
+  private currentCoopState: CoopReportState | null = null;
+
+  show(stats: RunStats, nightShift?: NightShiftSummary, coop?: CoopReportState): void {
     this.stats = stats;
+    if (coop) this.currentCoopState = coop;
     this.clearGradeTimers();
     this.timeEl.textContent = formatRunTime(stats.elapsedSeconds);
     this.quipEl.textContent = quipFor(stats);
@@ -220,6 +273,8 @@ export class HeistReport {
       this.awardsEl.append(li);
     }
 
+    this.renderCoop();
+
     this.gradeEl.replaceChildren();
     const faces = gradeFaces(stats);
     const reduced = effectiveReducedMotion(getSettings());
@@ -259,8 +314,13 @@ export class HeistReport {
     });
     this.nav.attach(this.root, {
       onBack: this.handlers.onLeave,
-      initialFocus: this.playAgainBtn,
+      initialFocus: this.rematchBtn ?? this.playAgainBtn,
     });
+  }
+
+  updateCoopStatus(state: CoopReportState): void {
+    this.currentCoopState = state;
+    this.renderCoop();
   }
 
   hide(): void {
@@ -289,8 +349,70 @@ export class HeistReport {
     if (event.key === 'r' || event.key === 'R' || event.key === 'Enter') {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
       event.preventDefault();
-      this.handlers.onPlayAgain();
+      if (this.rematchBtn) this.rematchBtn.click();
+      else this.handlers.onPlayAgain();
     }
+  }
+
+  private renderCoop(): void {
+    if (!this.rematchBtn || !this.rematchStatusEl || !this.playerStatsEl) return;
+    const state = this.currentCoopState;
+    const local = state?.localRole ? state.players.get(state.localRole) : undefined;
+    const partnerRole = state?.localRole === 'pix' ? 'nee' : 'pix';
+    const partner = state?.players.get(partnerRole);
+    const localVoted = local?.rematchVote === true;
+    const partnerVoted = partner?.rematchVote === true;
+    const partnerLeft = state?.partnerLeft === true;
+    this.rematchBtn.disabled = partnerLeft;
+    this.rematchBtn.textContent = localVoted ? 'Cancel rematch' : 'Rematch';
+    this.rematchBtn.setAttribute('aria-label', this.rematchBtn.textContent);
+    this.rematchBtn.setAttribute('aria-pressed', String(localVoted));
+    this.rematchStatusEl.textContent = partnerLeft
+      ? 'Partner left the room'
+      : localVoted && partnerVoted
+        ? 'Rematch?'
+        : localVoted
+          ? 'Waiting for partner…'
+          : partnerVoted
+            ? 'Partner wants a rematch!'
+            : 'Rematch?';
+
+    const stats = [
+      state?.players.get('pix'),
+      state?.players.get('nee'),
+    ];
+    this.playerStatsEl.replaceChildren();
+    const scroll = document.createElement('div');
+    scroll.className = 'heist-report__player-stats-scroll';
+    const table = document.createElement('table');
+    table.className = 'heist-report__player-stats-table';
+    table.innerHTML = '<caption>Player statistics</caption><thead><tr><th scope="col">Player</th><th scope="col">Loot</th><th scope="col">Carry time</th><th scope="col">Passes</th><th scope="col">Rescues</th><th scope="col">Captured</th><th scope="col">Grabs</th><th scope="col">Hacks</th></tr></thead>';
+    const body = document.createElement('tbody');
+    for (const [index, role] of (['pix', 'nee'] as const).entries()) {
+      const player = stats[index];
+      const row = document.createElement('tr');
+      row.dataset.testid = `player-stats-${role}`;
+      const values = [
+        role.toUpperCase(),
+        String(player?.lootDelivered ?? 0),
+        `${(player?.lootCarrySeconds ?? 0).toFixed(1)}s`,
+        String(player?.passes ?? 0),
+        String(player?.rescues ?? 0),
+        String(player?.capturedCount ?? 0),
+        String(player?.grabs ?? 0),
+        String(player?.hacks ?? 0),
+      ];
+      for (const [valueIndex, value] of values.entries()) {
+        const cell = document.createElement(valueIndex === 0 ? 'th' : 'td');
+        cell.textContent = value;
+        if (valueIndex === 0) cell.setAttribute('scope', 'row');
+        row.append(cell);
+      }
+      body.append(row);
+    }
+    table.append(body);
+    scroll.append(table);
+    this.playerStatsEl.append(scroll);
   }
 
   /** Builds `?seed=<code>&beat=<ms>` via shared/run.ts challengeUrl. */

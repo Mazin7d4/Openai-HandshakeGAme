@@ -27,6 +27,7 @@ export interface RunNetworkState {
   lastFloorPoints: number;
   floorCleared: boolean;
   ended: boolean;
+  rematches: number;
 }
 
 export interface DroneNetworkState {
@@ -48,6 +49,15 @@ export interface DroneNetworkState {
   carryFor: number;
   /** 0–1 rescue progress from synced struggles. */
   rescueProgress: number;
+  rematchVote: boolean;
+  lootDelivered: number;
+  lootCarrySeconds: number;
+  passes: number;
+  rescues: number;
+  /** Number of times this drone has been captured; `captured` remains the live state. */
+  capturedCount: number;
+  grabs: number;
+  hacks: number;
 }
 
 export type GrabbableMode = 'free' | 'held';
