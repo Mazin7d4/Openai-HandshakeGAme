@@ -67,7 +67,13 @@ await runTest('rematch-mobile', async (browser, notes) => {
     await shot(host, 'rematch-mobile-report');
     await rematch.tap();
     await host.getByTestId('mission-complete').waitFor({ state: 'hidden', timeout: 10_000 });
-    assert(partner.state.mission.stage === 'infiltrate', 'partner did not reset after rematch');
+    // rematch-start (message) can land before the state patch; poll the synced state.
+    const resetBy = Date.now() + 5000;
+    while (Date.now() < resetBy && !(partner.state.mission.stage === 'infiltrate' && partner.state.run.rematches >= 1)) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert(partner.state.mission.stage === 'infiltrate' && partner.state.run.rematches >= 1,
+      `partner did not reset after rematch: stage=${partner.state.mission.stage} rematches=${partner.state.run.rematches}`);
     Object.assign(notes, { code, rematchBox: box, overflow, reset: true });
   } finally {
     try { await partner?.leave(true); } catch { /* already closed */ }
