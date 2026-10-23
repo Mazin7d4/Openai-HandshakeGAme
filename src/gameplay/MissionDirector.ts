@@ -11,12 +11,15 @@ import type { HackSession } from './HackSession.ts';
 import { SecuritySystem } from './SecuritySystem.ts';
 import layout from '../level/heist-layout.json';
 import type { RunLayout } from '../seed/index.ts';
-import { nextFloorSeed, stashRunSeed } from '../seed/index.ts';
+import { generateRun, nextFloorSeed, stashRunSeed } from '../seed/index.ts';
 import { clearRunIntent, formatBeatMs, getRunInfo, prepareRun, randomSeed } from '../net/runInfo.ts';
 import { updateHeistPresentation } from '../level/PrototypeHeist.ts';
 import { gameEvents } from './GameEvents.ts';
-import { getRunState, localEscape, localCapture } from '../run/ClientRun.ts';
+import { getRunState, localEscape, localCapture, nextFloorSeed as runNextFloorSeed } from '../run/ClientRun.ts';
 import { byInput } from '../ui/inputHints.ts';
+import { beginFloor, getBest, resetRun, runSummary, scoreFloor } from '../run/nightShiftScore.ts';
+import { twistFlavor } from '../run/twistFlavor.ts';
+import type { NightShiftSummary } from '../ui/HeistReport.ts';
 
 export interface WarmupStep {
   label: string;
@@ -72,10 +75,19 @@ export class MissionDirector {
   private vault = new Vector3(layout.objects.prototype.x, layout.objects.prototype.y, layout.objects.prototype.z);
   private extraction = new Vector3(layout.extraction.x, layout.extraction.y, layout.extraction.z);
   private runLayout: RunLayout | null = null;
+  private readonly mode: GameMode;
+  private readonly uiParent: HTMLElement | undefined;
   private runChrome: HTMLElement | null = null;
   private floorChip: HTMLElement | null = null;
+  private twistChip: HTMLElement | null = null;
+  private scoreChip: HTMLElement | null = null;
   private beatChip: HTMLElement | null = null;
   private timeToBeatMs: number | undefined;
+  private floorCard: HTMLElement | null = null;
+  private floorCardTimer: number | null = null;
+  private floorCardRemoveTimer: number | null = null;
+  private floorScored = false;
+  private lastNightShiftSummary?: NightShiftSummary;
 
   constructor(
     scene: Scene,
@@ -88,6 +100,8 @@ export class MissionDirector {
     runLayout?: RunLayout | null,
   ) {
     this.scene = scene;
+    this.mode = mode;
+    this.uiParent = uiParent;
     this.multiplayer = multiplayer;
     this.audio = audio;
     this.alarmLight = new PointLight('alarm-light', new Vector3(0, 5.5, 8), scene);
@@ -151,6 +165,14 @@ export class MissionDirector {
         this.floorChip.className = 'floor-chip';
         this.floorChip.dataset.testid = 'floor-counter';
         this.runChrome.append(this.floorChip);
+        this.twistChip = document.createElement('span');
+        this.twistChip.className = 'twist-chip';
+        this.twistChip.dataset.testid = 'twist-chip';
+        this.runChrome.append(this.twistChip);
+        this.scoreChip = document.createElement('span');
+        this.scoreChip.className = 'score-chip';
+        this.scoreChip.dataset.testid = 'score-chip';
+        this.runChrome.append(this.scoreChip);
         if (info.timeToBeatMs != null) {
           this.beatChip = document.createElement('span');
           this.beatChip.className = 'beat-chip';
@@ -187,6 +209,7 @@ export class MissionDirector {
           }
         },
         onNewSeed: mode === 'night-shift' ? () => {
+          resetRun();
           clearRunIntent();
           restartNightShift({ seed: randomSeed(), floor: 1 }, false);
         } : undefined,
@@ -220,15 +243,28 @@ export class MissionDirector {
     }
     if (runLayout) this.applyRunLayout(runLayout);
     this.renderObjective(0);
+    if (mode === 'night-shift') {
+      (window as unknown as { __nightShift?: unknown }).__nightShift = {
+        summary: runSummary,
+        best: getBest,
+      };
+    }
   }
 
   /** Solo / seed hook: update loot + extraction anchors and HUD floor chip. */
   applyRunLayout(run: RunLayout): void {
     this.runLayout = run;
+    this.floorScored = false;
     this.vault.set(run.loot.x, run.loot.y, run.loot.z);
     this.extraction.set(run.extraction.x, run.extraction.y, run.extraction.z);
     this.security.applyRunLayout(run);
     this.renderFloorHud();
+    if (this.mode === 'night-shift') {
+      const floor = Math.max(1, run.floor | 0);
+      beginFloor(floor);
+      this.updateScoreHud();
+      this.showFloorCard(floor, run.twist);
+    }
   }
 
   sync(status: RoomStatus): void {
@@ -362,6 +398,10 @@ export class MissionDirector {
   dispose(): void {
     if (this.successTimer !== null) window.clearTimeout(this.successTimer);
     if (this.alarmTimer !== null) window.clearTimeout(this.alarmTimer);
+    if (this.floorCardTimer !== null) window.clearTimeout(this.floorCardTimer);
+    if (this.floorCardRemoveTimer !== null) window.clearTimeout(this.floorCardRemoveTimer);
+    this.floorCard?.remove();
+    this.floorCard = null;
     this.audio.stopAlarm();
     this.unsubscribe?.();
     this.security.dispose();
@@ -369,8 +409,9 @@ export class MissionDirector {
     this.objective?.remove();
     this.runChrome?.remove();
     this.report?.dispose();
-    const hook = window as unknown as { __heistReport?: unknown };
+    const hook = window as unknown as { __heistReport?: unknown; __nightShift?: unknown };
     if (hook.__heistReport) delete hook.__heistReport;
+    if (hook.__nightShift) delete hook.__nightShift;
   }
 
   private spotted(role: DroneRole): void {
@@ -480,17 +521,117 @@ export class MissionDirector {
     this.objective?.classList.toggle('alarm', this.state.alarm);
   }
 
+  private showFloorCard(floor: number, twist: RunLayout['twist']): void {
+    if (!this.uiParent) return;
+    if (this.floorCardTimer !== null) {
+      window.clearTimeout(this.floorCardTimer);
+      this.floorCardTimer = null;
+    }
+    if (this.floorCardRemoveTimer !== null) {
+      window.clearTimeout(this.floorCardRemoveTimer);
+      this.floorCardRemoveTimer = null;
+    }
+    if (this.floorCard) {
+      this.floorCard.remove();
+      this.floorCard = null;
+    }
+
+    const { total, multiplier } = runSummary();
+    const card = document.createElement('div');
+    card.className = 'floor-card';
+    card.dataset.testid = 'floor-card';
+
+    const kicker = document.createElement('small');
+    kicker.className = 'floor-card__kicker';
+    kicker.style.display = 'block';
+    kicker.textContent = `Floor ${floor}`;
+
+    const title = document.createElement('h3');
+    title.textContent = twist.label;
+
+    const flavor = document.createElement('p');
+    flavor.className = 'floor-card__flavor';
+    flavor.textContent = twistFlavor(twist.id);
+
+    const score = document.createElement('p');
+    score.className = 'floor-card__score';
+    score.textContent = `Score ${total} · streak x${multiplier}`;
+
+    card.append(kicker, title, flavor, score);
+
+    const dismiss = () => {
+      if (this.floorCardTimer !== null) {
+        window.clearTimeout(this.floorCardTimer);
+        this.floorCardTimer = null;
+      }
+      if (!card.classList.contains('floor-card--out')) {
+        card.classList.add('floor-card--out');
+        if (this.floorCardRemoveTimer !== null) {
+          window.clearTimeout(this.floorCardRemoveTimer);
+        }
+        this.floorCardRemoveTimer = window.setTimeout(() => {
+          this.floorCardRemoveTimer = null;
+          card.remove();
+          if (this.floorCard === card) this.floorCard = null;
+        }, 400);
+      }
+    };
+
+    card.addEventListener('click', dismiss);
+    this.uiParent.append(card);
+    this.floorCard = card;
+    this.floorCardTimer = window.setTimeout(dismiss, 3200);
+  }
+
   private renderFloorHud(): void {
     if (!this.floorChip || !this.runLayout) return;
     // RunState / generateRun floors are already 1-based for Night Shift boots.
     const floor = Math.max(1, this.runLayout.floor | 0);
     this.floorChip.textContent = `Floor ${floor}`;
+    if (this.twistChip && this.runLayout.twist) {
+      this.twistChip.textContent = this.runLayout.twist.label;
+    }
+    this.updateScoreHud();
+  }
+
+  private updateScoreHud(): void {
+    if (!this.scoreChip) return;
+    const { total, multiplier } = runSummary();
+    const multText = multiplier > 1 ? ` · x${multiplier}` : '';
+    this.scoreChip.textContent = `Score ${total.toLocaleString('en-US')}${multText}`;
   }
 
   private presentReport(stats: RunStats, force = false): void {
     if (!this.report) return;
     if (!force && this.state.stage !== 'complete') return;
-    this.report.show(stats);
+    if (this.mode === 'night-shift' && this.runLayout && stats.outcome === 'win') {
+      if (!this.floorScored) {
+        this.floorScored = true;
+        const floor = Math.max(1, this.runLayout.floor | 0);
+        const scored = scoreFloor(stats, floor);
+        this.updateScoreHud();
+        // Mirror onNextFloor: ClientRun.localEscape (advanceFloor) when a run exists, else seed-only advance.
+        const run = getRunState();
+        const next = run
+          ? { seed: runNextFloorSeed(run.seed, run.floor + 1), floor: run.floor + 1 }
+          : nextFloorSeed({ seed: this.runLayout.seed, floor: this.runLayout.floor });
+        const nextTwist = generateRun(next.seed, next.floor).twist;
+        this.lastNightShiftSummary = {
+          floor,
+          points: scored.points,
+          total: scored.total,
+          multiplier: scored.multiplier,
+          best: getBest(),
+          nextTwist: {
+            label: nextTwist.label,
+            flavor: twistFlavor(nextTwist.id),
+          },
+        };
+      }
+      this.report.show(stats, this.lastNightShiftSummary);
+    } else {
+      this.report.show(stats, this.lastNightShiftSummary);
+    }
   }
 
   private snapshotStats(outcome: RunStats['outcome']): RunStats {
@@ -560,6 +701,8 @@ export class MissionDirector {
     this.resetRunCounters();
     this.localElapsed = 0;
     this.completedPresented = false;
+    this.floorScored = false;
+    this.lastNightShiftSummary = undefined;
     this.lastStage = 'infiltrate';
     this.audio.stopAlarm();
     this.report?.hide();
