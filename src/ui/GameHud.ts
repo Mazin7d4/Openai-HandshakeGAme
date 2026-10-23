@@ -1,6 +1,7 @@
 import type { GameMode } from '../app/GameMode.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
 import { controlIcon, keycaps } from './ControlGlyphs.ts';
+import { MenuNavigator } from './MenuNavigator.ts';
 import { clearOnboardingDone } from './OnboardingCoach.ts';
 import type { GraphicsQualitySetting } from './Settings.ts';
 import { SettingsMenu } from './SettingsMenu.ts';
@@ -31,11 +32,13 @@ export class GameHud {
   private readonly toastLayer: HTMLDivElement;
   private readonly touch: boolean;
   private readonly runSeed: number | null;
+  private readonly nav = new MenuNavigator();
   private controlsTimer = 0;
   private paused = false;
   private promptKey = '';
   private activeDroneText = '';
   private settingsMenu: SettingsMenu | null = null;
+  private view: 'home' | 'settings' | 'controls' = 'home';
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (event.code === 'KeyH' && !this.paused && !(event.target instanceof HTMLInputElement)) {
@@ -46,17 +49,13 @@ export class GameHud {
       event.stopPropagation();
       return;
     }
-    if (event.code === 'Escape' && this.paused) {
-      if (this.settingsMenu) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        this.closeSettings();
-        this.showPauseHome();
-        return;
-      }
+    // Settings owns Esc via its MenuNavigator. Pause home / controls: Esc here so flight
+    // input never sees it (MenuNavigator is also attached; stopImmediate keeps a single action).
+    if (event.code === 'Escape' && this.paused && this.view !== 'settings') {
       event.preventDefault();
       event.stopImmediatePropagation();
-      this.options.onResume();
+      if (this.view === 'controls') this.showPauseHome();
+      else this.options.onResume();
     }
   };
 
@@ -72,6 +71,9 @@ export class GameHud {
     this.pauseOverlay = document.createElement('div');
     this.pauseOverlay.className = 'overlay pause-overlay';
     this.pauseOverlay.dataset.testid = 'pause-menu';
+    this.pauseOverlay.setAttribute('role', 'dialog');
+    this.pauseOverlay.setAttribute('aria-modal', 'true');
+    this.pauseOverlay.setAttribute('aria-label', 'Paused');
     this.panel = document.createElement('section');
     this.panel.className = 'panel pause-panel';
     this.pauseOverlay.append(this.panel);
@@ -182,16 +184,15 @@ export class GameHud {
     this.pauseOverlay.classList.toggle('visible', paused);
     this.prompt.classList.toggle('visible', !paused && this.prompt.childElementCount > 0);
     if (paused) this.showPauseHome();
-    else this.closeSettings();
-  }
-
-  /** Keyboard players land on the first action of each pause screen. */
-  private focusFirst(): void {
-    this.panel.querySelector<HTMLElement>('button, select, input')?.focus({ preventScroll: true });
+    else {
+      this.closeSettings();
+      this.nav.detach();
+    }
   }
 
   dispose(): void {
     window.removeEventListener('keydown', this.onKeyDown, true);
+    this.nav.detach();
     this.closeSettings();
     this.prompt.remove();
     this.activeDrone.remove();
@@ -201,8 +202,13 @@ export class GameHud {
     this.toastLayer.remove();
   }
 
+  private bindNav(onBack: () => void, initialFocus?: string): void {
+    this.nav.attach(this.pauseOverlay, { onBack, initialFocus });
+  }
+
   private showPauseHome(): void {
     this.closeSettings();
+    this.view = 'home';
     this.panel.replaceChildren(this.heading('Paused'));
     if (this.runSeed != null) {
       const seed = document.createElement('p');
@@ -212,16 +218,18 @@ export class GameHud {
       this.panel.append(seed);
     }
     this.panel.append(
-      this.button('Resume', this.options.onResume, 'btn--primary'),
+      this.button('Resume', this.options.onResume, 'btn--primary', 'pause-resume'),
       this.button('Settings', () => this.showSettings(), '', 'pause-settings'),
-      this.button('Controls', () => this.showControls()),
-      this.button('Leave game', this.options.onLeave, 'btn--danger danger'),
+      this.button('Controls', () => this.showControls(), '', 'pause-controls'),
+      this.button('Leave game', this.options.onLeave, 'btn--danger danger', 'pause-leave'),
     );
-    this.focusFirst();
+    if (this.paused) this.bindNav(() => this.options.onResume(), '[data-testid="pause-resume"]');
   }
 
   private showSettings(): void {
     this.closeSettings();
+    this.view = 'settings';
+    this.nav.detach();
     this.panel.replaceChildren();
     this.settingsMenu = new SettingsMenu(this.panel, {
       embedded: true,
@@ -242,6 +250,7 @@ export class GameHud {
   }
 
   private showControls(): void {
+    this.view = 'controls';
     this.panel.replaceChildren(this.heading('Controls'));
     const list = document.createElement('dl');
     list.className = 'controls-list';
@@ -258,8 +267,8 @@ export class GameHud {
       dd.textContent = action;
       list.append(dt, dd);
     }
-    this.panel.append(list, this.button('Back', () => this.showPauseHome(), 'btn--quiet'));
-    this.focusFirst();
+    this.panel.append(list, this.button('Back', () => this.showPauseHome(), 'btn--quiet', 'pause-controls-back'));
+    this.bindNav(() => this.showPauseHome(), '[data-testid="pause-controls-back"]');
   }
 
   private heading(text: string): HTMLHeadingElement {
@@ -273,6 +282,7 @@ export class GameHud {
     button.type = 'button';
     button.className = `btn pause-button ${className}`.trim();
     button.textContent = label;
+    button.setAttribute('aria-label', label);
     if (testId) button.dataset.testid = testId;
     button.addEventListener('click', action);
     return button;

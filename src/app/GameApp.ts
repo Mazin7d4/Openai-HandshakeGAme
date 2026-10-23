@@ -29,7 +29,7 @@ import { createEngine, createScene } from '../scene/createScene.ts';
 import { AccessibilityFeedback } from '../ui/AccessibilityFeedback.ts';
 import { GameHud } from '../ui/GameHud.ts';
 import { OnboardingCoach } from '../ui/OnboardingCoach.ts';
-import { saveSettings } from '../ui/Settings.ts';
+import { effectiveReducedMotion, saveSettings } from '../ui/Settings.ts';
 import { generateRun, type RunLayout } from '../seed/index.ts';
 import { getRunInfo } from '../net/runInfo.ts';
 import { TouchControls } from '../ui/TouchControls.ts';
@@ -309,12 +309,12 @@ export class GameApp {
       gameEvents.on('yank', (e) => {
         if (this.mode !== 'night-shift' || e.from !== this.hudRole()) return;
         if (e.kind === 'yank') {
-          this.hitStop = 0.07;
+          if (!effectiveReducedMotion()) this.hitStop = 0.07;
           this.cameraRig.kickFov(0.06);
           this.cameraRig.addShake(0.15);
           audioHub.play('twang', { intensity: e.strength, position: e.position });
         } else if (e.kind === 'sling') {
-          this.hitStop = 0.04;
+          if (!effectiveReducedMotion()) this.hitStop = 0.04;
           this.cameraRig.kickFov(0.08);
           audioHub.play('twang', { intensity: 1, position: e.position });
         }

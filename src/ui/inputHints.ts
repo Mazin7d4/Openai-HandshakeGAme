@@ -26,6 +26,12 @@ function ensureListeners(): void {
   }, { passive: true });
 }
 
+/** Call when a gamepad button/stick is used so HUD hints stay input-aware. */
+export function markGamepadActivity(): void {
+  ensureListeners();
+  currentKind = 'gamepad';
+}
+
 export function inputKind(): InputKind {
   ensureListeners();
   return currentKind;

@@ -10,6 +10,8 @@ import {
   type RunStats,
 } from './heistAwards.ts';
 import { createFaceGlyph, drawFaceGlyph, type FaceMood } from './FaceGlyph.ts';
+import { MenuNavigator } from './MenuNavigator.ts';
+import { effectiveReducedMotion, getSettings } from './Settings.ts';
 
 export interface HeistReportHandlers {
   onPlayAgain: () => void;
@@ -46,7 +48,9 @@ export class HeistReport {
   private readonly seedEl: HTMLElement;
   private readonly nightShiftEl: HTMLElement;
   private readonly challengeHint: HTMLElement;
+  private readonly live: HTMLDivElement;
   private readonly playAgainBtn: HTMLButtonElement;
+  private readonly nav = new MenuNavigator();
   private stats: RunStats | null = null;
   private gradeTimers: number[] = [];
   private readonly onKey = (event: KeyboardEvent) => this.handleKey(event);
@@ -140,7 +144,14 @@ export class HeistReport {
       actions.append(leave);
     }
 
-    this.root.append(this.panel);
+    this.live = document.createElement('div');
+    this.live.className = 'a11y-live';
+    this.live.dataset.testid = 'heist-report-live';
+    this.live.setAttribute('role', 'status');
+    this.live.setAttribute('aria-live', 'assertive');
+    this.live.setAttribute('aria-atomic', 'true');
+
+    this.root.append(this.panel, this.live);
     parent.append(this.root);
   }
 
@@ -207,7 +218,7 @@ export class HeistReport {
 
     this.gradeEl.replaceChildren();
     const faces = gradeFaces(stats);
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reduced = effectiveReducedMotion(getSettings());
     faces.forEach((face, index) => {
       const slot = document.createElement('span');
       slot.className = `heist-report__grade-slot${face.earned ? '' : ' is-missed'}`;
@@ -235,11 +246,22 @@ export class HeistReport {
 
     this.root.classList.add('visible');
     window.addEventListener('keydown', this.onKey);
-    window.setTimeout(() => this.playAgainBtn.focus(), 40);
+    const resultLine = stats.outcome === 'win'
+      ? `Heist complete. Extracted in ${formatRunTime(stats.elapsedSeconds)}.`
+      : `Heist failed. Busted after ${formatRunTime(stats.elapsedSeconds)}.`;
+    this.live.textContent = '';
+    window.requestAnimationFrame(() => {
+      this.live.textContent = resultLine;
+    });
+    this.nav.attach(this.root, {
+      onBack: this.handlers.onLeave,
+      initialFocus: this.playAgainBtn,
+    });
   }
 
   hide(): void {
     this.clearGradeTimers();
+    this.nav.detach();
     this.root.classList.remove('visible');
     window.removeEventListener('keydown', this.onKey);
   }
@@ -340,6 +362,7 @@ function button(label: string, className: string, testId: string): HTMLButtonEle
   btn.type = 'button';
   btn.className = className;
   btn.textContent = label;
+  btn.setAttribute('aria-label', label);
   btn.dataset.testid = testId;
   return btn;
 }
