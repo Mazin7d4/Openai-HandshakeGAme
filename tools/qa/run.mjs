@@ -9,6 +9,8 @@ for (const t of pick.length ? pick : all) {
   const res = line ? JSON.parse(line.slice(10)) : { test: t, pass: false, error: r.error?.message ?? (r.stderr ?? '').slice(-500) };
   results.push(res);
   console.log(`${res.pass ? 'PASS' : 'FAIL'} ${t} (${res.seconds ?? '?'}s)${res.error ? ' - ' + res.error.split('\n')[0] : ''}`);
+  // Print the whole failure reason (multi-line asserts like "errors:\n..." used to show as an empty list).
+  if (!res.pass && res.error) for (const l of res.error.split('\n').slice(1).filter(Boolean)) console.log(`    ${l}`);
   if (res.notes?.dropFixme) console.log(`  fixme ${res.notes.dropFixme.name}: ${res.notes.dropFixme.status}`);
   if (res.notes?.fixme) console.log(`  fixme ${res.notes.fixme.name}: ${res.notes.fixme.status}`);
 }
