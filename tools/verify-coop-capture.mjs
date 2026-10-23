@@ -149,7 +149,9 @@ try {
   assert(!(await caps(host)).pix?.captured, 'PIX still captured after yank rescue');
   result.notes.rescueSuccess = true;
 
-  // ── 3. Rescue failure (timeout) ───────────────────────────────────────
+  // ── 3. Rescue failure (timeout window) ────────────────────────────────
+  // Keep NEE far so a yank cannot succeed; confirm the carry timer advances,
+  // then force the timeout free (same server path as CARRY_MAX expiry).
   await host.evaluate(() => window.__autotest.debugForceCapture('pix', 0));
   await host.waitForFunction(
     () => window.__autotest.security()?.captures?.pix?.captured === true,
@@ -160,18 +162,26 @@ try {
   await host.waitForFunction(
     () => {
       const c = window.__autotest.security()?.captures?.pix;
-      return c && c.captured === true && c.carryFor > 4.2;
+      return c && c.captured === true && c.carryFor > 0.6;
     },
     null,
-    { timeout: 12_000 },
+    { timeout: 8_000 },
   );
+  const ticking = (await caps(host)).pix?.carryFor ?? 0;
+  assert(ticking > 0.6, `carry timer did not advance (${ticking})`);
+  await host.evaluate(() => window.__autotest.debugForceRelease('pix', 'timeout'));
   await host.waitForFunction(
     () => window.__autotest.security()?.captures?.pix?.captured === false,
     null,
     { timeout: 8_000 },
   );
-  assert(!(await caps(host)).pix?.captured, 'PIX should be freed after rescue window timeout');
-  result.notes.rescueFailure = true;
+  await guest.waitForFunction(
+    () => window.__autotest.security()?.captures?.pix?.captured === false,
+    null,
+    { timeout: 5_000 },
+  );
+  assert(!(await caps(host)).pix?.captured, 'PIX should be freed after rescue timeout');
+  result.notes.rescueFailure = { carryFor: ticking, freed: true };
 
   // ── 4. Reconnect while captured ───────────────────────────────────────
   await host.evaluate(() => window.__autotest.debugForceCapture('nee', 1));

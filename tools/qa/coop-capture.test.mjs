@@ -1,6 +1,6 @@
 /**
- * QA wrapper: runs tools/verify-coop-capture.mjs against the local QA servers.
- * Requires HANDSHAKE_TEST_HOOKS (qa:servers / QA_HOOKS).
+ * QA wrapper: runs tools/verify-coop-capture.mjs against the local QA client.
+ * Spawns its own hooked Colyseus server (HANDSHAKE_TEST_HOOKS=1).
  */
 import { spawnSync } from 'node:child_process';
 import { BASE_URL, url } from './lib.mjs';
@@ -22,11 +22,11 @@ const result = line
   : {
       test: 'coop-capture',
       pass: false,
-      error: run.error?.message ?? (run.stderr ?? run.stdout ?? '').slice(-800),
+      error: (run.error?.message ?? (run.stderr || run.stdout || 'no QA_RESULT')).slice(-800),
       seconds: Math.round((Date.now() - started) / 1000),
     };
-if (!line) {
+if (!('seconds' in result) || result.seconds == null) {
   result.seconds = Math.round((Date.now() - started) / 1000);
-  console.log('QA_RESULT ' + JSON.stringify(result));
 }
+console.log('QA_RESULT ' + JSON.stringify(result));
 process.exitCode = result.pass ? 0 : 1;
