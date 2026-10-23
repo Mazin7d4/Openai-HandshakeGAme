@@ -6,9 +6,7 @@ import { clearOnboardingDone } from './OnboardingCoach.ts';
 import type { GraphicsQualitySetting } from './Settings.ts';
 import { SettingsMenu } from './SettingsMenu.ts';
 import { isTouchPlayDevice } from './touchDetect.ts';
-import { gameEvents } from '../gameplay/GameEvents.ts';
-import { byInput, inputKind } from './inputHints.ts';
-import { effectiveReducedMotion, getSettings, subscribeSettings } from './Settings.ts';
+import { inputKind } from './inputHints.ts';
 
 export interface GameHudOptions {
   onResume: () => void;
@@ -42,11 +40,6 @@ export class GameHud {
   private activeDroneText = '';
   private settingsMenu: SettingsMenu | null = null;
   private view: 'home' | 'settings' | 'controls' = 'home';
-  private readonly objectiveBanner: HTMLDivElement;
-  private objectiveStep = 0;
-  private objectiveTimer = 0;
-  private readonly objectiveOffs: Array<() => void> = [];
-  private objectiveSettingsOff!: () => void;
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (event.code === 'KeyH' && !this.paused && !(event.target instanceof HTMLInputElement)) {
@@ -111,13 +104,7 @@ export class GameHud {
     this.toastLayer = document.createElement('div');
     this.toastLayer.className = 'juice-toasts';
     this.toastLayer.dataset.testid = 'juice-toasts';
-    this.objectiveBanner = document.createElement('div');
-    this.objectiveBanner.className = 'objective-banner';
-    this.objectiveBanner.dataset.testid = 'objective-banner';
-    this.objectiveBanner.setAttribute('role', 'status');
-    this.objectiveBanner.setAttribute('aria-live', 'polite');
-    parent.append(this.prompt, this.activeDrone, this.pauseOverlay, this.controlsCard, this.toastLayer, this.objectiveBanner);
-    this.installObjectivePrompts();
+    parent.append(this.prompt, this.activeDrone, this.pauseOverlay, this.controlsCard, this.toastLayer);
     if (this.touch) {
       this.controlsCard.classList.add('controls-card--touch-hidden');
     } else {
@@ -215,52 +202,6 @@ export class GameHud {
     window.clearTimeout(this.controlsTimer);
     this.controlsCard.remove();
     this.toastLayer.remove();
-    this.objectiveOffs.forEach((off) => off());
-    this.objectiveSettingsOff();
-    window.clearTimeout(this.objectiveTimer);
-    this.objectiveBanner.remove();
-  }
-
-  private installObjectivePrompts(): void {
-    this.objectiveSettingsOff = subscribeSettings(() => this.renderObjectivePrompt());
-    this.objectiveOffs.push(
-      gameEvents.on('boost', () => this.advanceObjective(0)),
-      gameEvents.on('heist', (event) => {
-        if (event.beat === 'vault') this.advanceObjective(1);
-        if (event.beat === 'extract') this.advanceObjective(3);
-      }),
-      gameEvents.on('yank', () => this.advanceObjective(2)),
-    );
-    this.renderObjectivePrompt();
-    this.objectiveTimer = window.setTimeout(() => {
-      this.objectiveBanner.classList.remove('visible');
-    }, 90_000);
-  }
-
-  private advanceObjective(step: number): void {
-    if (!getSettings().objectives || step !== this.objectiveStep || this.objectiveStep >= 4) return;
-    this.objectiveStep += 1;
-    this.objectiveBanner.classList.add('objective-banner--fading');
-    const delay = effectiveReducedMotion(getSettings()) ? 0 : 220;
-    window.clearTimeout(this.objectiveTimer);
-    this.objectiveTimer = window.setTimeout(() => {
-      this.objectiveBanner.classList.remove('objective-banner--fading');
-      this.renderObjectivePrompt();
-      if (this.objectiveStep >= 4) this.objectiveBanner.classList.remove('visible');
-    }, delay);
-  }
-
-  private renderObjectivePrompt(): void {
-    const enabled = getSettings().objectives && this.objectiveStep < 4;
-    this.objectiveBanner.classList.toggle('visible', enabled);
-    if (!enabled) return;
-    const lines = [
-      byInput({ keyboard: 'Move with WASD', touch: 'Move with the stick', gamepad: 'Move with the stick' }),
-      'Find the core',
-      byInput({ keyboard: 'Use the cord: Yank [R]', touch: 'Use the cord: tap Yank', gamepad: 'Use the cord: Yank' }),
-      'Reach the exit',
-    ];
-    this.objectiveBanner.textContent = lines[this.objectiveStep] ?? '';
   }
 
   private bindNav(onBack: () => void, initialFocus?: string): void {
