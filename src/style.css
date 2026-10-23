@@ -236,7 +236,14 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
   padding: 10px 18px 12px; transform: translateX(-50%);
   border: var(--rim); border-radius: var(--r-panel); background: var(--paper); box-shadow: var(--lip), var(--float-shadow);
   text-align: center; pointer-events: none;
+  padding-top: max(10px, env(safe-area-inset-top, 0px));
 }
+.mission-objective--collapsed { pointer-events: auto; cursor: pointer; z-index: 12; }
+.mission-objective--collapsed::before { display: none; }
+.mission-objective--collapsed > span, .mission-objective--collapsed .mission-status-badge,
+.mission-objective--collapsed .mission-objective p, .mission-objective--collapsed .detection-meter { display: none; }
+.mission-objective--collapsed h2 { overflow: hidden; margin: 0; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; line-height: 1.2; }
+html[data-reduced-motion='1'] .mission-objective { transition: none; }
 /* the objective plaque hangs from the cord */
 .mission-objective::before { content: ''; position: absolute; left: 50%; bottom: 100%; width: var(--cord); height: 16px; background: var(--graphite); transform: translateX(-50%); }
 .mission-objective h2 { margin: 4px 0 2px; font-size: 20px; }
@@ -445,6 +452,9 @@ html[data-reduced-motion='1'] *::after {
 .heist-report__play.btn--primary,
 .heist-report__play.btn--primary:hover,
 .heist-report__play.btn--primary:focus-visible,
+.heist-report__rematch-bar .btn--primary,
+.heist-report__rematch-bar .btn--primary:hover,
+.heist-report__rematch-bar .btn--primary:focus-visible,
 .heist-report__actions .btn--primary,
 .heist-report__actions .btn--primary:hover,
 .heist-report__actions .btn--primary:focus-visible {
@@ -454,8 +464,10 @@ html[data-reduced-motion='1'] *::after {
   box-shadow: 0 3px 0 #000, inset 0 0 0 3px var(--screen), inset 0 0 0 4px rgba(61, 219, 255, 0.45);
 }
 .heist-report__play.btn--primary:hover,
+.heist-report__rematch-bar .btn--primary:hover,
 .heist-report__actions .btn--primary:hover { background: #1B2C2F; }
 .heist-report__play.btn--primary:focus-visible,
+.heist-report__rematch-bar .btn--primary:focus-visible,
 .heist-report__actions .btn--primary:focus-visible {
   outline: 2px solid var(--pix);
   outline-offset: 3px;
@@ -525,6 +537,28 @@ html[data-reduced-motion='1'] *::after {
 }
 .heist-report__actions .btn { min-height: 48px; }
 .heist-report__actions .btn--primary { min-height: 52px; }
+.heist-report__rematch-bar {
+  position: sticky; bottom: -18px; z-index: 2; display: grid; gap: 6px;
+  margin: 0 -8px 8px; padding: 8px 8px 10px; background: var(--paper);
+  box-shadow: 0 -8px 12px -10px rgba(0, 0, 0, 0.35);
+}
+.heist-report__rematch-bar .btn { min-height: 52px; }
+.heist-report__rematch-status {
+  margin: 0; padding: 8px 10px; border: var(--rim); border-radius: var(--r-control);
+  color: var(--graphite); background: var(--warm-screen); font-weight: 800; text-align: center;
+}
+.heist-report__player-stats { margin: 0 0 10px; min-width: 0; }
+.heist-report__player-stats-scroll { max-width: 100%; overflow-x: auto; }
+.heist-report__player-stats-table {
+  width: 100%; border-collapse: collapse; color: var(--graphite);
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.heist-report__player-stats-table caption { margin-bottom: 5px; text-align: left; font-weight: 800; }
+.heist-report__player-stats-table th,
+.heist-report__player-stats-table td { padding: 5px 4px; border-bottom: 1px solid var(--aluminium); text-align: right; white-space: nowrap; }
+.heist-report__player-stats-table th:first-child,
+.heist-report__player-stats-table td:first-child { text-align: left; }
+@media (max-width: 400px) { .heist-report__player-stats-table { font-size: 11px; } }
 .heist-report__stamp {
   position: absolute; right: 18px; top: 72px;
   padding: 6px 10px; border: 3px solid var(--exit); border-radius: var(--r-control);
@@ -631,6 +665,14 @@ html[data-reduced-motion='1'] *::after {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
 }
 
+@media (max-width: 900px), (max-height: 500px) {
+  .mission-objective { top: calc(max(8px, env(safe-area-inset-top, 0px)) + 46px); width: min(35vw, 380px); }
+  .mission-objective--collapsed { height: 36px; min-height: 36px; box-sizing: border-box; padding: 9px 12px; }
+}
+@media (max-width: 900px) and (orientation: portrait) {
+  .mission-objective { top: calc(max(8px, env(safe-area-inset-top, 0px)) + 92px); width: calc(100% - 24px); }
+}
+
 /* Co-op ping/emote presentation. The overlay never captures gameplay input. */
 .ping-emote-overlay { position: absolute; inset: 0; z-index: 10; pointer-events: none; overflow: hidden; }
 .ping-marker, .emote-bubble {
@@ -701,9 +743,16 @@ html[data-reduced-motion='1'] *::after {
   .controls-card { display: none; }
 }
 /* Server wake-up overlay (multiplayer host/join on the free server) */
-.wake-overlay { margin-top: 20px; text-align: center; }
+.wake-overlay { display: grid; justify-items: center; gap: 10px; margin-top: 20px; text-align: center; }
+.wake-spinner {
+  width: 28px; height: 28px; border: 4px solid var(--aluminium); border-top-color: var(--graphite);
+  border-radius: 50%; animation: rotation 800ms linear infinite;
+}
+@keyframes rotation { to { transform: rotate(360deg); } }
 .wake-title { margin: 0 0 6px; color: var(--graphite); font: 700 18px/1.2 var(--font-title); }
 .wake-detail { margin: 0; color: var(--pencil); font: 400 16px/1.4 var(--font-body); }
+@media (prefers-reduced-motion: reduce) { .wake-spinner { display: none; } }
+html[data-reduced-motion='1'] .wake-spinner { display: none; }
 
 /* ---------- First-run onboarding coach ---------- */
 .onboarding-coach {
@@ -775,12 +824,31 @@ html[data-reduced-motion='1'] *::after {
   will-change: transform;
 }
 .touch-actions {
-  position: absolute; bottom: 0; display: grid;
-  grid-template-columns: repeat(2, var(--touch-btn)); gap: 10px;
-  pointer-events: auto; touch-action: none;
+  position: absolute; inset: 0; display: block;
+  pointer-events: none; touch-action: none;
 }
+.touch-actions > .touch-btn { pointer-events: auto; }
 .touch-controls--right .touch-actions { right: 0; }
 .touch-controls--left .touch-actions { left: 0; }
+.touch-actions > .touch-btn { position: absolute; }
+.touch-controls--right .touch-actions > :nth-child(1) { right: max(8px, env(safe-area-inset-right, 0px)); bottom: max(8px, env(safe-area-inset-bottom, 0px)); }
+.touch-controls--right .touch-actions > :nth-child(2) { left: 100px; bottom: 124px; }
+.touch-controls--right .touch-actions > :nth-child(3) { left: 100px; bottom: 58px; }
+.touch-controls--right .touch-actions > :nth-child(4) { right: 78px; bottom: 76px; }
+.touch-controls--right .touch-actions > :nth-child(5) { right: 146px; bottom: 10px; }
+.touch-controls--right .touch-actions > :nth-child(6) { right: 78px; bottom: 148px; }
+.touch-controls--right .touch-actions > :nth-child(7) { right: 146px; bottom: 150px; }
+.touch-controls--right .touch-actions > :nth-child(8) { right: 146px; bottom: 216px; }
+.touch-controls--right .touch-actions > :nth-child(9) { right: 146px; bottom: 282px; }
+.touch-controls--left .touch-actions > :nth-child(1) { left: max(8px, env(safe-area-inset-left, 0px)); bottom: max(8px, env(safe-area-inset-bottom, 0px)); }
+.touch-controls--left .touch-actions > :nth-child(2) { right: 100px; bottom: 124px; }
+.touch-controls--left .touch-actions > :nth-child(3) { right: 100px; bottom: 58px; }
+.touch-controls--left .touch-actions > :nth-child(4) { left: 78px; bottom: 76px; }
+.touch-controls--left .touch-actions > :nth-child(5) { left: 146px; bottom: 10px; }
+.touch-controls--left .touch-actions > :nth-child(6) { left: 78px; bottom: 148px; }
+.touch-controls--left .touch-actions > :nth-child(7) { left: 146px; bottom: 150px; }
+.touch-controls--left .touch-actions > :nth-child(8) { left: 146px; bottom: 216px; }
+.touch-controls--left .touch-actions > :nth-child(9) { left: 146px; bottom: 282px; }
 .touch-btn {
   display: grid; justify-items: center; align-content: center; gap: 2px;
   width: var(--touch-btn); height: var(--touch-btn);
@@ -822,6 +890,8 @@ html[data-reduced-motion='1'] *::after {
 }
 .touch-rotate-hint.visible { display: grid; gap: 8px; justify-items: center; opacity: 1; }
 .touch-rotate-hint p { margin: 0; color: var(--graphite); font: 700 16px/1.3 var(--font-body); }
+.touch-rotate-hint strong { color: var(--graphite); font: 800 20px/1.1 var(--font-title); }
+.touch-rotate-hint__icon svg { width: 42px; height: 42px; fill: none; stroke: var(--pix-ink); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 .touch-rotate-hint__dismiss { min-height: 44px; }
 .touch-play .active-drone-hud { right: calc(var(--touch-btn, 56px) + 20px); }
 .touch-play .touch-controls--left ~ .active-drone-hud,
@@ -832,7 +902,8 @@ html[data-reduced-motion='1'] *::after {
 .touch-play .onboarding-coach { bottom: calc(var(--touch-btn, 56px) * 3 + 36px); }
 .touch-play .network-hud { top: max(16px, env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); }
 .touch-play .active-drone-hud { top: max(16px, env(safe-area-inset-top, 0px)); }
-.touch-play .mission-objective { top: max(16px, env(safe-area-inset-top, 0px)); }
+.touch-play .mission-objective { top: calc(max(16px, env(safe-area-inset-top, 0px)) + 46px); width: min(35vw, 380px); }
+.touch-play .mission-objective--collapsed { height: 36px; min-height: 36px; box-sizing: border-box; padding: 9px 12px; }
 /* Floor / beat chips: free half only — never under pause or the look pad / action column. */
 .touch-play .run-hud {
   top: max(12px, env(safe-area-inset-top, 0px));
@@ -855,12 +926,31 @@ html[data-reduced-motion='1'] *::after {
   .onboarding-coach { max-width: min(360px, calc(100% - 280px)); }
   .touch-play .run-hud { max-width: min(140px, 34vw); gap: 4px; }
   .touch-play .floor-chip, .touch-play .beat-chip { font-size: 16px; padding: 4px 8px; }
-  .touch-play .mission-objective { width: min(300px, calc(100% - 320px)); }
+  .touch-play .mission-objective { width: min(35vw, 300px); }
 }
 
 @media (orientation: portrait) and (max-width: 480px) {
   .touch-stick { height: min(42vh, 280px); }
-  .mission-objective { width: calc(100% - 120px); }
+  .touch-play .mission-objective { top: calc(max(16px, env(safe-area-inset-top, 0px)) + 92px); width: calc(100% - 24px); }
+  .touch-actions { inset: auto; right: max(8px, env(safe-area-inset-right, 0px)); bottom: max(8px, env(safe-area-inset-bottom, 0px)); width: 120px; height: 264px; }
+  .touch-controls--right .touch-actions > :nth-child(1) { right: 72px; bottom: 72px; }
+  .touch-controls--right .touch-actions > :nth-child(4) { right: 0; bottom: 72px; }
+  .touch-controls--right .touch-actions > :nth-child(5) { right: 72px; bottom: 0; }
+  .touch-controls--right .touch-actions > :nth-child(6) { right: 0; bottom: 0; }
+  .touch-controls--right .touch-actions > :nth-child(7) { right: 72px; bottom: 144px; }
+  .touch-controls--right .touch-actions > :nth-child(8) { right: 0; bottom: 144px; }
+  .touch-controls--right .touch-actions > :nth-child(9) { right: 0; bottom: 216px; }
+  .touch-controls--left .touch-actions { left: max(8px, env(safe-area-inset-left, 0px)); right: auto; }
+  .touch-controls--left .touch-actions > .touch-btn { left: auto; right: auto; }
+  .touch-controls--left .touch-actions > :nth-child(1) { left: 0; bottom: 72px; }
+  .touch-controls--left .touch-actions > :nth-child(4) { left: 72px; bottom: 72px; }
+  .touch-controls--left .touch-actions > :nth-child(5) { left: 0; bottom: 0; }
+  .touch-controls--left .touch-actions > :nth-child(6) { left: 72px; bottom: 0; }
+  .touch-controls--left .touch-actions > :nth-child(7) { left: 0; bottom: 144px; }
+  .touch-controls--left .touch-actions > :nth-child(8) { left: 72px; bottom: 144px; }
+  .touch-controls--left .touch-actions > :nth-child(9) { left: 72px; bottom: 216px; }
+  .touch-actions > :nth-child(2) { left: -96px !important; right: auto !important; bottom: 124px !important; }
+  .touch-actions > :nth-child(3) { left: -96px !important; right: auto !important; bottom: 58px !important; }
 }
 
 @media (max-width: 380px) {
@@ -972,3 +1062,44 @@ html[data-reduced-motion='1'] *::after {
 }
 
 
+
+/* Portrait phones: the stick pad stops short of the Up/Down column beside the action grid. */
+@media (orientation: portrait) and (max-width: 480px) {
+  .touch-controls .touch-stick { width: max(120px, calc(100% - 244px)); }
+}
+
+/* Landscape phones: Up/Down sit just outside the stick pad, clear of the centre third. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .touch-controls { --stick-w: clamp(140px, 22vw, 200px); }
+  .touch-controls .touch-stick { width: var(--stick-w); }
+  .touch-controls--right .touch-actions > :nth-child(2),
+  .touch-controls--right .touch-actions > :nth-child(3) { left: calc(var(--stick-w) + 6px); right: auto; }
+  .touch-controls--left .touch-actions > :nth-child(2),
+  .touch-controls--left .touch-actions > :nth-child(3) { right: calc(var(--stick-w) + 6px); left: auto; }
+}
+
+/* Landscape phones: thumb cluster in the bottom corner. Jump/Grab/Yank/Hack primary, Ping/Emote/Switch 44px. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .touch-actions { --b: var(--touch-btn, 56px); --s: max(8px, env(safe-area-inset-bottom, 0px)); }
+  .touch-actions > :nth-child(n+7) { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+  .touch-controls--right .touch-actions > :nth-child(1) { right: var(--s); left: auto; bottom: var(--s); }
+  .touch-controls--right .touch-actions > :nth-child(4) { right: var(--s); left: auto; bottom: calc(var(--s) + var(--b) + 8px); }
+  .touch-controls--right .touch-actions > :nth-child(5) { right: calc(var(--s) + var(--b) + 8px); left: auto; bottom: var(--s); }
+  .touch-controls--right .touch-actions > :nth-child(6) { right: calc(var(--s) + var(--b) + 8px); left: auto; bottom: calc(var(--s) + var(--b) + 8px); }
+  .touch-controls--right .touch-actions > :nth-child(7) { right: var(--s); left: auto; bottom: calc(var(--s) + 2 * (var(--b) + 8px)); }
+  .touch-controls--right .touch-actions > :nth-child(8) { right: calc(var(--s) + 2 * (var(--b) + 8px)); left: auto; bottom: calc(var(--s) + var(--b) + 8px); }
+  .touch-controls--right .touch-actions > :nth-child(9) { right: calc(var(--s) + 2 * (var(--b) + 8px)); left: auto; bottom: var(--s); }
+  .touch-controls--left .touch-actions > :nth-child(1) { left: var(--s); right: auto; bottom: var(--s); }
+  .touch-controls--left .touch-actions > :nth-child(4) { left: var(--s); right: auto; bottom: calc(var(--s) + var(--b) + 8px); }
+  .touch-controls--left .touch-actions > :nth-child(5) { left: calc(var(--s) + var(--b) + 8px); right: auto; bottom: var(--s); }
+  .touch-controls--left .touch-actions > :nth-child(6) { left: calc(var(--s) + var(--b) + 8px); right: auto; bottom: calc(var(--s) + var(--b) + 8px); }
+  .touch-controls--left .touch-actions > :nth-child(7) { left: var(--s); right: auto; bottom: calc(var(--s) + 2 * (var(--b) + 8px)); }
+  .touch-controls--left .touch-actions > :nth-child(8) { left: calc(var(--s) + 2 * (var(--b) + 8px)); right: auto; bottom: calc(var(--s) + var(--b) + 8px); }
+  .touch-controls--left .touch-actions > :nth-child(9) { left: calc(var(--s) + 2 * (var(--b) + 8px)); right: auto; bottom: var(--s); }
+}
+
+/* Portrait phones: coach and prompts sit above the two-column action grid (264px tall). */
+@media (orientation: portrait) and (max-width: 480px) {
+  .touch-play .onboarding-coach,
+  .touch-play .interaction-prompt { bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + 280px); max-width: calc(100% - 24px); }
+}
