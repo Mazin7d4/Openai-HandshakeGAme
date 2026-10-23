@@ -37,14 +37,14 @@ await runTest('mobile', async (browser, notes) => {
         ...document.querySelectorAll('.touch-btn'),
         document.querySelector('[data-testid="touch-pause"]'),
         document.querySelector('[data-testid="interaction-prompt"]'),
-      ].filter(Boolean);
+      ].filter((node) => node && (node.dataset?.testid !== 'interaction-prompt' || node.textContent.trim()));
       const rects = nodes.map((node) => {
         const r = node.getBoundingClientRect();
-        return { name: node.dataset?.testid || node.className, left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+        return { tap: node.dataset?.testid !== 'interaction-prompt', name: node.dataset?.testid || node.className, left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
       });
       const failures = [];
       for (const r of rects) {
-        if (r.left < -0.5 || r.top < -0.5 || r.right > innerWidth + 0.5 || r.bottom > innerHeight + 0.5 || r.width < 44 || r.height < 44) failures.push(`bounds ${r.name}`);
+        if (r.left < -0.5 || r.top < -0.5 || r.right > innerWidth + 0.5 || r.bottom > innerHeight + 0.5 || (r.tap && (r.width < 44 || r.height < 44))) failures.push(`bounds ${r.name} ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`);
       }
       for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) {
         const a = rects[i], b = rects[j];
@@ -108,7 +108,8 @@ await runTest('mobile', async (browser, notes) => {
       const zoomBefore = await page.evaluate(() => window.__pixneeCamera?.getZoom?.() ?? null);
       assert(zoomBefore != null, 'debug camera zoom hook missing');
       const cx = look.x + look.width * 0.7;
-      const cy = look.y + look.height * 0.55;
+      const cy = look.y + look.height * 0.35;
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx - 35, y: cy, id: 3 }, { x: cx + 35, y: cy, id: 4 }] });
       for (let i = 1; i <= 8; i++) {
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: cx - 35 - i * 6, y: cy, id: 3 }, { x: cx + 35 + i * 6, y: cy, id: 4 }] });

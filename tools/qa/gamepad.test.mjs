@@ -5,7 +5,7 @@ await runTest('gamepad', async (browser, notes) => {
   const { ctx, page } = await openPage(browser, { viewport: { width: 1280, height: 720 } });
   await page.addInitScript(() => {
     window.__fakePad = {
-      connected: true, mapping: 'standard', axes: [0, 0, 0, 0],
+      id: 'QA fake standard pad', index: 0, timestamp: 0, connected: true, mapping: 'standard', axes: [0, 0, 0, 0],
       buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })),
     };
     Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => [window.__fakePad] });
@@ -36,14 +36,19 @@ await runTest('gamepad', async (browser, notes) => {
   notes.gamepadYaw = +(Math.abs(yawAfter - yawBefore)).toFixed(3);
   assert(Math.abs(yawAfter - yawBefore) > 0.05, 'gamepad right stick did not turn camera');
 
-  await page.evaluate(() => { window.__fakePad.buttons[9].pressed = true; window.__fakePad.buttons[9].value = 1; });
-  await page.waitForTimeout(150);
-  await page.evaluate(() => { window.__fakePad.buttons[9].pressed = false; window.__fakePad.buttons[9].value = 0; });
-  await page.getByTestId('pause-menu').waitFor({ state: 'visible' });
-  await page.evaluate(() => { window.__fakePad.buttons[9].pressed = true; window.__fakePad.buttons[9].value = 1; });
-  await page.waitForTimeout(150);
-  await page.evaluate(() => { window.__fakePad.buttons[9].pressed = false; window.__fakePad.buttons[9].value = 0; });
-  await page.getByTestId('pause-menu').waitFor({ state: 'hidden' });
+  const pressStart = async () => {
+    await page.evaluate(() => { window.__fakePad.buttons[9].pressed = true; window.__fakePad.buttons[9].value = 1; });
+    await page.waitForTimeout(150);
+    await page.evaluate(() => { window.__fakePad.buttons[9].pressed = false; window.__fakePad.buttons[9].value = 0; });
+    await page.waitForTimeout(150);
+  };
+  const pauseMenu = page.getByTestId('pause-menu');
+  // Start mirrors Esc: the first press skips the onboarding coach if it is still up.
+  await pressStart();
+  if (!(await pauseMenu.isVisible())) await pressStart();
+  await pauseMenu.waitFor({ state: 'visible', timeout: 5000 });
+  await pressStart();
+  await pauseMenu.waitFor({ state: 'hidden', timeout: 5000 });
   notes.errors = errors;
   assert(errors.length === 0, `errors:\n${errors.join('\n')}`);
   await ctx.close();
