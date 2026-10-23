@@ -27,6 +27,8 @@ export interface GameSettings {
   reducedMotion: boolean;
   /** UI text size 100 / 125 / 150%. Persisted under pixnee.a11y.uiScale. */
   uiScale: UiScale;
+  /** Short in-run objective banner. Persisted under pixnee.ui.objectives. */
+  objectives: boolean;
   highContrastHud: boolean;
   // Accessibility
   /** Colourblind-safe alarm / security cues. Persisted under pixnee.a11y.colourBlindSafe. */
@@ -48,6 +50,7 @@ export const A11Y_KEYS = {
   colourBlindSafe: 'pixnee.a11y.colourBlindSafe',
   uiScale: 'pixnee.a11y.uiScale',
 } as const;
+export const UI_KEYS = { objectives: 'pixnee.ui.objectives' } as const;
 
 const OS_REDUCED_MOTION = (): boolean => {
   try {
@@ -68,6 +71,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   cameraDistance: 1,
   reducedMotion: false,
   uiScale: 100,
+  objectives: true,
   highContrastHud: false,
   colourBlindSafe: false,
   visualAudioAlerts: false,
@@ -137,6 +141,10 @@ function persistA11yKeys(settings: GameSettings): void {
   writeStorage(A11Y_KEYS.uiScale, String(settings.uiScale));
 }
 
+function persistUiKeys(settings: GameSettings): void {
+  writeStorage(UI_KEYS.objectives, settings.objectives ? '1' : '0');
+}
+
 export function loadSettings(): GameSettings {
   const reducedDefault = OS_REDUCED_MOTION();
   let fromBlob: Partial<GameSettings> = {};
@@ -157,6 +165,7 @@ export function loadSettings(): GameSettings {
         cameraDistance: num(parsed.cameraDistance, DEFAULT_SETTINGS.cameraDistance, 0.85, 1.25),
         reducedMotion: typeof parsed.reducedMotion === 'boolean' ? parsed.reducedMotion : reducedDefault,
         uiScale: parseUiScale(parsed.uiScale),
+        objectives: bool(parsed.objectives, DEFAULT_SETTINGS.objectives),
         highContrastHud: bool(parsed.highContrastHud, DEFAULT_SETTINGS.highContrastHud),
         colourBlindSafe: bool(parsed.colourBlindSafe, DEFAULT_SETTINGS.colourBlindSafe),
         visualAudioAlerts: bool(parsed.visualAudioAlerts, DEFAULT_SETTINGS.visualAudioAlerts),
@@ -172,6 +181,7 @@ export function loadSettings(): GameSettings {
   const a11yReduced = readA11yBool(A11Y_KEYS.reducedMotion);
   const a11yColour = readA11yBool(A11Y_KEYS.colourBlindSafe);
   const a11yScale = readA11yUiScale();
+  const uiObjectives = readA11yBool(UI_KEYS.objectives);
 
   return {
     ...DEFAULT_SETTINGS,
@@ -179,6 +189,7 @@ export function loadSettings(): GameSettings {
     reducedMotion: a11yReduced ?? fromBlob.reducedMotion ?? reducedDefault,
     colourBlindSafe: a11yColour ?? fromBlob.colourBlindSafe ?? DEFAULT_SETTINGS.colourBlindSafe,
     uiScale: a11yScale ?? fromBlob.uiScale ?? DEFAULT_SETTINGS.uiScale,
+    objectives: uiObjectives ?? fromBlob.objectives ?? DEFAULT_SETTINGS.objectives,
   };
 }
 
@@ -216,6 +227,7 @@ export function saveSettings(partial: Partial<GameSettings>): GameSettings {
     // Private mode / storage quota
   }
   persistA11yKeys(currentSettings);
+  persistUiKeys(currentSettings);
   applyDocumentSettings(currentSettings);
   for (const listener of listeners) {
     try {
@@ -236,4 +248,5 @@ export function subscribeSettings(listener: SettingsListener): () => void {
 
 // Apply once on module load so title screen / early UI pick up saved prefs.
 persistA11yKeys(currentSettings);
+persistUiKeys(currentSettings);
 applyDocumentSettings(currentSettings);

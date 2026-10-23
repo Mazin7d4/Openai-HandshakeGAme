@@ -310,6 +310,12 @@ export class SettingsMenu {
         (v) => saveSettings({ uiScale: Number(v) as UiScale }),
         'settings-ui-scale',
       ),
+      this.checkRow(
+        'Objective prompts',
+        s.objectives,
+        (v) => saveSettings({ objectives: v }),
+        'settings-objectives',
+      ),
       this.checkRow('High-contrast HUD', s.highContrastHud, (v) => saveSettings({ highContrastHud: v }), 'settings-high-contrast'),
       this.button('Fullscreen', () => {
         if (document.fullscreenElement) void document.exitFullscreen();

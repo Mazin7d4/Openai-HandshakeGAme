@@ -57,11 +57,18 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
   position: absolute; inset: 0; z-index: 20; display: none; place-items: center; padding: 24px;
   background: rgba(20, 32, 34, 0.6);
 }
+.overlay, .pause-overlay, .mission-complete-overlay {
+  padding: max(12px, env(safe-area-inset-top, 0px))
+    max(12px, env(safe-area-inset-right, 0px))
+    max(12px, env(safe-area-inset-bottom, 0px))
+    max(12px, env(safe-area-inset-left, 0px));
+  overflow: auto;
+}
 .overlay.visible, .pause-overlay.visible, .hack-overlay, .mission-complete-overlay.visible { display: grid; }
 .mission-complete-overlay { z-index: 30; }
 
 .panel, .menu-panel, .pause-panel, .hack-panel, .mission-complete-panel, #boot-status.boot-card, .partner-overlay {
-  position: relative; width: min(440px, 100%); padding: 28px;
+  position: relative; width: min(440px, 100%); max-width: 100%; min-width: 0; padding: 28px;
   border: var(--rim); border-radius: var(--r-panel);
   color: var(--graphite); background: var(--paper);
   box-shadow: var(--lip), var(--float-shadow);
@@ -74,12 +81,12 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 .panel__body, .menu-subtitle, .lobby-status, .hack-help, .partner-detail { color: var(--pencil); font-size: 16px; line-height: 1.45; }
 
 .btn, .menu-button, .pause-button, .hack-cancel, .interaction-prompt button {
-  min-height: 48px; padding: 10px 18px;
+  min-width: 0; max-width: 100%; min-height: 48px; padding: 10px 18px;
   border: var(--rim); border-radius: var(--r-control);
   color: var(--graphite); background: var(--porcelain);
   box-shadow: var(--lip);
   font: 700 16px/1.2 var(--font-body); letter-spacing: 0.01em;
-  cursor: pointer; touch-action: manipulation;
+  overflow-wrap: anywhere; cursor: pointer; touch-action: manipulation;
   transition: transform 80ms var(--ease-out), box-shadow 80ms var(--ease-out), background var(--t-ui) var(--ease-out);
 }
 .btn:hover, .menu-button:hover, .pause-button:hover, .hack-cancel:hover, .interaction-prompt button:hover { background: var(--paper); }
@@ -179,14 +186,15 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 .boot-bar span { display: block; height: 100%; width: calc(var(--boot-progress, 0.33) * 100%); background: var(--graphite); transition: width 0.6s var(--ease-out); }
 .boot-step { margin: 0; color: var(--pencil); font-size: 16px; }
 .boot-seed { margin: 8px 0 0; color: var(--graphite); font: 700 14px/1.2 var(--font-screen); font-variant-numeric: tabular-nums; }
-#dev-readout { bottom: 42px; font-size: 14px; font-variant-numeric: tabular-nums; white-space: pre; line-height: 1.5; }
+#dev-readout { bottom: 42px; font-size: 14px; font-variant-numeric: tabular-nums; white-space: pre; line-height: 1.5; max-width: calc(100vw - 32px); overflow: hidden; }
 #dev-controls { bottom: 16px; font-size: 14px; opacity: 0.8; }
 
 /* ---------- HUD ---------- */
 .network-hud, .active-drone-hud {
   position: absolute; top: max(16px, env(safe-area-inset-top, 0px)); z-index: 5; padding: 6px 12px;
   border: var(--rim); border-radius: var(--r-control); background: var(--paper); box-shadow: var(--lip);
-  color: var(--graphite); font: 700 16px/1.2 var(--font-body); pointer-events: none;
+  max-width: calc(100% - 32px); min-width: 0;
+  color: var(--graphite); font: 700 calc(16px * var(--ui-scale, 1))/1.2 var(--font-body); overflow-wrap: anywhere; pointer-events: none;
 }
 .network-hud { left: max(16px, env(safe-area-inset-left, 0px)); z-index: 3; }
 .network-hud.partner-disconnected { color: var(--security-ink); border-color: var(--security); }
@@ -198,15 +206,16 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
   left: max(16px, env(safe-area-inset-left, 0px));
   z-index: 5;
   display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
-  max-width: min(200px, calc(100% - 168px));
+  max-width: min(200px, calc(100% - 168px)); min-width: 0;
   pointer-events: none;
 }
 .floor-chip, .beat-chip {
+  max-width: 100%;
   padding: 6px 12px;
   border: var(--rim); border-radius: var(--r-control);
   background: var(--paper); box-shadow: var(--lip);
   color: var(--graphite);
-  font: 800 18px/1 var(--font-screen); font-variant-numeric: tabular-nums;
+  font: 800 18px/1 var(--font-screen); font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
   font-variation-settings: 'ROND' 100; letter-spacing: 0.02em;
 }
 .beat-chip {
@@ -228,15 +237,26 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 .interaction-prompt button { display: inline-flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 14px 6px 8px; background: var(--paper); border-color: var(--pix-ink); box-shadow: 0 3px 0 var(--pix-ink); }
 
 .mission-objective {
-  position: absolute; top: 16px; left: 50%; z-index: 5; width: min(380px, calc(100% - 300px));
+  position: absolute; top: 64px; left: 50%; z-index: 5; width: min(380px, calc(100% - 300px));
   padding: 10px 18px 12px; transform: translateX(-50%);
   border: var(--rim); border-radius: var(--r-panel); background: var(--paper); box-shadow: var(--lip), var(--float-shadow);
   text-align: center; pointer-events: none;
 }
+.objective-banner {
+  position: absolute; top: max(8px, env(safe-area-inset-top, 0px)); left: 50%; z-index: 6;
+  width: min(360px, calc(100% - 32px)); min-height: 48px; padding: 12px 16px;
+  transform: translateX(-50%); display: grid; place-items: center;
+  border: var(--rim); border-radius: var(--r-control); background: var(--paper);
+  box-shadow: var(--lip), 0 6px 18px rgba(30, 42, 43, 0.16);
+  color: var(--graphite); font: 700 calc(16px * var(--ui-scale, 1))/1.2 var(--font-body); text-align: center;
+  pointer-events: none; opacity: 0; transition: opacity var(--t-ui) var(--ease-out);
+}
+.objective-banner.visible { opacity: 1; }
+.objective-banner--fading { opacity: 0; }
 /* the objective plaque hangs from the cord */
 .mission-objective::before { content: ''; position: absolute; left: 50%; bottom: 100%; width: var(--cord); height: 16px; background: var(--graphite); transform: translateX(-50%); }
-.mission-objective h2 { margin: 4px 0 2px; font-size: 20px; }
-.mission-objective p { margin-bottom: 8px; color: var(--pencil); font-size: 16px; line-height: 1.35; }
+.mission-objective h2 { margin: 4px 0 2px; font-size: calc(20px * var(--ui-scale, 1)); }
+.mission-objective p { margin-bottom: 8px; color: var(--pencil); font-size: calc(16px * var(--ui-scale, 1)); line-height: 1.35; }
 .heist-report__seed {
   margin: 0 0 8px; color: var(--pencil);
   font: 700 16px/1.2 var(--font-screen); font-variant-numeric: tabular-nums;
@@ -292,15 +312,20 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 }
 
 /* ---------- Pause / settings ---------- */
-.pause-panel { display: grid; gap: 10px; }
+.pause-panel { display: grid; gap: 10px; max-width: 100%; min-width: 0; max-height: calc(100dvh - 24px); overflow: auto; }
 .pause-panel h2, .hack-panel h2 { margin-bottom: 8px; font-size: 28px; }
-.settings-panel, .settings-menu--embedded { display: grid; gap: 10px; width: min(480px, 100%); }
+.pause-panel > *, .settings-panel > *, .settings-menu--embedded > * { max-width: 100%; min-width: 0; }
+.settings-panel, .settings-menu--embedded { display: grid; gap: 10px; width: min(480px, 100%); max-width: 100%; min-width: 0; }
 .settings-menu--embedded { width: 100%; }
+.settings-overlay .settings-panel { max-height: calc(100dvh - 24px); overflow: auto; }
+.pause-panel .settings-body { max-height: none; }
+.settings-menu--embedded > .btn--quiet,
+.settings-panel > .btn--quiet { position: sticky; bottom: 0; z-index: 1; background: var(--paper); }
 .settings-tabs {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; min-width: 0;
 }
 .settings-tab {
-  min-height: 44px; padding: 8px 6px; font-size: 16px;
+  min-width: 0; max-width: 100%; min-height: 48px; padding: 8px 6px; font-size: 16px; overflow-wrap: anywhere;
   background: var(--porcelain); box-shadow: var(--lip);
 }
 .settings-tab--active, .settings-tab[aria-selected='true'] {
@@ -308,8 +333,8 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
   box-shadow: 0 1px 0 #8E9C9B;
 }
 .settings-body { display: grid; gap: 0; max-height: min(52vh, 420px); overflow: auto; }
-.settings-row { display: grid; grid-template-columns: 1fr 160px; align-items: center; min-height: 48px; border-bottom: var(--rim); font-size: 16px; }
-.settings-row select { min-height: 44px; padding: 8px; border: var(--rim); border-radius: var(--r-control); background: var(--porcelain); }
+.settings-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 160px); align-items: center; min-width: 0; min-height: 48px; border-bottom: var(--rim); font-size: 16px; }
+.settings-row select { min-width: 0; max-width: 100%; min-height: 44px; padding: 8px; border: var(--rim); border-radius: var(--r-control); background: var(--porcelain); }
 .settings-row input[type='range'], .settings-row input[type='checkbox'] { accent-color: var(--graphite); }
 .settings-row input[type='range'] { height: 44px; }
 .settings-row input[type='checkbox'] { width: 28px; height: 28px; justify-self: start; }
@@ -478,7 +503,7 @@ html[data-reduced-motion='1'] *::after {
   display: flex; align-items: center; justify-content: flex-start; gap: 12px; margin: 0 0 10px;
 }
 .heist-report__crew-face { display: grid; justify-items: center; gap: 4px; }
-.heist-report__crew-name { color: var(--pencil); font: 700 13px/1 var(--font-body); }
+.heist-report__crew-name { color: var(--pencil); font: 700 16px/1 var(--font-body); }
 .heist-report__crew-cord {
   width: 40px; height: var(--cord); background: var(--graphite); border-radius: 999px; margin-bottom: 16px;
 }
@@ -510,11 +535,11 @@ html[data-reduced-motion='1'] *::after {
   color: var(--graphite); font: 800 16px/1.2 var(--font-title); font-stretch: 112%;
 }
 /* Darker than --pencil so detail stays ≥4.5:1 on porcelain award chips. */
-.heist-report__award span { color: #455352; font-size: 15px; }
-.heist-report__quip { margin: 0 0 10px; color: var(--pencil); font-size: 15px; }
+.heist-report__award span { color: #455352; font-size: 16px; }
+.heist-report__quip { margin: 0 0 10px; color: var(--pencil); font-size: 16px; }
 .heist-report__challenge-hint {
   margin: 0 0 10px; padding: 8px 10px; border: var(--rim); border-radius: var(--r-control);
-  background: var(--warm-screen); color: var(--graphite); font-size: 14px; word-break: break-all;
+  background: var(--warm-screen); color: var(--graphite); font-size: 16px; word-break: break-all;
 }
 .heist-report__actions {
   display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 4px;
@@ -557,7 +582,10 @@ html[data-reduced-motion='1'] *::after {
   .heist-report__title { font-size: 24px; margin-bottom: 6px; }
   .heist-report__time { font-size: 28px; padding: 6px 10px; }
   .heist-report__stamp { top: 48px; right: 10px; font-size: 11px; }
-  .heist-report__quip { font-size: 14px; }
+  .heist-report__quip { font-size: 16px; }
+  .heist-report__actions { grid-template-columns: 1fr 1fr; }
+  .heist-report__actions .btn--primary,
+  .heist-report__actions .btn--quiet { grid-column: 1 / -1; }
 }
 
 .heist-report__meta { display: grid; gap: 8px; margin: 0 0 10px; }
@@ -590,16 +618,16 @@ html[data-reduced-motion='1'] *::after {
     align-content: start;
   }
   .heist-report__faces { gap: 8px; margin: 0; }
-  .heist-report__crew-name { font-size: 11px; }
+  .heist-report__crew-name { font-size: 16px; }
   .heist-report__crew-cord { margin-bottom: 14px; width: 36px; }
   .heist-report__time { margin: 0; font-size: 28px; padding: 6px 10px; }
   .heist-report__grade { margin: 0; min-height: 0; gap: 6px; }
   .heist-report__grade svg { width: 32px; height: 32px; }
   .heist-report__awards { grid-area: awards; margin: 0; gap: 4px; align-content: start; }
   .heist-report__award { padding: 6px 8px; }
-  .heist-report__award strong { font-size: 14px; }
-  .heist-report__award span { font-size: 13px; }
-  .heist-report__challenge-hint { grid-column: 1 / -1; margin: 0; padding: 6px 8px; font-size: 13px; }
+  .heist-report__award strong { font-size: 16px; }
+  .heist-report__award span { font-size: 16px; }
+  .heist-report__challenge-hint { grid-column: 1 / -1; margin: 0; padding: 6px 8px; font-size: 16px; }
   .heist-report__actions {
     grid-area: actions;
     grid-template-columns: 1.4fr 1fr 1fr auto;
@@ -610,7 +638,7 @@ html[data-reduced-motion='1'] *::after {
   .heist-report__actions .btn--quiet { grid-column: auto; }
   .heist-report__actions .btn,
   .heist-report__actions .btn--primary,
-  .heist-report__actions .btn--quiet { min-height: 44px; }
+  .heist-report__actions .btn--quiet { min-height: 48px; }
   .heist-report__actions .btn--primary { font-size: 16px; }
 }
 
@@ -628,7 +656,7 @@ html[data-reduced-motion='1'] *::after {
 }
 
 @media (max-width: 760px) {
-  .mission-objective { top: 54px; width: calc(100% - 24px); }
+  .mission-objective { top: 64px; width: calc(100% - 24px); }
   .run-hud { top: max(12px, env(safe-area-inset-top, 0px)); }
   .floor-chip, .beat-chip { font-size: 16px; padding: 5px 10px; }
   .hack-board-shell { grid-template-columns: 1fr; }
@@ -709,6 +737,7 @@ html[data-reduced-motion='1'] *::after {
     max(8px, env(safe-area-inset-bottom, 0px))
     max(8px, env(safe-area-inset-left, 0px));
 }
+.touch-play { overflow-x: clip; }
 .touch-controls--hidden { display: none; }
 /* Look pad covers the action half; buttons sit above and stopPropagation. */
 .touch-look {
@@ -800,7 +829,7 @@ html[data-reduced-motion='1'] *::after {
 .touch-play .onboarding-coach { bottom: calc(var(--touch-btn, 56px) * 3 + 36px); }
 .touch-play .network-hud { top: max(16px, env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); }
 .touch-play .active-drone-hud { top: max(16px, env(safe-area-inset-top, 0px)); }
-.touch-play .mission-objective { top: max(16px, env(safe-area-inset-top, 0px)); }
+.touch-play .mission-objective { top: max(64px, calc(env(safe-area-inset-top, 0px) + 48px)); }
 /* Floor / beat chips: free half only — never under pause or the look pad / action column. */
 .touch-play .run-hud {
   top: max(12px, env(safe-area-inset-top, 0px));
@@ -823,6 +852,11 @@ html[data-reduced-motion='1'] *::after {
   .onboarding-coach { max-width: min(360px, calc(100% - 280px)); }
   .touch-play .run-hud { max-width: min(140px, 34vw); gap: 4px; }
   .touch-play .floor-chip, .touch-play .beat-chip { font-size: 16px; padding: 4px 8px; }
+  .touch-play .mission-objective { width: min(300px, calc(100% - 320px)); }
+}
+
+@media (orientation: landscape) and (max-height: 460px) and (min-width: 560px) {
+  .objective-banner { width: min(300px, calc(100% - 320px)); }
   .touch-play .mission-objective { width: min(300px, calc(100% - 320px)); }
 }
 
@@ -870,7 +904,7 @@ html[data-reduced-motion='1'] *::after {
 }
 
 .twist-chip {
-  color: #FFB020;
+  color: var(--graphite);
 }
 
 .floor-card {
@@ -920,3 +954,4 @@ html[data-reduced-motion='1'] *::after {
 }
 
 
+.touch-rotate-hint__dismiss { min-height: 48px; }
