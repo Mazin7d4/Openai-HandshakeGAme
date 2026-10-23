@@ -86,6 +86,7 @@ export class GameApp {
   private paused = false;
   /** Clothesline payoff: brief slow-motion beat (scales gameplay dt and the physics step). */
   private slowMo = 0;
+  private hitStop = 0;
   private timeScale = 1;
   private readonly juice: Juice;
   private readonly moves: TetherMoves;
@@ -303,6 +304,22 @@ export class GameApp {
             for (const drone of this.drones) drone.react('proud', 6);
             this.cameraRig.addShake(0.3);
             break;
+        }
+      }),
+      gameEvents.on('yank', (e) => {
+        if (this.mode !== 'night-shift' || e.from !== this.hudRole()) return;
+        if (e.kind === 'yank') {
+          this.hitStop = 0.07;
+          this.cameraRig.kickFov(0.06);
+          this.cameraRig.addShake(0.15);
+          audioHub.play('twang', { intensity: e.strength, position: e.position });
+        } else if (e.kind === 'sling') {
+          this.hitStop = 0.04;
+          this.cameraRig.kickFov(0.08);
+          audioHub.play('twang', { intensity: 1, position: e.position });
+        }
+        if (e.rescue) {
+          this.juice.burst('yank', e.position, 10);
         }
       }),
     );
@@ -548,7 +565,8 @@ export class GameApp {
     if (this.paused) return;
     const realDt = Math.min(this.engine.getDeltaTime() / 1000, 0.05);
     this.slowMo = Math.max(0, this.slowMo - realDt);
-    this.timeScale = this.slowMo > 0 ? 0.3 : 1;
+    this.hitStop = Math.max(0, this.hitStop - realDt);
+    this.timeScale = this.hitStop > 0 ? 0.05 : (this.slowMo > 0 ? 0.3 : 1);
     const dt = realDt * this.timeScale;
     const basis = this.cameraRig.getPlanarBasis();
     const faceGameplayCamera = this.devOrbit?.isActive !== true;

@@ -25,6 +25,7 @@ import {
   prepareDailyRun,
   runOptionsFromSearch,
 } from './net/runInfo.ts';
+import { getBest } from './run/nightShiftScore.ts';
 import './style.css';
 import { audio } from './audio/AudioManager.ts';
 
@@ -189,10 +190,16 @@ function showSinglePlayer(): void {
     clearRunIntent();
     void startGame('night-shift');
   });
-  night.title = 'Endless floors from one seed. Stubbed until Netcode owns captures.';
+  night.title = 'Endless seeded floors. Your score carries over.';
   const actions = element('div', 'menu-actions');
   actions.append(start, night, menuButton('Back', 'back', showMainMenu, 'btn--quiet'));
   panel.append(actions);
+  const best = getBest();
+  if (best) {
+    const p = element('p', 'menu-best', `Night Shift best: floor ${best.floor} · ${best.score}`);
+    p.dataset.testid = 'night-shift-best';
+    panel.append(p);
+  }
   start.focus();
 }
 

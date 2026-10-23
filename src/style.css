@@ -829,3 +829,63 @@ html[data-reduced-motion='1'] *::after {
   text-decoration: line-through;
 }
 
+.twist-chip, .score-chip {
+  padding: 6px 12px;
+  border: var(--rim); border-radius: var(--r-control);
+  background: var(--paper); box-shadow: var(--lip);
+  color: var(--graphite);
+  font: 800 18px/1 var(--font-screen); font-variant-numeric: tabular-nums;
+  font-variation-settings: 'ROND' 100; letter-spacing: 0.02em;
+}
+
+.twist-chip {
+  color: #FFB020;
+}
+
+.floor-card {
+  position: fixed;
+  top: 22%;
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  max-width: 420px;
+  padding: 16px 22px;
+  background: rgba(14, 20, 22, 0.88);
+  color: #F4F1EA;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  text-align: center;
+  transition: opacity 0.4s, transform 0.4s;
+  z-index: 25;
+}
+
+.floor-card h3 {
+  margin: 4px 0;
+  font-size: 26px;
+}
+
+.floor-card--out {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.heist-report__run {
+  margin-top: 8px;
+  display: grid;
+  gap: 2px;
+  font-size: 14px;
+}
+
+.menu-best {
+  margin-top: 10px;
+  opacity: 0.8;
+  font-size: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floor-card {
+    transition-duration: 1ms;
+  }
+}
+
+
