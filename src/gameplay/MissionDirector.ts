@@ -12,9 +12,16 @@ import { SecuritySystem } from './SecuritySystem.ts';
 import layout from '../level/heist-layout.json';
 import type { RunLayout } from '../seed/index.ts';
 import { nextFloorSeed, stashRunSeed } from '../seed/index.ts';
-import { clearRunIntent, formatBeatMs, getRunInfo, prepareRun } from '../net/runInfo.ts';
+import { clearRunIntent, formatBeatMs, getRunInfo, prepareRun, randomSeed } from '../net/runInfo.ts';
 import { updateHeistPresentation } from '../level/PrototypeHeist.ts';
 import { gameEvents } from './GameEvents.ts';
+import { getRunState, localEscape, localCapture } from '../run/ClientRun.ts';
+import { byInput } from '../ui/inputHints.ts';
+
+export interface WarmupStep {
+  label: string;
+  done: boolean;
+}
 
 const FRESH_STATE: MissionNetworkState = {
   stage: 'infiltrate', alarm: false, securityActive: false, prototypeHeldBy: null,
@@ -59,7 +66,8 @@ export class MissionDirector {
   private readonly securityHistory: { t: number; p: { x: number; y: number; z: number }[] }[] = [];
   private readonly unsubscribe: (() => void) | null;
   private readonly scene: Scene;
-  private warmup: () => string | null = () => null;
+  private warmup: () => WarmupStep[] | null = () => null;
+  private lastWarmupKey: string | null = null;
   private routeHint = 'Enter beneath reception, then rise together through the service vent.';
   private vault = new Vector3(layout.objects.prototype.x, layout.objects.prototype.y, layout.objects.prototype.z);
   private extraction = new Vector3(layout.extraction.x, layout.extraction.y, layout.extraction.z);
@@ -122,7 +130,7 @@ export class MissionDirector {
       objective.className = 'mission-objective';
       objective.dataset.testid = 'mission-objective';
       const kicker = document.createElement('span');
-      kicker.textContent = 'PROTOTYPE THEFT';
+      kicker.textContent = 'Prototype theft';
       this.objectiveTitle = document.createElement('h2');
       this.objectiveDetail = document.createElement('p');
       const detection = document.createElement('div');
@@ -154,11 +162,13 @@ export class MissionDirector {
       }
 
       const restartNightShift = (next: { seed: number; floor: number }, keepBeat = true) => {
-        stashRunSeed(next);
+        const floor = Math.max(1, next.floor | 0);
+        stashRunSeed({ seed: next.seed, floor });
         prepareRun({
-          seed: next.seed,
-          floor: next.floor,
+          seed: next.seed >>> 0,
+          floor,
           captures: 0,
+          mode: 'nightshift',
           ...(keepBeat && this.timeToBeatMs != null ? { timeToBeatMs: this.timeToBeatMs } : {}),
         });
         try { sessionStorage.setItem('pixnee.pendingMode', mode); } catch { /* private mode */ }
@@ -178,10 +188,15 @@ export class MissionDirector {
         },
         onNewSeed: mode === 'night-shift' ? () => {
           clearRunIntent();
-          restartNightShift({ seed: (Math.random() * 0x100000000) >>> 0, floor: 0 }, false);
+          restartNightShift({ seed: randomSeed(), floor: 1 }, false);
         } : undefined,
-        // Night Shift stub: stash floor+1 for getRunSeed, then restart in the same mode.
+        // Night Shift: advance ClientRun seed/floor, stash, restart same mode.
         onNextFloor: mode === 'night-shift' ? () => {
+          const advanced = localEscape(this.state.elapsedSeconds);
+          if (advanced) {
+            restartNightShift({ seed: advanced.seed, floor: advanced.floor });
+            return;
+          }
           if (!this.runLayout) return;
           restartNightShift(nextFloorSeed({ seed: this.runLayout.seed, floor: this.runLayout.floor }));
         } : undefined,
@@ -375,6 +390,12 @@ export class MissionDirector {
     this.audio.stopAlarm();
   }
 
+  /** Solo / offline Night Shift capture (test + future fail path). */
+  reportCapture(): void {
+    if (this.multiplayer || getRunState()?.mode !== 'nightshift') return;
+    localCapture();
+  }
+
   private beginAlarm(): void {
     gameEvents.emit('heist', { beat: 'pickup', position: this.vault.clone(), role: this.state.prototypeHeldBy });
     this.audio.prototypePickup();
@@ -404,34 +425,66 @@ export class MissionDirector {
   }
 
   /** Apron warm-up checklist provider (CordPlayground); null once done. */
-  setWarmup(provider: () => string | null): void { this.warmup = provider; }
+  setWarmup(provider: () => WarmupStep[] | null): void { this.warmup = provider; }
 
   /** Warm-up checklist line, exposed for tests. */
-  get warmupLine(): string | null { return this.warmup(); }
+  get warmupLine(): string | null {
+    const items = this.warmup();
+    return items ? items.map((step) => step.label).join(' · ') : null;
+  }
   get stage(): string { return this.state.stage; }
 
   private renderObjective(hackCount: number): void {
     if (!this.objectiveTitle || !this.objectiveDetail || !this.detectionFill) return;
     const warm = this.state.stage === 'infiltrate' ? this.warmup() : null;
     const [title, detail] = this.state.stage === 'infiltrate'
-      ? warm ? ['Warm up on the apron', `${warm} · then fly in under reception`] : ['Sneak in under reception', this.routeHint]
+      ? warm ? ['Warm up on the apron', ''] : ['Sneak in under reception', this.routeHint]
       : this.state.stage === 'hack-security'
         ? ['Crack the office consoles', `${hackCount} / 3 access keys · ${this.routeHint}`]
         : this.state.stage === 'steal-prototype'
-          ? ['Grab the prototype', 'The vault is open. Rise to the display cradle; [E] to carry the core.']
+          ? [
+              'Grab the prototype',
+              'The vault is open. Rise to the display cradle; ' +
+                byInput({
+                  keyboard: '[E] to carry the core.',
+                  touch: 'tap Grab to carry the core.',
+                  gamepad: 'grab to carry the core.',
+                }),
+            ]
           : this.state.stage === 'escape'
-            ? ['Get out through the west vent', 'Main shutter sealed! West relief vent is open. Heavy Lab Crate is jamming the relief vent - haul it clear together. Follow green floor lights; throw loose objects at patrols. Both drones must reach Pickup / 01.']
+            ? [
+                'Get out through the west vent',
+                'Main shutter sealed! West relief vent is open. Heavy Lab Crate is jamming the relief vent - haul it clear together. Follow green floor lights; throw loose objects at patrols. Both drones must reach Pickup / 01.',
+              ]
             : ['Prototype secured', 'Extraction complete'];
     this.objectiveTitle.textContent = title;
-    this.objectiveDetail.textContent = detail;
+    if (warm) {
+      const key = warm.map((step) => `${step.label}:${step.done}`).join('|');
+      if (this.lastWarmupKey !== key) {
+        this.lastWarmupKey = key;
+        this.objectiveDetail.replaceChildren();
+        for (const step of warm) {
+          const span = document.createElement('span');
+          span.className = 'warmup-step';
+          span.dataset.done = String(step.done);
+          span.textContent = step.label;
+          this.objectiveDetail.appendChild(span);
+        }
+        this.objectiveDetail.appendChild(document.createTextNode(' · then fly in under reception'));
+      }
+    } else {
+      this.lastWarmupKey = null;
+      this.objectiveDetail.textContent = detail;
+    }
     this.detectionFill.style.width = `${Math.round(this.security.detection * 100)}%`;
     this.objective?.classList.toggle('alarm', this.state.alarm);
   }
 
   private renderFloorHud(): void {
     if (!this.floorChip || !this.runLayout) return;
-    // Player-facing floors are 1-based (layout floor 0 → "Floor 1").
-    this.floorChip.textContent = `Floor ${this.runLayout.floor + 1}`;
+    // RunState / generateRun floors are already 1-based for Night Shift boots.
+    const floor = Math.max(1, this.runLayout.floor | 0);
+    this.floorChip.textContent = `Floor ${floor}`;
   }
 
   private presentReport(stats: RunStats, force = false): void {

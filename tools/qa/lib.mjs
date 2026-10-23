@@ -32,14 +32,34 @@ export function assert(cond, msg) { if (!cond) throw new Error(msg); }
 export async function launch() { return chromium.launch({ headless: true, args: GL_ARGS }); }
 export { devices };
 
-/** Collect page errors + console errors. Known-noise patterns can be added to IGNORE. */
-const IGNORE = [/favicon/i];
+/**
+ * Collect page errors + console errors. Known-noise patterns go in IGNORE.
+ *
+ * `Failed to load resource: net::ERR_ABORTED` — Chromium logs this when a new
+ * document navigation cancels in-flight module/wasm/font/GLB fetches from the
+ * previous page. Harmless if the next boot reaches a ready signal; do not broaden.
+ */
+const IGNORE = [
+  /favicon/i,
+  /^Failed to load resource: net::ERR_ABORTED$/,
+];
 export function collectErrors(page, name, errors) {
   page.on('pageerror', (e) => errors.push(`${name} pageerror: ${e.message}`));
   page.on('console', (m) => {
     if (m.type() === 'error' && !IGNORE.some((r) => r.test(m.text()))) errors.push(`${name} console: ${m.text()}`);
   });
   return errors;
+}
+
+/** Fresh browser context + page (isolated storage, sockets, and in-flight fetches). */
+export async function openPage(browser, options = {}) {
+  const ctx = await browser.newContext(options);
+  const page = await ctx.newPage();
+  return { ctx, page };
+}
+
+export async function closePage(page) {
+  await page.context().close().catch(() => {});
 }
 
 export async function shot(page, name) {
@@ -53,6 +73,12 @@ export async function waitForGame(page, timeout = 120_000) {
   await page.locator('#boot-status').waitFor({ state: 'detached', timeout });
 }
 
+/** Night Shift HUD ready: floor chip visible (and beat chip when a ?beat= is in play). */
+export async function waitForNightShiftHud(page, { beat = false, timeout = 30_000 } = {}) {
+  await waitForGame(page, timeout);
+  await page.getByTestId('floor-counter').waitFor({ state: 'visible', timeout });
+  if (beat) await page.getByTestId('beat-chip').waitFor({ state: 'visible', timeout });
+}
 /** Host creates a room, guest joins with the code. Returns the room code. */
 export async function createAndJoin(host, guest, { open = url() } = {}) {
   await host.goto(open);

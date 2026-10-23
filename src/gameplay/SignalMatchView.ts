@@ -38,7 +38,7 @@ export class SignalMatchView implements HackMinigameView {
     this.overlay.dataset.targetAmplitude = String(this.targetAmplitude);
     const panel = document.createElement('section');
     panel.className = 'hack-panel';
-    panel.innerHTML = `<p class="menu-kicker"></p><h2>SIGNAL MATCH</h2><p class="hack-help">Tune both controls until your trace locks onto the target waveform.</p>`;
+    panel.innerHTML = `<p class="menu-kicker"></p><h2>Signal match</h2><p class="hack-help">Tune both controls until your trace locks onto the target waveform.</p>`;
     panel.querySelector('.menu-kicker')!.textContent = stationLabel;
     const scope = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     scope.classList.add('signal-scope');
@@ -49,11 +49,11 @@ export class SignalMatchView implements HackMinigameView {
     this.playerWave.classList.add('signal-wave', 'player');
     targetWave.setAttribute('d', this.wavePath(this.targetFrequency, this.targetAmplitude));
     scope.append(targetWave, this.playerWave);
-    this.frequency = this.slider('FREQUENCY', 0);
-    this.amplitude = this.slider('AMPLITUDE', 100);
+    this.frequency = this.slider('Frequency', 0);
+    this.amplitude = this.slider('Amplitude', 100);
     const controls = document.createElement('div');
     controls.className = 'signal-controls';
-    controls.append(this.controlRow('FREQUENCY', this.frequency), this.controlRow('AMPLITUDE', this.amplitude));
+    controls.append(this.controlRow('Frequency', this.frequency), this.controlRow('Amplitude', this.amplitude));
     const track = document.createElement('div');
     track.className = 'match-meter';
     this.meter = document.createElement('div');
@@ -63,7 +63,7 @@ export class SignalMatchView implements HackMinigameView {
     this.cancelButton = document.createElement('button');
     this.cancelButton.type = 'button';
     this.cancelButton.className = 'hack-cancel';
-    this.cancelButton.textContent = 'CANCEL';
+    this.cancelButton.textContent = 'Cancel';
     this.cancelButton.addEventListener('click', this.cancel);
     const update = () => this.update(complete);
     this.frequency.addEventListener('input', update);
@@ -108,12 +108,12 @@ export class SignalMatchView implements HackMinigameView {
     const closeness = Math.max(0, 1 - error / 90);
     this.playerWave.setAttribute('d', this.wavePath(frequency, amplitude));
     this.meter.style.width = `${Math.round(closeness * 100)}%`;
-    this.status.textContent = closeness > 0.9 ? 'LOCK ALMOST STABLE' : closeness > 0.65 ? 'SIGNAL CONVERGING' : 'SEARCHING…';
+    this.status.textContent = closeness > 0.9 ? 'Lock almost stable' : closeness > 0.65 ? 'Signal converging' : 'Searching…';
     audio.play('hackTick', { progress: closeness });
-    if (Math.abs(frequency - this.targetFrequency) <= 4 && Math.abs(amplitude - this.targetAmplitude) <= 4) {
+    if (Math.abs(frequency - this.targetFrequency) <= 6 && Math.abs(amplitude - this.targetAmplitude) <= 6) {
       this.completed = true;
       this.overlay.classList.add('success');
-      this.status.textContent = 'SIGNAL LOCKED';
+      this.status.textContent = 'Signal locked';
       this.meter.style.width = '100%';
       this.audio?.success();
       this.completionTimer = window.setTimeout(complete, 650);

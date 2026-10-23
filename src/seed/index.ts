@@ -8,6 +8,7 @@ export {
   getRunSeed,
   nextFloorSeed,
   stashRunSeed,
+  setRunSeedGetter,
   dailySeed,
   validateRunLayout,
   LEVEL_SLOTS,

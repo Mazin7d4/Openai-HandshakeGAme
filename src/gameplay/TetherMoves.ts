@@ -121,7 +121,7 @@ export class TetherMoves {
       this.camera.kickFov(0.14);
       this.camera.addShake(0.35);
       this.juice.burst(role, self.position, 26);
-      this.onToast('SLINGSHOT!', role);
+      this.onToast('Slingshot!', role);
     } else {
       this.impulse.copyFrom(this.dir).scaleInPlace(7 + strain * 7 + (rescue ? 3 : 0));
       this.impulse.y += 1.6;
@@ -132,7 +132,7 @@ export class TetherMoves {
       this.juice.burst('yank', mid, 14);
       if (rescue) {
         this.audio.rescue();
-        this.onToast('RESCUE!', 'good');
+        this.onToast('Rescue!', 'good');
         this.onRescue();
       }
     }
@@ -166,7 +166,7 @@ export class TetherMoves {
     if (remote) {
       this.audio.yanked();
       this.camera.addShake(0.3 + message.strength * 0.25);
-      if (message.rescue) this.onToast('RESCUED!', 'good');
+      if (message.rescue) this.onToast('Rescued!', 'good');
     } else {
       this.audio.yanked();
     }

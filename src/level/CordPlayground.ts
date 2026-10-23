@@ -18,6 +18,7 @@ import type { Drone } from '../player/Drone.ts';
 import { COLLISION_GROUP } from '../physics/CollisionGroups.ts';
 import { cordState } from '../gameplay/Tether.ts';
 import { gameEvents } from '../gameplay/GameEvents.ts';
+import { byInput } from '../ui/inputHints.ts';
 
 /**
  * Delivery-apron warm-up: teach the cord by doing, in the first minute.
@@ -86,16 +87,25 @@ export class CordPlayground {
           n++;
         }
       }
-      this.meshes.push(label(scene, 'DESK TOYS', 'please do not touch', origin.add(new Vector3(0, TABLE_H * 0.55, -0.56)), 1.5));
+      this.meshes.push(label(scene, 'Desk toys', 'Please do not touch', origin.add(new Vector3(0, TABLE_H * 0.55, -0.56)), 1.5));
     });
     const hoop = CreateTorus('slingshot-hoop', { diameter: HOOP_RADIUS * 2, thickness: 0.2, tessellation: 48 }, scene);
     hoop.position.copyFrom(HOOP); hoop.rotation.x = Math.PI / 2; hoop.isPickable = false;
     this.hoopMat = new StandardMaterial('slingshot-hoop-mat', scene);
     this.hoopMat.emissiveColor = Color3.FromHexString('#FFB020'); this.hoopMat.diffuseColor = Color3.FromHexString('#FF8A3D');
     hoop.material = this.hoopMat;
-    const post = CreateBox('slingshot-hoop-post', { width: 0.18, height: HOOP.y - HOOP_RADIUS, depth: 0.18 }, scene);
-    post.position.set(HOOP.x, (HOOP.y - HOOP_RADIUS) / 2, HOOP.z); post.material = this.hoopMat; post.isPickable = false;
-    this.meshes.push(hoop, post, label(scene, 'SLINGSHOT HOOP', 'stretch the cord, then [R]', HOOP.add(new Vector3(0, HOOP_RADIUS + 0.75, 0)), 2.6));
+    const postHeight = HOOP.y - HOOP_RADIUS;
+    const postMidY = postHeight / 2;
+    const post = CreateBox('slingshot-hoop-post', { width: 0.18, height: postHeight, depth: 0.18 }, scene);
+    post.position.set(HOOP.x, postMidY, HOOP.z); post.material = this.hoopMat; post.isPickable = false;
+    const sign = label(scene, 'Slingshot hoop', 'Stretch the cord, then yank', new Vector3(HOOP.x, postMidY, HOOP.z - 0.135), 1.6);
+    const plate = CreateBox('slingshot-hoop-plate', { width: 1.7, height: 0.6, depth: 0.05 }, scene);
+    plate.position.set(HOOP.x, postMidY, HOOP.z - 0.095);
+    plate.isPickable = false;
+    const plateMat = new StandardMaterial('slingshot-hoop-plate-mat', scene);
+    plateMat.diffuseColor = Color3.FromHexString('#1E2A2B');
+    plate.material = plateMat;
+    this.meshes.push(hoop, post, plate, sign);
     (globalThis as { __playground?: CordPlayground }).__playground = this; // test/debug probe
     this.offYank = gameEvents.on('yank', (e) => {
       if (e.kind === 'yank' && !this.state.yank && e.position.z < -52) { this.state.yank = true; this.progress('yank'); }
@@ -112,9 +122,12 @@ export class CordPlayground {
   }
 
   /** One-line checklist for the objective panel during the arrival stage. */
-  checklist(partner: string): string {
-    const box = (done: boolean) => (done ? '✓' : '○');
-    return `${box(this.state.toppled)} topple the desk toys  ${box(this.state.hoop)} slingshot the hoop  ${box(this.state.yank)} yank ${partner} [R]`;
+  checklist(partner: string): { label: string; done: boolean }[] {
+    return [
+      { label: 'Topple the desk toys', done: this.state.toppled },
+      { label: 'Slingshot the hoop', done: this.state.hoop },
+      { label: `Yank ${partner}${byInput({ keyboard: ' [R]', touch: '', gamepad: '' })}`, done: this.state.yank },
+    ];
   }
 
   get done(): boolean { return this.state.toppled && this.state.hoop && this.state.yank; }
@@ -200,7 +213,14 @@ export class CordPlayground {
       if (!this.state.hoop) { this.state.hoop = true; this.progress('hoop'); }
     } else if (!this.state.hoop && this.hintCooldown <= 0) {
       this.hintCooldown = 6;
-      gameEvents.emit('toast', { text: 'Too slow. Pull the cord tight, then [R]', tone: 'good' });
+      gameEvents.emit('toast', {
+        text: byInput({
+          keyboard: 'Too slow. Pull the cord tight, then [R]',
+          touch: 'Too slow. Pull the cord tight, then tap Yank',
+          gamepad: 'Too slow. Pull the cord tight, then yank',
+        }),
+        tone: 'good',
+      });
     }
   }
 

@@ -7,7 +7,8 @@ import type { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole, RoomStatus } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
 import type { RunLayout } from '../seed/index.ts';
-import { applyRunLayout } from '../seed/index.ts';
+import { applyRunLayout, generateRun } from '../seed/index.ts';
+import { getRunState, onFloorStart, setLayoutSinkProvider } from '../run/ClientRun.ts';
 import { GrabSystem } from './GrabSystem.ts';
 import { Grabbable } from './Grabbable.ts';
 import { HackSession } from './HackSession.ts';
@@ -41,6 +42,7 @@ export class GameplayWorld {
   private readonly scene: Scene;
   private kitDressing: { dispose(): void } | null = null;
   private runLayout: RunLayout | null;
+  private readonly removeFloorStart: (() => void) | null;
   private readonly playground: CordPlayground;
 
   constructor(
@@ -134,25 +136,44 @@ export class GameplayWorld {
     this.playground = new CordPlayground(scene);
     const partner = mode === 'multiplayer' && session?.currentStatus.localRole === 'nee' ? 'PIX' : 'NEE';
     this.mission.setWarmup(() => (this.playground.done ? null : this.playground.checklist(partner)));
-    if (session) this.sync(session.currentStatus);
-    else if (runLayout) this.applySoloLayout(runLayout);
+    // Register sinks so ClientRun.applyFloorStart can call applyRunLayout(generateRun(...), sinks).
+    setLayoutSinkProvider(() => this.layoutSinks());
+    // applyFloorStart already ran applyRunLayout with our sinks; keep the local ref in sync.
+    this.removeFloorStart = onFloorStart((_payload, layoutFromHook) => {
+      if (layoutFromHook) this.runLayout = layoutFromHook;
+    });
+    if (session) {
+      this.sync(session.currentStatus);
+      // Lobby may have received floor-start before sinks existed; apply from synced run state.
+      const run = session.currentStatus.run ?? getRunState();
+      if (run?.mode === 'nightshift' && !runLayout) {
+        this.applySoloLayout(generateRun(run.seed, run.floor));
+      }
+    } else if (runLayout) {
+      this.applySoloLayout(runLayout);
+    }
   }
 
-  /** Solo / next-floor: push a RunLayout into terminals, loot, mission, and security. */
-  applySoloLayout(run: RunLayout): void {
-    this.runLayout = run;
-    applyRunLayout(run, {
+  /** Sinks for applyRunLayout — used by solo Night Shift and co-op floor-start/reconnect. */
+  private layoutSinks() {
+    return {
       objects: {
         prototype: { position: this.objects.find((o) => o.id === 'prototype')!.position },
       },
-      onApplied: () => {
+      onApplied: (run: RunLayout) => {
         this.objects.find((o) => o.id === 'prototype')?.relocateCradle(vec(run.loot));
         this.hack.applyRunLayout(run);
         this.mission.applyRunLayout(run);
         this.kitDressing?.dispose();
         void dressRunLayout(this.scene, run).then((h) => { this.kitDressing = h; }).catch((e) => console.warn('[kit] dressing failed', e));
       },
-    });
+    };
+  }
+
+  /** Solo / network Night Shift: push a RunLayout into terminals, loot, mission, and security. */
+  applySoloLayout(run: RunLayout): void {
+    this.runLayout = run;
+    applyRunLayout(run, this.layoutSinks());
   }
 
   get activeRunLayout(): RunLayout | null {
@@ -241,6 +262,8 @@ export class GameplayWorld {
   recordTetherSave(): void { this.mission.recordTetherSave(); }
 
   dispose(): void {
+    this.removeFloorStart?.();
+    setLayoutSinkProvider(null);
     this.playground.dispose();
     this.grab.dispose();
     this.hack.dispose();

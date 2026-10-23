@@ -42,27 +42,27 @@ export class PacketRoutingView {
     kicker.className = 'menu-kicker';
     kicker.textContent = stationLabel;
     const title = document.createElement('h2');
-    title.textContent = 'PACKET ROUTING';
+    title.textContent = 'Packet routing';
     const help = document.createElement('p');
     help.className = 'hack-help';
-    help.textContent = 'Rotate nodes to carry the packet from SOURCE to TARGET.';
+    help.textContent = 'Rotate nodes to carry the packet from source to target.';
     const board = document.createElement('div');
     board.className = 'hack-board-shell';
     const source = document.createElement('span');
     source.className = 'hack-endpoint source';
-    source.textContent = 'SOURCE';
+    source.textContent = 'Source';
     this.grid = document.createElement('div');
     this.grid.className = 'hack-grid';
     const target = document.createElement('span');
     target.className = 'hack-endpoint target';
-    target.textContent = 'TARGET';
+    target.textContent = 'Target';
     board.append(source, this.grid, target);
     this.status = document.createElement('p');
     this.status.className = 'hack-status';
     this.cancelButton = document.createElement('button');
     this.cancelButton.className = 'hack-cancel';
     this.cancelButton.type = 'button';
-    this.cancelButton.textContent = 'CANCEL';
+    this.cancelButton.textContent = 'Cancel';
     this.cancelButton.addEventListener('click', this.cancel);
     panel.append(kicker, title, help, board, this.status, this.cancelButton);
     this.overlay.append(panel);
@@ -103,8 +103,8 @@ export class PacketRoutingView {
     });
     this.overlay.classList.toggle('success', snapshot.completed);
     this.status.textContent = snapshot.completed
-      ? 'ACCESS ROUTE STABLE — PACKET DELIVERED'
-      : 'ROUTE INCOMPLETE';
+      ? 'Access route stable — packet delivered'
+      : 'Route incomplete';
     if (snapshot.completed && !this.completed) {
       this.completed = true;
       this.audio?.success();

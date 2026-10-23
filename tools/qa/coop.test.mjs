@@ -1,10 +1,10 @@
 // (b) Two-client co-op: host + guest join one room, roles PIX/NEE, both see each other move, world views agree.
-import { runTest, url, assert, collectErrors, shot, waitForGame, createAndJoin, worldState, compareWorld } from './lib.mjs';
+import { runTest, url, assert, collectErrors, shot, waitForGame, createAndJoin, worldState, compareWorld, openPage, closePage } from './lib.mjs';
 
 await runTest('coop', async (browser, notes) => {
   const errors = [];
-  const host = await (await browser.newContext({ viewport: { width: 960, height: 540 } })).newPage();
-  const guest = await (await browser.newContext({ viewport: { width: 960, height: 540 } })).newPage();
+  const { page: host } = await openPage(browser, { viewport: { width: 960, height: 540 } });
+  const { page: guest } = await openPage(browser, { viewport: { width: 960, height: 540 } });
   collectErrors(host, 'host', errors); collectErrors(guest, 'guest', errors);
   notes.room = await createAndJoin(host, guest);
   await Promise.all([waitForGame(host), waitForGame(guest)]);
@@ -43,4 +43,5 @@ await runTest('coop', async (browser, notes) => {
   assert(issues.length === 0, `clients disagree: ${issues.join('; ')}`);
   notes.errors = errors;
   assert(errors.length === 0, `errors:\n${errors.join('\n')}`);
+  await closePage(host); await closePage(guest);
 });

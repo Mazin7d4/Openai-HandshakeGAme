@@ -20,6 +20,7 @@ import { zeroFlightAxes } from '../input/FlightAxes.ts';
 import { PLAYER_ONE_KEYS } from '../input/KeyboardInput.ts';
 import { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
+import { getRunState } from '../run/ClientRun.ts';
 import { Drone, DRONE_PALETTES } from '../player/Drone.ts';
 import { DRONE_MODEL_URL } from '../player/DroneVisual.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
@@ -33,6 +34,7 @@ import { generateRun, type RunLayout } from '../seed/index.ts';
 import { getRunInfo } from '../net/runInfo.ts';
 import { TouchControls } from '../ui/TouchControls.ts';
 import { isTouchPlayDevice } from '../ui/touchDetect.ts';
+import { byInput } from '../ui/inputHints.ts';
 import type { GameMode } from './GameMode.ts';
 
 export interface GameAppOptions {
@@ -194,7 +196,14 @@ export class GameApp {
         this.juice.burst('impact', e.position, 12);
         if (isLocalDrone(e.droneId)) {
           this.cameraRig.addShake(0.35);
-          this.hud?.toast('Yank [R] to rescue!', 'good');
+          this.hud?.toast(
+            byInput({
+              keyboard: 'Yank [R] to rescue!',
+              touch: 'Tap Yank to rescue!',
+              gamepad: 'Yank to rescue!',
+            }),
+            'good',
+          );
         }
       }),
       gameEvents.on('toast', (e) => this.hud?.toast(e.text, e.tone)),
@@ -215,7 +224,20 @@ export class GameApp {
           this.juice.burst('impact', e.position, 12);
           audio.clothesline();
           if (mine) this.cameraRig.addShake(0.3);
-          this.hud?.toast(mine ? 'Grabbed! Mash [Shift] or wait for a yank' : `${name} got grabbed! Yank [R]`, 'good');
+          this.hud?.toast(
+            mine
+              ? byInput({
+                  keyboard: 'Grabbed! Mash [Shift] or wait for a yank',
+                  touch: 'Grabbed! Mash Jump or wait for a yank',
+                  gamepad: 'Grabbed! Mash boost or wait for a yank',
+                })
+              : byInput({
+                  keyboard: `${name} got grabbed! Yank [R]`,
+                  touch: `${name} got grabbed! Tap Yank`,
+                  gamepad: `${name} got grabbed! Yank them free`,
+                }),
+            'good',
+          );
         }
       }),
       gameEvents.on('warmup', (e) => {
@@ -467,6 +489,12 @@ export class GameApp {
         const partner = status.players.get(status.localRole === 'pix' ? 'nee' : 'pix');
         return partner?.connected ?? false;
       },
+      /** Current seed/mode/floor/captures for UI + seed-sync checks. */
+      runState: () => getRunState(),
+      /** TEST-ONLY Night Shift floor advance (HANDSHAKE_TEST_HOOKS=1). */
+      debugRunEscape: () => this.multiplayer?.debugRunEscape(),
+      /** TEST-ONLY Night Shift capture (HANDSHAKE_TEST_HOOKS=1). */
+      debugRunCapture: () => this.multiplayer?.debugRunCapture(),
     });
     // QA / debug: expose camera look yaw ("alpha") for Playwright touch-look checks.
     if (new URLSearchParams(window.location.search).has('debug')) {
@@ -680,13 +708,13 @@ export class GameApp {
     if (!partner || this.gameplay.isRoleHacking(player.role)) return [];
     const name = partner.role.toUpperCase();
     if (this.moves.cooldown(player.role) > 0) return [];
-    if (partner.drone.inTrouble) return [`[R] YANK ${name} TO SAFETY`];
+    if (partner.drone.inTrouble) return [`[R] Yank ${name} to safety`];
     const strain = this.tether.currentStrain;
     const kind: YankKind | null = this.moves.preview(player.drone, partner.drone, strain, this.partnerAnchored(partner));
-    if (kind === 'sling') return [`[R] SLINGSHOT PAST ${name}`];
+    if (kind === 'sling') return [`[R] Slingshot past ${name}`];
     if (kind === 'yank' && strain > 0.25) {
       this.hintTimer += dt;
-      return this.hintTimer < 9 ? [`[R] YANK ${name}`] : [];
+      return this.hintTimer < 9 ? [`[R] Yank ${name}`] : [];
     }
     return [];
   }

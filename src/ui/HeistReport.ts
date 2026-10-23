@@ -1,5 +1,6 @@
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
+import { challengeUrl as buildChallengeUrl } from '../../shared/run.ts';
 import {
   awardAccent,
   formatRunTime,
@@ -74,7 +75,7 @@ export class HeistReport {
 
     this.stampEl = document.createElement('span');
     this.stampEl.className = 'heist-report__stamp';
-    this.stampEl.textContent = 'EXTRACTED';
+    this.stampEl.textContent = 'Extracted';
     this.panel.append(this.stampEl);
 
     const crew = this.panel.querySelector('[data-heist="crew"]')!;
@@ -133,7 +134,7 @@ export class HeistReport {
     this.clearGradeTimers();
     this.timeEl.textContent = formatRunTime(stats.elapsedSeconds);
     this.quipEl.textContent = quipFor(stats);
-    this.stampEl.textContent = stats.outcome === 'win' ? 'EXTRACTED' : 'BUSTED';
+    this.stampEl.textContent = stats.outcome === 'win' ? 'Extracted' : 'Busted';
     this.stampEl.classList.toggle('heist-report__stamp--fail', stats.outcome !== 'win');
     this.challengeHint.hidden = true;
     this.challengeHint.textContent = '';
@@ -222,21 +223,18 @@ export class HeistReport {
     }
   }
 
-  /** Builds `?seed=<n>&beat=<ms>` from the run seed and the player's elapsed time. */
+  /** Builds `?seed=<code>&beat=<ms>` via shared/run.ts challengeUrl. */
   challengeUrl(): string {
-    const url = new URL(window.location.href);
-    url.searchParams.delete('report');
-    url.searchParams.delete('autotest');
-    url.searchParams.delete('debug');
-    url.searchParams.delete('play');
-    url.searchParams.delete('room');
-    url.searchParams.delete('dev');
-    if (this.stats?.seed != null) {
-      url.searchParams.set('seed', String(this.stats.seed >>> 0));
+    const base = new URL(window.location.href);
+    for (const key of ['report', 'autotest', 'debug', 'play', 'room', 'dev', 'mode']) {
+      base.searchParams.delete(key);
     }
-    const ms = Math.round((this.stats?.elapsedSeconds ?? 0) * 1000);
-    url.searchParams.set('beat', String(Math.max(0, ms)));
-    return url.toString();
+    if (this.stats?.seed == null) return base.toString();
+    const ms = Math.round((this.stats.elapsedSeconds ?? 0) * 1000);
+    return buildChallengeUrl(base, {
+      seed: this.stats.seed >>> 0,
+      beat: Math.max(0, ms),
+    });
   }
 
   private async copyChallengeLink(): Promise<void> {
@@ -399,7 +397,8 @@ export async function renderShareCard(stats: RunStats): Promise<Blob> {
   ctx.lineWidth = 3;
   roundRectPath(ctx, -90, -36, 180, 56, 8);
   ctx.stroke();
-  ctx.fillText(stats.outcome === 'win' ? 'EXTRACTED' : 'BUSTED', -78, 8);
+  // Visual stamp stays uppercase; DOM accessible name uses sentence case + CSS.
+  ctx.fillText((stats.outcome === 'win' ? 'Extracted' : 'Busted').toUpperCase(), -78, 8);
   ctx.restore();
 
   return new Promise((resolve, reject) => {
