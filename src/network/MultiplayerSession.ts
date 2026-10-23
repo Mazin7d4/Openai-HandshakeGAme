@@ -24,6 +24,9 @@ import type {
   RoomStatus,
   RunNetworkState,
   SecurityNetworkState,
+  EmoteId,
+  EmotePlayedMessage,
+  PingPlacedMessage,
 } from './NetworkTypes.ts';
 
 const SEND_INTERVAL_MS = 50;
@@ -256,6 +259,8 @@ export class MultiplayerSession {
   private readonly shoveListeners = new Set<(message: PatrolShoveMessage) => void>();
   private readonly spottedListeners = new Set<(role: DroneRole) => void>();
   private readonly floorStartListeners = new Set<(payload: FloorStartPayload) => void>();
+  private readonly pingListeners = new Set<(message: PingPlacedMessage) => void>();
+  private readonly emoteListeners = new Set<(message: EmotePlayedMessage) => void>();
   private readonly players = new Map<DroneRole, DroneNetworkState>();
   private readonly objects = new Map<string, GrabbableNetworkState>();
   private status: RoomStatus;
@@ -511,6 +516,15 @@ export class MultiplayerSession {
     return () => this.yankListeners.delete(listener);
   }
 
+  sendPing(pos: { x: number; y: number; z: number }): void { this.room.send('ping', pos); }
+  sendEmote(id: EmoteId): void { this.room.send('emote', { id }); }
+  onPing(listener: (message: PingPlacedMessage) => void): () => void {
+    this.pingListeners.add(listener); return () => this.pingListeners.delete(listener);
+  }
+  onEmote(listener: (message: EmotePlayedMessage) => void): () => void {
+    this.emoteListeners.add(listener); return () => this.emoteListeners.delete(listener);
+  }
+
   reportTetherSave(): void {
     this.room.send('mission-tether-save');
   }
@@ -551,6 +565,14 @@ export class MultiplayerSession {
     });
     room.onMessage('tether-yanked', (message: TetherYankMessage) => {
       for (const listener of this.yankListeners) listener(message);
+    });
+    room.onMessage('ping-placed', (message: PingPlacedMessage) => {
+      for (const listener of this.pingListeners) listener(message);
+    });
+    room.onMessage('emote-played', (message: EmotePlayedMessage) => {
+      if (message?.id === 'here' || message?.id === 'wait' || message?.id === 'go' || message?.id === 'yay') {
+        for (const listener of this.emoteListeners) listener(message);
+      }
     });
     room.onMessage('patrol-stunned', (message: PatrolStunMessage) => {
       for (const listener of this.patrolListeners) listener(message);

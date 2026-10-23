@@ -7,6 +7,9 @@ import type {
 import type { RunMode } from '../../shared/run.ts';
 
 export type DroneRole = 'pix' | 'nee';
+export type EmoteId = 'here' | 'wait' | 'go' | 'yay';
+export interface PingPlacedMessage { role: DroneRole; x: number; y: number; z: number; id: number; at: number }
+export interface EmotePlayedMessage { role: DroneRole; id: EmoteId; at: number }
 
 /** Authoritative run fields mirrored from room state (seed / Night Shift). */
 export interface RunNetworkState {

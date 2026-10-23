@@ -8,7 +8,7 @@ import {
   type Scene,
 } from '@babylonjs/core';
 import type { LoadedModel } from '../assets/AssetLoader.ts';
-import { DroneFace, type Expression } from './DroneFace.ts';
+import { DroneFace, type Expression, type EmoteFace } from './DroneFace.ts';
 import { FLIGHT_TUNING } from './FlightTuning.ts';
 
 export const DRONE_MODEL_URL = `${import.meta.env.BASE_URL}assets/drone/drone.glb`;
@@ -190,6 +190,13 @@ export class DroneVisual {
   /** Temporary face reaction (presentation only). */
   react(expression: Expression, seconds: number): void {
     this.face.flash(expression, seconds);
+  }
+
+  /** Show one of the flat, screen-native co-op emote expressions. */
+  showEmote(id: EmoteFace, seconds = 2): void {
+    const expression: Record<EmoteFace, Expression> = { here: 'focused', wait: 'sheepish', go: 'proud', yay: 'happy' };
+    this.face.flash(expression[id], seconds);
+    this.squashPulse = Math.max(this.squashPulse, 0.12);
   }
 
   update(state: DroneVisualState): void {

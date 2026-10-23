@@ -53,6 +53,9 @@ const HANDOFF_RANGE = 4.5;
 const STEAL_RANGE = 2.0;
 const STEAL_LOCK_MS = 1000;
 const GRAB_COOLDOWN_MS = 250;
+const PING_COOLDOWN_MS = 750;
+const EMOTE_COOLDOWN_MS = 500;
+const EMOTE_IDS = new Set(['here', 'wait', 'go', 'yay']);
 /** Mutable per-room world sinks filled by applyRunLayout (defaults match heist-layout.json). */
 function createWorldSinks() {
   return {
@@ -241,6 +244,9 @@ class HandshakeRoom extends Room {
   runLayout = null;
   heldSinceMs = new Map();
   lastGrabMs = new Map();
+  pingTimes = new Map();
+  emoteTimes = new Map();
+  pingId = 0;
 
   onCreate(options = {}) {
     liveRooms.add(this);
@@ -282,6 +288,8 @@ class HandshakeRoom extends Room {
     this.onMessage('mission-tether-save', (client) => this.reportTetherSave(client.sessionId));
     this.onMessage('mission-retry', () => this.resetMission());
     this.onMessage('tether-yank', (client, message) => this.relayTetherYank(client, message));
+    this.onMessage('ping', (client, message) => this.relayPing(client, message));
+    this.onMessage('emote', (client, message) => this.relayEmote(client, message));
     this.onMessage('patrol-stun', (client, message) => this.stunPatrol(client, message));
     this.onMessage('run-capture', (client) => this.handleCapture(client.sessionId));
     this.onMessage('capture-struggle', (client) => this.reportStruggle(client.sessionId));
@@ -520,6 +528,8 @@ class HandshakeRoom extends Room {
     this.releaseRole(player.role);
     this.state.players.delete(client.sessionId);
     this.state.started = false;
+    this.pingTimes.delete(client.sessionId);
+    this.emoteTimes.delete(client.sessionId);
   }
 
   freezePlayer(player) {
@@ -993,6 +1003,44 @@ class HandshakeRoom extends Room {
       strength: Math.max(0, Math.min(1, finite(message.strength))),
       impulse: { x, y, z },
     });
+  }
+
+  relayPing(client, message) {
+    const sender = this.state.players.get(client.sessionId);
+    if (!sender || !sender.connected || !message || typeof message !== 'object') return;
+    const now = Date.now();
+    if (now - (this.pingTimes.get(client.sessionId) ?? 0) < PING_COOLDOWN_MS) return;
+    const raw = { x: message.x, y: message.y, z: message.z };
+    if (![raw.x, raw.y, raw.z].every((value) => Number.isFinite(value))) return;
+    const point = {
+      x: Math.max(-MAX_WORLD_COORDINATE, Math.min(MAX_WORLD_COORDINATE, raw.x)),
+      y: Math.max(-20, Math.min(80, raw.y)),
+      z: Math.max(-MAX_WORLD_COORDINATE, Math.min(MAX_WORLD_COORDINATE, raw.z)),
+    };
+    const dx = point.x - sender.position.x;
+    const dy = point.y - sender.position.y;
+    const dz = point.z - sender.position.z;
+    const length = Math.hypot(dx, dy, dz);
+    if (length > 120) {
+      point.x = sender.position.x + dx * 120 / length;
+      point.y = sender.position.y + dy * 120 / length;
+      point.z = sender.position.z + dz * 120 / length;
+      point.x = Math.max(-MAX_WORLD_COORDINATE, Math.min(MAX_WORLD_COORDINATE, point.x));
+      point.y = Math.max(-20, Math.min(80, point.y));
+      point.z = Math.max(-MAX_WORLD_COORDINATE, Math.min(MAX_WORLD_COORDINATE, point.z));
+    }
+    this.pingTimes.set(client.sessionId, now);
+    this.broadcast('ping-placed', { role: sender.role, ...point, id: ++this.pingId, at: now });
+  }
+
+  relayEmote(client, message) {
+    const sender = this.state.players.get(client.sessionId);
+    if (!sender || !sender.connected || !message || typeof message !== 'object') return;
+    if (!EMOTE_IDS.has(message.id)) return;
+    const now = Date.now();
+    if (now - (this.emoteTimes.get(client.sessionId) ?? 0) < EMOTE_COOLDOWN_MS) return;
+    this.emoteTimes.set(client.sessionId, now);
+    this.broadcast('emote-played', { role: sender.role, id: message.id, at: now });
   }
 
   /**
