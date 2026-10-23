@@ -22,6 +22,7 @@ import type {
   GrabbableNetworkState,
   HackNetworkState,
   MissionNetworkState,
+  ObjectEventMessage,
   RoomStatus,
   RunNetworkState,
   SecurityNetworkState,
@@ -375,6 +376,7 @@ export class MultiplayerSession {
   private readonly runEndedListeners = new Set<(message: RunEndedMessage) => void>();
   private readonly pingListeners = new Set<(message: PingPlacedMessage) => void>();
   private readonly emoteListeners = new Set<(message: EmotePlayedMessage) => void>();
+  private readonly objectEventListeners = new Set<(message: ObjectEventMessage) => void>();
   private readonly players = new Map<DroneRole, DroneNetworkState>();
   private readonly objects = new Map<string, GrabbableNetworkState>();
   private status: RoomStatus;
@@ -654,6 +656,10 @@ export class MultiplayerSession {
     this.emoteListeners.add(listener); return () => this.emoteListeners.delete(listener);
   }
 
+  onObjectEvent(listener: (message: ObjectEventMessage) => void): () => void {
+    this.objectEventListeners.add(listener); return () => this.objectEventListeners.delete(listener);
+  }
+
   reportTetherSave(): void {
     this.room.send('mission-tether-save');
   }
@@ -676,6 +682,7 @@ export class MultiplayerSession {
     this.networkState = 'disposed';
     this.reconnectDeadlineMs = null;
     this.listeners.clear();
+    this.objectEventListeners.clear();
     clearReconnectionToken(this.roomCode);
     this.room.removeAllListeners();
     await this.room.leave(true);
@@ -709,6 +716,11 @@ export class MultiplayerSession {
     room.onMessage('emote-played', (message: EmotePlayedMessage) => {
       if (message?.id === 'here' || message?.id === 'wait' || message?.id === 'go' || message?.id === 'yay') {
         for (const listener of this.emoteListeners) listener(message);
+      }
+    });
+    room.onMessage('object-event', (message: ObjectEventMessage) => {
+      if (message?.objectId && message.event) {
+        for (const listener of this.objectEventListeners) listener(message);
       }
     });
     room.onMessage('patrol-stunned', (message: PatrolStunMessage) => {

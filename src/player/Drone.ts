@@ -174,6 +174,11 @@ export class Drone implements CameraSubject {
     return target.copyFrom(this.root.position);
   }
 
+  /** Visual yaw in the same convention used by snapshots and passRules. */
+  get yaw(): number {
+    return this.visual.root.rotation.y;
+  }
+
   /** Where the cord visually attaches (socket on the back shell). Gameplay still uses the centre. */
   getTetherAnchor(target: Vector3): Vector3 {
     return this.visual.getSocketPosition(target);
