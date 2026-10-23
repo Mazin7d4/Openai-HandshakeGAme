@@ -14,6 +14,7 @@ import {
   storeReconnectionToken,
 } from './ReconnectionToken.ts';
 import { serverEndpoint } from './ServerEndpoint.ts';
+import { warmupBudgetMs } from './ServerWarmup.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import type {
   DroneNetworkState,
@@ -30,6 +31,85 @@ import type {
 } from './NetworkTypes.ts';
 
 const SEND_INTERVAL_MS = 50;
+const CONNECT_RETRY_BUDGET_MS = 20_000;
+const CONNECT_ATTEMPT_TIMEOUT_MS = 8_000;
+const CONNECT_BACKOFFS_MS = [500, 1_000, 2_000, 3_000];
+
+class ConnectTimeoutError extends Error {
+  constructor() {
+    super('Connection timed out');
+    this.name = 'ConnectTimeoutError';
+  }
+}
+
+function errorNumber(error: unknown, ...keys: string[]): number {
+  const value = error as Record<string, unknown> | null;
+  for (const key of keys) {
+    const number = Number(value?.[key]);
+    if (Number.isFinite(number)) return number;
+  }
+  return NaN;
+}
+
+/** True only for failures that can happen while a sleeping host is coming back. */
+export function isTransientConnectError(error: unknown): boolean {
+  const code = errorNumber(error, 'status', 'statusCode', 'httpStatus', 'code');
+  if (code === 522) return false;
+  if (code >= 400 && code < 500) return false;
+
+  const value = error as { message?: unknown; name?: unknown } | null;
+  const message = String(value?.message ?? error ?? '').toLowerCase();
+  if (/already full|\bfull\b|not found|does not exist|expired|disposed|invalid room|\blocked\b/.test(message)) return false;
+  if ((code >= 500 && code < 600) || /\b5\d\d\b/.test(message)) return true;
+  if (code === 1006 || code === 1001) return true;
+  const codeText = String((error as { code?: unknown } | null)?.code ?? '').toLowerCase();
+  return /failed to fetch|fetch failed|load failed|econnrefused|networkerror|network error|connection refused|enotfound|timed out|timeout|unable to connect|websocket.*(?:closed|close|connection)|(?:connection|socket).*(?:closed|reset|aborted|refused|failed)/.test(message)
+    || /econnrefused|etimedout|enetwork|econnreset/.test(codeText)
+    || value?.name === 'ConnectTimeoutError';
+}
+
+function connectRetryBudgetMs(): number {
+  return Math.min(CONNECT_RETRY_BUDGET_MS, warmupBudgetMs());
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function withConnectTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: number | undefined;
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      timer = window.setTimeout(() => {
+        // A slow attempt that still succeeds later would hold a seat (and make the retry "full"): leave it.
+        operation.then((late) => { void (late as { leave?: (consented?: boolean) => unknown })?.leave?.(true); }, () => {});
+        reject(new ConnectTimeoutError());
+      }, timeoutMs);
+      operation.then(resolve, reject);
+    });
+  } finally {
+    if (timer !== undefined) window.clearTimeout(timer);
+  }
+}
+
+async function retryInitialConnect<T>(connect: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  const budget = connectRetryBudgetMs();
+  let retry = 0;
+  while (true) {
+    const remaining = budget - (Date.now() - startedAt);
+    if (remaining <= 0) throw new ConnectTimeoutError();
+    try {
+      return await withConnectTimeout(connect(), Math.min(CONNECT_ATTEMPT_TIMEOUT_MS, remaining));
+    } catch (error) {
+      const left = budget - (Date.now() - startedAt);
+      if (!isTransientConnectError(error) || left <= 0) throw error;
+      const backoff = CONNECT_BACKOFFS_MS[Math.min(retry++, CONNECT_BACKOFFS_MS.length - 1)];
+      if (left <= backoff) throw error;
+      await delay(backoff);
+    }
+  }
+}
 
 export type JoinErrorKind = 'not-found' | 'full' | 'server' | 'malformed' | 'unknown';
 export interface ClassifiedJoinError { kind: JoinErrorKind; message: string }
@@ -334,7 +414,7 @@ export class MultiplayerSession {
       createOptions.seed = options.seed >>> 0;
     }
     if (options.mode) createOptions.mode = options.mode;
-    const room = await client.create<SchemaRoomState>('handshake', createOptions);
+    const room = await retryInitialConnect(() => client.create<SchemaRoomState>('handshake', createOptions));
     return new MultiplayerSession(room, options.beat);
   }
 
@@ -349,7 +429,7 @@ export class MultiplayerSession {
       }
     }
     const client = new Client(serverEndpoint());
-    const room = await client.joinById<SchemaRoomState>(normalized);
+    const room = await retryInitialConnect(() => client.joinById<SchemaRoomState>(normalized));
     return new MultiplayerSession(room, options.beat);
   }
 

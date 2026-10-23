@@ -716,9 +716,16 @@ html[data-reduced-motion='1'] *::after {
   .controls-card { display: none; }
 }
 /* Server wake-up overlay (multiplayer host/join on the free server) */
-.wake-overlay { margin-top: 20px; text-align: center; }
+.wake-overlay { display: grid; justify-items: center; gap: 10px; margin-top: 20px; text-align: center; }
+.wake-spinner {
+  width: 28px; height: 28px; border: 4px solid var(--aluminium); border-top-color: var(--graphite);
+  border-radius: 50%; animation: rotation 800ms linear infinite;
+}
+@keyframes rotation { to { transform: rotate(360deg); } }
 .wake-title { margin: 0 0 6px; color: var(--graphite); font: 700 18px/1.2 var(--font-title); }
 .wake-detail { margin: 0; color: var(--pencil); font: 400 16px/1.4 var(--font-body); }
+@media (prefers-reduced-motion: reduce) { .wake-spinner { display: none; } }
+html[data-reduced-motion='1'] .wake-spinner { display: none; }
 
 /* ---------- First-run onboarding coach ---------- */
 .onboarding-coach {
