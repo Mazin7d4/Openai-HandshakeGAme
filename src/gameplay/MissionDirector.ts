@@ -17,6 +17,7 @@ import { updateHeistPresentation } from '../level/PrototypeHeist.ts';
 import { gameEvents } from './GameEvents.ts';
 import { getRunState, localEscape, localCapture } from '../run/ClientRun.ts';
 import { byInput } from '../ui/inputHints.ts';
+import { getSettings, subscribeSettings } from '../ui/Settings.ts';
 
 export interface WarmupStep {
   label: string;
@@ -39,7 +40,11 @@ export class MissionDirector {
   private readonly objectiveTitle: HTMLHeadingElement | null;
   private readonly objectiveDetail: HTMLParagraphElement | null;
   private readonly detectionFill: HTMLDivElement | null;
+  private readonly detectionMeter: HTMLElement | null;
+  private readonly statusBadge: HTMLElement | null;
   private readonly report: HeistReport | null;
+  private colourBlindSafe = false;
+  private unsubSettings: (() => void) | null = null;
   private successTimer: number | null = null;
   private alarmTimer: number | null = null;
   private localElapsed = 0;
@@ -131,14 +136,28 @@ export class MissionDirector {
       objective.dataset.testid = 'mission-objective';
       const kicker = document.createElement('span');
       kicker.textContent = 'Prototype theft';
+      this.statusBadge = document.createElement('p');
+      this.statusBadge.className = 'mission-status-badge';
+      this.statusBadge.dataset.testid = 'mission-status-badge';
+      this.statusBadge.hidden = true;
       this.objectiveTitle = document.createElement('h2');
       this.objectiveDetail = document.createElement('p');
       const detection = document.createElement('div');
       detection.className = 'detection-meter';
+      detection.setAttribute('role', 'meter');
+      detection.setAttribute('aria-label', 'Security detection');
+      detection.setAttribute('aria-valuemin', '0');
+      detection.setAttribute('aria-valuemax', '100');
+      this.detectionMeter = detection;
       this.detectionFill = document.createElement('div');
       detection.append(this.detectionFill);
-      objective.append(kicker, this.objectiveTitle, this.objectiveDetail, detection);
+      objective.append(kicker, this.statusBadge, this.objectiveTitle, this.objectiveDetail, detection);
       uiParent.append(objective);
+      this.colourBlindSafe = getSettings().colourBlindSafe;
+      this.unsubSettings = subscribeSettings((s) => {
+        this.colourBlindSafe = s.colourBlindSafe;
+        this.renderObjectiveBadge();
+      });
 
       // Night Shift chrome lives left of center so it clears the right-side touch / active-drone HUD.
       if (mode === 'night-shift' || runLayout) {
@@ -213,6 +232,8 @@ export class MissionDirector {
       this.objectiveTitle = null;
       this.objectiveDetail = null;
       this.detectionFill = null;
+      this.detectionMeter = null;
+      this.statusBadge = null;
       this.report = null;
       this.runChrome = null;
       this.floorChip = null;
@@ -364,6 +385,8 @@ export class MissionDirector {
     if (this.alarmTimer !== null) window.clearTimeout(this.alarmTimer);
     this.audio.stopAlarm();
     this.unsubscribe?.();
+    this.unsubSettings?.();
+    this.unsubSettings = null;
     this.security.dispose();
     this.alarmLight.dispose();
     this.objective?.remove();
@@ -476,8 +499,41 @@ export class MissionDirector {
       this.lastWarmupKey = null;
       this.objectiveDetail.textContent = detail;
     }
-    this.detectionFill.style.width = `${Math.round(this.security.detection * 100)}%`;
+    const detectionPct = Math.round(this.security.detection * 100);
+    this.detectionFill.style.width = `${detectionPct}%`;
+    this.detectionMeter?.setAttribute('aria-valuenow', String(detectionPct));
     this.objective?.classList.toggle('alarm', this.state.alarm);
+    this.objective?.classList.toggle('security-active', this.state.securityActive && !this.state.alarm);
+    this.renderObjectiveBadge();
+  }
+
+  /** Colourblind-safe shape + text for alarm / security (amber = security only). */
+  private renderObjectiveBadge(): void {
+    if (!this.statusBadge || !this.objective) return;
+    this.objective.classList.toggle('colourblind-cues', this.colourBlindSafe);
+    if (!this.colourBlindSafe) {
+      this.statusBadge.hidden = true;
+      this.statusBadge.textContent = '';
+      this.statusBadge.removeAttribute('data-state');
+      return;
+    }
+    if (this.state.alarm) {
+      this.statusBadge.hidden = false;
+      this.statusBadge.dataset.state = 'alarm';
+      this.statusBadge.innerHTML =
+        '<span class="mission-status-icon mission-status-icon--alarm" aria-hidden="true">▲</span>'
+        + '<span class="mission-status-label">Alarm</span>';
+    } else if (this.state.securityActive) {
+      this.statusBadge.hidden = false;
+      this.statusBadge.dataset.state = 'security';
+      this.statusBadge.innerHTML =
+        '<span class="mission-status-icon mission-status-icon--security" aria-hidden="true">◆</span>'
+        + '<span class="mission-status-label">Security</span>';
+    } else {
+      this.statusBadge.hidden = true;
+      this.statusBadge.textContent = '';
+      this.statusBadge.removeAttribute('data-state');
+    }
   }
 
   private renderFloorHud(): void {
