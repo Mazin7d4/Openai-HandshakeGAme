@@ -38,13 +38,13 @@ export type AudioEvent =
   | 'hackStart' | 'hackTick' | 'hackSuccess' | 'hackFail'
   | 'suspicious' | 'spotted' | 'stun' | 'cameraBlind' | 'capture' | 'rescue'
   | 'vaultOpen' | 'theft' | 'extract'
-  | 'chirp';
+  | 'chirp' | 'ping' | 'emote';
 
 export const AUDIO_EVENTS: readonly AudioEvent[] = [
   'uiHover', 'uiClick', 'uiConfirm', 'uiBack', 'uiToggle', 'uiError',
   'twang', 'snap', 'yank', 'yanked', 'slingshot', 'bump', 'boost', 'impact', 'grab', 'drop', 'throw',
   'hackStart', 'hackTick', 'hackSuccess', 'hackFail',
-  'suspicious', 'spotted', 'stun', 'cameraBlind', 'capture', 'rescue', 'vaultOpen', 'theft', 'extract', 'chirp',
+  'suspicious', 'spotted', 'stun', 'cameraBlind', 'capture', 'rescue', 'vaultOpen', 'theft', 'extract', 'chirp', 'ping', 'emote',
 ];
 
 export type DroneVoice = Voice;
@@ -451,6 +451,14 @@ export class AudioManager {
         this.start(event, this.synth(`chirp-${role}-${mood}`, (r) => zz(r, chirpParams(role, mood))), {
           gain: 0.4 * vol, pos, rate: 1 + (Math.random() - 0.5) * (role === 'nee' ? 0.12 : 0.04),
         });
+        return;
+      }
+      case 'ping':
+        this.start(event, this.synth('ping', (r) => zz(r, ZZ.ping)), { bus: 'ui', gain: 0.5 * vol, pos, rate: o.role === 'nee' ? 1.12 : 1 });
+        return;
+      case 'emote': {
+        const role: DroneVoice = o.role ?? 'pix'; const mood: ChirpMood = o.mood ?? 'neutral';
+        this.start(event, this.synth(`emote-${role}-${mood}`, (r) => zz(r, chirpParams(role, mood))), { gain: 0.48 * vol, pos, rate: mood === 'happy' ? 1.12 : mood === 'proud' ? 0.92 : 1 });
         return;
       }
     }

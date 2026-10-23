@@ -156,10 +156,14 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
   font: 800 52px/1 var(--font-screen); letter-spacing: 0.16em; font-variation-settings: 'ROND' 100;
 }
 .room-code-input {
-  width: 100%; padding: 12px 16px; border: var(--rim); border-radius: var(--r-control);
+  width: 100%; min-height: 56px; padding: 12px 16px; border: var(--rim); border-radius: var(--r-control);
   color: var(--graphite); background: var(--warm-screen);
   font: 800 30px/1 var(--font-title); letter-spacing: 0.2em; text-align: center; text-transform: uppercase;
 }
+.room-code-hint { margin-top: 8px; color: var(--pencil); font-size: 14px; }
+.invite-link { width: 100%; min-height: 48px; margin: 4px 0 10px; padding: 8px 10px; border: var(--rim); border-radius: var(--r-control); background: var(--warm-screen); font-size: 13px; }
+.lobby-panel [data-testid='share-invite'] { margin-left: 8px; }
+.lobby-reconnecting { margin-top: 8px; color: var(--security-ink); font-weight: 700; }
 
 /* ---------- Boot / loading ---------- */
 #game-canvas { width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
@@ -627,6 +631,29 @@ html[data-reduced-motion='1'] *::after {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
 }
 
+/* Co-op ping/emote presentation. The overlay never captures gameplay input. */
+.ping-emote-overlay { position: absolute; inset: 0; z-index: 10; pointer-events: none; overflow: hidden; }
+.ping-marker, .emote-bubble {
+  position: absolute; transform: translate(-50%, -50%); padding: 7px 10px; border: 2px solid currentColor;
+  border-radius: 999px; background: rgba(20, 32, 34, 0.9); color: var(--pix, #5ee7ff);
+  font: 700 12px/1 var(--font-body); white-space: nowrap; transition: opacity 120ms linear;
+}
+.ping-marker::before { content: ''; display: inline-block; width: 12px; height: 12px; margin-right: 5px; border: 2px solid currentColor; border-radius: 50%; vertical-align: -2px; }
+.ping-marker--nee, .emote-bubble--nee { color: var(--nee, #ff6b83); }
+.ping-marker.is-edge { border-radius: 4px; transform: translate(-50%, -50%) rotate(var(--edge-angle)); }
+.ping-marker.is-edge::before { display: none; }
+.emote-bubble { font-size: 14px; transform: translate(-50%, -100%); }
+.ping-emote-overlay--motion .emote-bubble { animation: ping-emote-pop 180ms ease-out; }
+@keyframes ping-emote-pop { from { transform: translate(-50%, -100%) scale(.7); } to { transform: translate(-50%, -100%) scale(1); } }
+.emote-radial { position: absolute; left: 50%; bottom: max(80px, 18vh); width: min(260px, 80vw); height: min(260px, 80vw); transform: translateX(-50%); display: none; pointer-events: auto; z-index: 40; border-radius: 50%; background: radial-gradient(circle, rgba(20, 32, 34, 0.35) 0 42%, transparent 70%); }
+.emote-radial.visible { display: block; }
+.emote-radial__item { position: absolute; width: 64px; height: 64px; min-width: 44px; min-height: 44px; border: var(--rim); border-radius: 50%; color: var(--graphite); background: var(--paper); box-shadow: var(--lip); font: 700 12px var(--font-body); touch-action: none; }
+.emote-radial__item--here { left: 50%; top: 0; transform: translateX(-50%); }
+.emote-radial__item--go { right: 0; top: 50%; transform: translateY(-50%); }
+.emote-radial__item--wait { left: 50%; bottom: 0; transform: translateX(-50%); }
+.emote-radial__item--yay { left: 0; top: 50%; transform: translateY(-50%); }
+@media (orientation: landscape) and (max-height: 460px) { .emote-radial { bottom: 74px; width: 220px; height: 220px; } }
+
 @media (max-width: 760px) {
   .mission-objective { top: 54px; width: calc(100% - 24px); }
   .run-hud { top: max(12px, env(safe-area-inset-top, 0px)); }
@@ -651,10 +678,15 @@ html[data-reduced-motion='1'] *::after {
 }
 /* Phone portrait: drones in the top band, the device key below them. */
 @media (max-width: 600px) and (orientation: portrait) {
-  .menu-shell { align-items: end; justify-items: center; padding: 16px; }
+  .menu-shell { align-items: end; justify-items: center; padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
   .menu-art { background-size: auto 58vh; background-position: 86% 0; }
   .menu-panel { margin-top: 0; }
   .menu-panel::before { height: 30vh; }
+}
+@media (max-width: 600px) {
+  .join-panel, .lobby-panel { max-width: 100%; }
+  .join-panel .btn, .lobby-panel .btn { min-height: 48px; }
+  .invite-link { font-size: 12px; }
 }
 @media (max-height: 460px) {
   .menu-shell { padding: 12px max(16px, 5vw); }
@@ -712,7 +744,7 @@ html[data-reduced-motion='1'] *::after {
 .touch-controls--hidden { display: none; }
 /* Look pad covers the action half; buttons sit above and stopPropagation. */
 .touch-look {
-  position: absolute; top: 0; bottom: 0; width: 52%;
+  position: absolute; top: 0; bottom: 0; width: 50%;
   pointer-events: auto; touch-action: none;
   -webkit-touch-callout: none; user-select: none;
 }
@@ -829,6 +861,26 @@ html[data-reduced-motion='1'] *::after {
 @media (orientation: portrait) and (max-width: 480px) {
   .touch-stick { height: min(42vh, 280px); }
   .mission-objective { width: calc(100% - 120px); }
+}
+
+@media (max-width: 380px) {
+  .touch-controls { --touch-btn: 48px; --touch-gap: 6px; }
+  .touch-actions { gap: 6px; }
+  .touch-btn, .touch-pause { min-width: 48px; min-height: 48px; }
+  .touch-btn__glyph { width: 20px; height: 20px; }
+  .touch-btn__label { font-size: 10px; }
+  .touch-stick { width: 46vw; height: min(44vh, 232px); }
+  .touch-play .interaction-prompt { bottom: 116px; max-width: calc(100% - 132px); }
+  .touch-play .onboarding-coach { bottom: 122px; max-width: calc(100% - 132px); }
+}
+
+@media (orientation: landscape) and (max-height: 380px) {
+  .touch-controls { --touch-btn: 48px; --touch-gap: 6px; }
+  .touch-actions { gap: 6px; }
+  .touch-btn, .touch-pause { min-width: 48px; min-height: 48px; }
+  .touch-stick { width: 42vw; height: 200px; }
+  .touch-play .interaction-prompt { bottom: 112px; max-width: calc(100% - 250px); }
+  .touch-play .onboarding-coach { bottom: 116px; max-width: calc(100% - 250px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

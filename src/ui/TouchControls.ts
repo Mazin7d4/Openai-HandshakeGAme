@@ -4,6 +4,7 @@ import { hapticTap } from './haptics.ts';
 import { getSettings, subscribeSettings, type TouchHandedness } from './Settings.ts';
 import type { VirtualControlInput } from '../input/VirtualControlInput.ts';
 import { isTouchPlayDevice } from './touchDetect.ts';
+import type { EmoteId } from '../network/NetworkTypes.ts';
 
 export interface TouchControlsHandlers {
   virtual: VirtualControlInput;
@@ -14,6 +15,8 @@ export interface TouchControlsHandlers {
   onInteract: () => void;
   onPause: () => void;
   onSwitch?: () => void;
+  onPing?: () => void;
+  onEmote?: (id: EmoteId) => void;
   /** Show Switch drone when solo (non-multiplayer). */
   solo: boolean;
 }
@@ -59,6 +62,8 @@ export class TouchControls {
   private lastTapX = 0;
   private lastTapY = 0;
   private readonly unsubSettings: () => void;
+  private readonly radial: HTMLDivElement;
+  private emotePointer: { id: number; started: number; moved: boolean; selected: EmoteId | null } | null = null;
 
   private readonly onStickDown = (event: PointerEvent) => {
     if (event.button !== 0 && event.pointerType === 'mouse') return;
@@ -206,6 +211,8 @@ export class TouchControls {
       this.tapButton('Grab', 'grab', 'touch-grab', () => this.handlers.onGrab()),
       this.tapButton('Yank', 'yank', 'touch-yank', () => this.handlers.onYank()),
       this.tapButton('Hack', 'hack', 'touch-hack', () => this.handlers.onInteract()),
+      this.tapButton('Ping', 'ping', 'touch-ping', () => this.handlers.onPing?.()),
+      this.emoteButton(),
     );
     if (handlers.solo && handlers.onSwitch) {
       this.actions.append(this.tapButton('Switch', 'switch', 'touch-switch', () => this.handlers.onSwitch?.()));
@@ -239,7 +246,22 @@ export class TouchControls {
     dismiss.addEventListener('click', () => this.dismissRotateHint());
     this.rotateHint.append(dismiss);
 
+    this.radial = document.createElement('div');
+    this.radial.className = 'emote-radial';
+    this.radial.dataset.testid = 'emote-radial';
+    this.radial.setAttribute('aria-label', 'Emotes');
+    for (const [id, label] of [['here', 'Here!'], ['wait', 'Wait'], ['go', 'Go!'], ['yay', 'Yay']] as const) {
+      const item = document.createElement('button');
+      item.type = 'button'; item.className = `emote-radial__item emote-radial__item--${id}`;
+      item.dataset.testid = `emote-${id}`; item.setAttribute('aria-label', label); item.textContent = label;
+      item.addEventListener('pointerdown', (event) => { event.preventDefault(); event.stopPropagation(); this.handlers.onEmote?.(id); this.closeRadial(); });
+      this.radial.append(item);
+    }
+
     this.root.append(this.lookPad, this.stickPad, this.actions, this.pause, this.rotateHint);
+    // Radial lives outside the touch layer's stacking context so it sits above coach cards and toasts.
+    parent.append(this.radial);
+    document.addEventListener('pointerdown', this.onOutsidePointer, true);
     parent.append(this.root);
 
     this.applyLayout(settings.touchHandedness);
@@ -301,6 +323,8 @@ export class TouchControls {
   }
 
   dispose(): void {
+    document.removeEventListener('pointerdown', this.onOutsidePointer, true);
+    this.radial.remove();
     if (this.disposed) return;
     this.disposed = true;
     this.clearStick();
@@ -403,6 +427,47 @@ export class TouchControls {
     return button;
   }
 
+  private emoteButton(): HTMLButtonElement {
+    const button = this.tapButton('Emote', 'happy', 'touch-emote', () => this.openRadial(true));
+    // No stopPropagation here: in the capture pass it would skip tapButton's own pointerdown (which opens the radial).
+    button.addEventListener('pointerdown', (event) => {
+      this.emotePointer = { id: event.pointerId, started: performance.now(), moved: false, selected: null };
+      try { button.setPointerCapture(event.pointerId); } catch { /* synthetic pointer */ }
+      window.setTimeout(() => { if (this.emotePointer?.id === event.pointerId && performance.now() - this.emotePointer.started >= 250) this.openRadial(false); }, 260);
+    }, { capture: true });
+    button.addEventListener('pointermove', (event) => {
+      if (!this.emotePointer || event.pointerId !== this.emotePointer.id) return;
+      const dx = event.clientX - button.getBoundingClientRect().left - button.offsetWidth / 2;
+      const dy = event.clientY - button.getBoundingClientRect().top - button.offsetHeight / 2;
+      if (Math.hypot(dx, dy) < 18) return;
+      this.emotePointer.moved = true;
+      const angle = Math.atan2(dy, dx);
+      this.emotePointer.selected = angle > -Math.PI / 4 && angle <= Math.PI / 4 ? 'go' : angle > Math.PI / 4 && angle <= 3 * Math.PI / 4 ? 'wait' : angle < -Math.PI / 4 && angle >= -3 * Math.PI / 4 ? 'here' : 'yay';
+    });
+    const up = (event: PointerEvent) => {
+      if (!this.emotePointer || event.pointerId !== this.emotePointer.id) return;
+      const state = this.emotePointer; this.emotePointer = null;
+      const over = (document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null)?.closest<HTMLElement>('.emote-radial__item');
+      const overId = over?.dataset.testid?.replace('emote-', '') as EmoteId | undefined;
+      const choice = overId ?? (state.moved ? state.selected : null);
+      if (choice && this.radial.classList.contains('visible')) this.handlers.onEmote?.(choice);
+      if (choice) { this.closeRadial(); return; }
+      if (state.moved || performance.now() - state.started >= 250) this.closeRadial();
+    };
+    button.addEventListener('pointerup', up); button.addEventListener('pointercancel', up);
+    return button;
+  }
+
+  private readonly onOutsidePointer = (event: PointerEvent) => {
+    if (!this.radial.classList.contains('visible') || this.radial.dataset.sticky !== '1') return;
+    const target = event.target as Node | null;
+    if (target && (this.radial.contains(target) || (target as HTMLElement).closest?.('[data-testid="touch-emote"]'))) return;
+    this.closeRadial();
+  };
+
+  private openRadial(sticky: boolean): void { this.radial.classList.add('visible'); this.radial.dataset.sticky = sticky ? '1' : '0'; }
+  private closeRadial(): void { this.radial.classList.remove('visible'); }
+
   private holdButton(
     label: string,
     glyph: string,
@@ -422,7 +487,7 @@ export class TouchControls {
     const down = (event: PointerEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      button.setPointerCapture(event.pointerId);
+      try { button.setPointerCapture(event.pointerId); } catch { /* synthetic pointer */ }
       button.classList.add('is-down');
       hapticTap(10);
       onHold(true);

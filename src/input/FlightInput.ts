@@ -2,6 +2,7 @@ import { zeroFlightAxes, type FlightAxes } from './FlightAxes.ts';
 import { KeyboardInput, PLAYER_ONE_KEYS, type KeyBindings } from './KeyboardInput.ts';
 import type { InputSource } from './InputSource.ts';
 import { VirtualControlInput } from './VirtualControlInput.ts';
+import { GamepadInput } from './GamepadInput.ts';
 
 /** Merges device sources into one flight intent. The strongest axis wins so two sources do not stack. */
 export class FlightInput {
@@ -9,8 +10,9 @@ export class FlightInput {
   private readonly axes = zeroFlightAxes();
   private virtual: VirtualControlInput | null = null;
 
-  constructor(keys: KeyBindings = PLAYER_ONE_KEYS) {
+  constructor(keys: KeyBindings = PLAYER_ONE_KEYS, gamepad: GamepadInput | null = null) {
     this.sources.push(new KeyboardInput(keys));
+    if (gamepad) this.sources.push(gamepad);
   }
 
   /** Creates the mobile source once. Call this when the touch controls are built. */

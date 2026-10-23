@@ -32,6 +32,8 @@ export function markGamepadActivity(): void {
   currentKind = 'gamepad';
 }
 
+export const noteGamepadActivity = markGamepadActivity;
+
 export function inputKind(): InputKind {
   ensureListeners();
   return currentKind;
