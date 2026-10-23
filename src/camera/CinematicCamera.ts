@@ -39,6 +39,9 @@ export class CinematicCamera {
   private releaseTimer = 0;
   private lookSensitivity = 1;
   private touchSensitivity = 1;
+  private touchTargetYaw = 0;
+  private touchTargetPitch = 0;
+  private touchZoomTarget = 1;
   /** Touch invert (CameraTouchSettings). */
   private touchInvertY = false;
   /** Mouse invert (GameSettings.invertY). */
@@ -75,6 +78,7 @@ export class CinematicCamera {
       this.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
       const newDistance = Math.hypot(event.clientX - other.x, event.clientY - other.y);
       this.zoom = clamp(this.zoom + (oldDistance - newDistance) * 0.003, ZOOM_MIN, ZOOM_MAX);
+      this.touchZoomTarget = this.zoom;
     }
     this.applyLookDelta(dx, dy, this.lookSensitivity, this.mouseInvertY);
   };
@@ -85,6 +89,7 @@ export class CinematicCamera {
   private readonly onWheel = (event: WheelEvent) => {
     if (this.scene.activeCamera !== this.camera) return;
     this.zoom = clamp(this.zoom + Math.sign(event.deltaY) * 0.05, ZOOM_MIN, ZOOM_MAX);
+    this.touchZoomTarget = this.zoom;
     event.preventDefault();
   };
   private readonly onContextMenu = (event: MouseEvent) => event.preventDefault();
@@ -133,20 +138,28 @@ export class CinematicCamera {
     return this.lookYaw;
   }
 
+  get touchLookZoom(): number { return this.zoom; }
+
   getPlanarBasis(): { forward: Vector3; right: Vector3 } { return { forward: this.forward, right: this.right }; }
 
   /** One-finger look from the on-screen look pad (separate pointerId from the stick). */
   touchLook(dx: number, dy: number): void {
     this.looking = true;
     this.releaseTimer = TOUCH_RELEASE_S;
-    this.applyLookDelta(dx, dy, this.touchSensitivity, this.touchInvertY);
+    this.applyLookDelta(dx, dy, this.touchSensitivity, this.touchInvertY, true);
   }
 
   /** Pinch zoom from the look pad; clamped to the authored dolly range. */
   touchZoom(deltaDistance: number): void {
     this.looking = true;
     this.releaseTimer = TOUCH_RELEASE_S;
-    this.zoom = clamp(this.zoom + deltaDistance * 0.003, ZOOM_MIN, ZOOM_MAX);
+    this.touchZoomTarget = clamp(this.touchZoomTarget + deltaDistance * 0.003, ZOOM_MIN, ZOOM_MAX);
+  }
+
+  /** Standard gamepad right-stick look at approximately 2.6 radians per second. */
+  gamepadLook(x: number, y: number, dt: number): void {
+    this.releaseTimer = TOUCH_RELEASE_S;
+    this.applyLookDelta(x * dt * 2.6 / 0.008055, y * dt * 1.6 / 0.005, 1, this.mouseInvertY, true);
   }
 
   /** Double-tap: snap the look back behind the active drone. */
@@ -156,10 +169,14 @@ export class CinematicCamera {
     if (this.reducedMotion) {
       this.lookYaw = 0;
       this.lookPitch = 0;
+      this.touchTargetYaw = 0;
+      this.touchTargetPitch = 0;
     } else {
       // Mark for a fast ease on the next frames by clearing the hold timer.
       this.lookYaw *= 0.15;
       this.lookPitch *= 0.15;
+      this.touchTargetYaw = this.lookYaw;
+      this.touchTargetPitch = this.lookPitch;
       if (Math.abs(this.lookYaw) < 0.002) this.lookYaw = 0;
       if (Math.abs(this.lookPitch) < 0.002) this.lookPitch = 0;
     }
@@ -216,6 +233,11 @@ export class CinematicCamera {
     const positions = subjects.map(subject => { const v = new Vector3(); subject.getFocusPosition(v); this.focus.addInPlace(v); return v; });
     this.focus.scaleInPlace(1 / subjects.length);
     const safeDt = Math.min(dt, 0.05);
+    if (safeDt > 0) {
+      this.lookYaw = smooth(this.lookYaw, this.touchTargetYaw, 1 / 0.06, safeDt);
+      this.lookPitch = smooth(this.lookPitch, this.touchTargetPitch, 1 / 0.06, safeDt);
+      this.zoom = smooth(this.zoom, this.touchZoomTarget, 1 / 0.06, safeDt);
+    }
     if (this.placed && safeDt > 0) {
       this.sample.copyFrom(this.focus).subtractInPlace(this.previousFocus).scaleInPlace(1 / safeDt);
       if (this.sample.length() > 24) this.sample.setAll(0);
@@ -231,6 +253,8 @@ export class CinematicCamera {
         this.lookYaw = smooth(this.lookYaw, 0, 0.65, safeDt);
         this.lookPitch = smooth(this.lookPitch, 0, 0.65, safeDt);
       }
+      this.touchTargetYaw = this.lookYaw;
+      this.touchTargetPitch = this.lookPitch;
     }
     const inLab = this.focus.z > 3 && this.focus.x > -11;
     const revealTarget = inLab && context.vaultOpen && !context.alarm ? clamp((this.focus.z - 3) / 5, 0, 1) : 0;
@@ -302,10 +326,19 @@ export class CinematicCamera {
     this.updateOcclusion(positions, safeDt);
   }
 
-  private applyLookDelta(dx: number, dy: number, sensitivity: number, invertY: boolean): void {
+  private applyLookDelta(dx: number, dy: number, sensitivity: number, invertY: boolean, touch = false): void {
     const pitchSign = invertY ? 1 : -1;
-    this.lookYaw = clamp(this.lookYaw + dx * 0.0015 * sensitivity, -0.16, 0.16);
-    this.lookPitch = clamp(this.lookPitch + pitchSign * dy * 0.0012 * sensitivity, -0.085, 0.085);
+    const yawScale = (touch ? 0.008055 : 0.0015) * sensitivity;
+    const pitchScale = (touch ? 0.005 : 0.0012) * sensitivity;
+    if (touch) {
+      this.touchTargetYaw = clamp(this.touchTargetYaw + dx * yawScale, -Math.PI, Math.PI);
+      this.touchTargetPitch = clamp(this.touchTargetPitch + pitchSign * dy * pitchScale, -0.8, 0.8);
+    } else {
+      this.lookYaw = clamp(this.lookYaw + dx * yawScale, -0.16, 0.16);
+      this.lookPitch = clamp(this.lookPitch + pitchSign * dy * pitchScale, -0.085, 0.085);
+      this.touchTargetYaw = this.lookYaw;
+      this.touchTargetPitch = this.lookPitch;
+    }
   }
 
   private updateOcclusion(subjects: Vector3[], dt: number): void {

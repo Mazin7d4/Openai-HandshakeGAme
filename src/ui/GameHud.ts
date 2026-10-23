@@ -6,6 +6,7 @@ import { clearOnboardingDone } from './OnboardingCoach.ts';
 import type { GraphicsQualitySetting } from './Settings.ts';
 import { SettingsMenu } from './SettingsMenu.ts';
 import { isTouchPlayDevice } from './touchDetect.ts';
+import { inputKind } from './inputHints.ts';
 
 export interface GameHudOptions {
   onResume: () => void;
@@ -116,7 +117,7 @@ export class GameHud {
   }
 
   update(prompts: readonly string[], mode: GameMode, activeRole: DroneRole): void {
-    const promptKey = `${this.touch ? 't' : 'k'}\u0000${prompts.join('\u0000')}`;
+    const promptKey = `${this.touch ? 't' : inputKind()}\u0000${prompts.join('\u0000')}`;
     if (promptKey !== this.promptKey) {
       this.promptKey = promptKey;
       this.prompt.replaceChildren(...prompts.map((text) => {
@@ -135,7 +136,8 @@ export class GameHud {
               : 'touch';
             item.append(controlIcon(glyph), label);
           } else {
-            item.append(keycaps(match[1]), label);
+            const gamepadKeys: Record<string, string> = { F: 'B', E: 'X', Q: 'Y', R: 'RB', Shift: 'A' };
+            item.append(keycaps(inputKind() === 'gamepad' ? (gamepadKeys[match[1]] ?? match[1]) : match[1]), label);
           }
         } else item.textContent = text;
         item.addEventListener('click', text.startsWith('[F]')

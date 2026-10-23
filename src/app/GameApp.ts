@@ -470,6 +470,9 @@ export class GameApp {
     if (escapeStage) gameplay.debugStartEscape();
 
     const cameraRig = new CinematicCamera(scene);
+    for (const player of players) {
+      if (player.control instanceof HumanControlSource) player.control.attachGamepadCamera(cameraRig);
+    }
     cameraRig.snap(drones);
     Object.assign(live, { drones, camera: cameraRig, gameplay });
     scene.activeCamera = cameraRig.camera;
@@ -530,8 +533,9 @@ export class GameApp {
     });
     // QA / debug: expose camera look yaw ("alpha") for Playwright touch-look checks.
     if (new URLSearchParams(window.location.search).has('debug')) {
-      (window as unknown as { __pixneeCamera?: { getLookYaw: () => number } }).__pixneeCamera = {
+      (window as unknown as { __pixneeCamera?: { getLookYaw: () => number; getZoom: () => number } }).__pixneeCamera = {
         getLookYaw: () => this.cameraRig.touchLookYaw,
+        getZoom: () => this.cameraRig.touchLookZoom,
       };
     }
     window.addEventListener('resize', this.onResize);
@@ -577,7 +581,15 @@ export class GameApp {
   }
 
   private tick(): void {
-    if (this.paused) return;
+    if (this.paused) {
+      for (const player of this.players) {
+        if (player.control instanceof HumanControlSource && player.control.pollGamepadPause()) {
+          this.setPaused(false);
+          break;
+        }
+      }
+      return;
+    }
     const realDt = Math.min(this.engine.getDeltaTime() / 1000, 0.05);
     this.slowMo = Math.max(0, this.slowMo - realDt);
     this.hitStop = Math.max(0, this.hitStop - realDt);
