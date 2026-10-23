@@ -74,6 +74,8 @@ export class Grabbable implements Interactable {
   private revision = -1;
   private authority: DroneRole = 'pix';
   private holder: DroneRole | null = null;
+  private holderId = '';
+  private lastEvent = '';
   private cradled = false;
   private readonly cradlePosition = new Vector3();
 
@@ -138,6 +140,10 @@ export class Grabbable implements Interactable {
     return this.authority;
   }
 
+  get networkRevision(): number {
+    return this.revision;
+  }
+
   get speed(): number {
     return this.velocity.length();
   }
@@ -185,6 +191,8 @@ export class Grabbable implements Interactable {
     const revisionChanged = state.revision !== this.revision;
     this.authority = state.authority;
     this.holder = state.heldBy;
+    this.holderId = state.holderId;
+    this.lastEvent = state.lastEvent;
     this.revision = state.revision;
     this.targetPosition.set(state.position.x, state.position.y, state.position.z);
     this.targetVelocity.set(state.velocity.x, state.velocity.y, state.velocity.z);
@@ -261,6 +269,8 @@ export class Grabbable implements Interactable {
       velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
       orientation: { pitch: euler.x, yaw: euler.y, roll: euler.z },
       heldBy: this.holder,
+      holderId: this.holderId,
+      lastEvent: this.lastEvent,
       authority: this.authority,
       mode: this.holder ? 'held' : 'free',
       revision: this.revision,

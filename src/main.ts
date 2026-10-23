@@ -5,7 +5,7 @@ import type { GameMode } from './app/GameMode.ts';
 const loadGame = () => Promise.all([import('./app/GameApp.ts'), import('./level/PrototypeHeist.ts')]);
 const gameModules = { promise: null as ReturnType<typeof loadGame> | null };
 const preloadGame = () => (gameModules.promise ??= loadGame());
-import { MultiplayerSession } from './network/MultiplayerSession.ts';
+import { classifyJoinError, MultiplayerSession } from './network/MultiplayerSession.ts';
 import type { RoomStatus } from './network/NetworkTypes.ts';
 import { RECONNECT_GRACE_SECONDS } from './network/ReconnectionToken.ts';
 import { pingServer, wakeServer } from './network/ServerEndpoint.ts';
@@ -55,7 +55,22 @@ function setRoomInUrl(code: string): void {
 
 function roomCodeFromUrl(): string | null {
   const code = new URLSearchParams(window.location.search).get('room')?.trim().toUpperCase() ?? '';
-  return /^[A-Z2-9]{4}$/.test(code) ? code : null;
+  return ROOM_CODE_PATTERN.test(code) ? code : null;
+}
+
+const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const ROOM_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{4}$/;
+function cleanRoomCode(value: string): string {
+  return value.toUpperCase().split('').filter((char) => ROOM_ALPHABET.includes(char)).join('').slice(0, 4);
+}
+function codeFromPastedText(value: string): string {
+  try {
+    const pastedUrl = new URL(value.trim(), window.location.href);
+    const fromUrl = pastedUrl.searchParams.get('room');
+    if (fromUrl) return cleanRoomCode(fromUrl);
+  } catch { /* bare code or text containing a query */ }
+  const query = value.match(/[?&]room=([^&#\s]+)/i)?.[1];
+  return cleanRoomCode(query ?? value);
 }
 
 const MODE_STASH_KEY = 'pixnee.pendingMode';
@@ -279,6 +294,8 @@ async function ensureServerAwake(
 async function createRoom(): Promise<void> {
   const panel = menuPanel('Creating room', 'Connecting to the multiplayer server…');
   const status = element('p', 'lobby-status', 'Please wait.');
+  status.setAttribute('role', 'alert');
+  status.setAttribute('aria-live', 'polite');
   panel.append(status);
   bindMenuNav(panel, showMultiplayerMenu);
   if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void createRoom(); }))) return;
@@ -293,19 +310,38 @@ async function createRoom(): Promise<void> {
   }
 }
 
-function showJoinRoom(prefill?: string): void {
+function showJoinRoom(prefill?: string, initialError = ''): void {
   // menuButton passes the click event when used directly as the action; only strings count.
-  const initial = typeof prefill === 'string' ? prefill.trim().toUpperCase() : '';
+  const initial = typeof prefill === 'string' ? cleanRoomCode(prefill) : '';
   const panel = menuPanel('Join a room', 'Type the four-character code your friend sees.');
+  panel.classList.add('join-panel');
   const form = element('form', 'join-form');
   const input = element('input', 'room-code-input');
   input.dataset.testid = 'room-code-input';
   input.name = 'room-code';
+  input.inputMode = 'text';
+  input.autocapitalize = 'characters';
+  input.setAttribute('autocorrect', 'off');
+  input.spellcheck = false;
+  input.enterKeyHint = 'go';
   input.autocomplete = 'off';
   input.maxLength = 4;
+  input.pattern = '[A-HJ-NP-Z2-9]{4}';
   input.placeholder = 'XXXX';
   input.setAttribute('aria-label', 'Room code');
-  input.addEventListener('input', () => { input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+  input.addEventListener('input', () => {
+    input.value = cleanRoomCode(input.value);
+    submit.disabled = input.value.length !== 4;
+    status.classList.remove('error');
+  });
+  input.addEventListener('paste', (event) => {
+    const code = codeFromPastedText(event.clipboardData?.getData('text') ?? '');
+    if (!code) return;
+    event.preventDefault();
+    input.value = code;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    if (code.length === 4) void doJoin(code);
+  });
   if (initial) input.value = initial;
   const submit = element('button', 'btn btn--primary menu-button', 'Join');
   submit.dataset.testid = 'join-submit';
@@ -325,7 +361,7 @@ function showJoinRoom(prefill?: string): void {
       const session = await MultiplayerSession.joinRoom(code, readUrlRunOptions());
       showLobby(session);
     } catch (error: unknown) {
-      status.textContent = errorMessage(error);
+      status.textContent = classifyJoinError(error, code).message;
       status.classList.add('error');
       submit.disabled = false;
     }
@@ -333,16 +369,24 @@ function showJoinRoom(prefill?: string): void {
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
-    const code = input.value.trim().toUpperCase();
-    if (code.length !== 4) {
-      status.textContent = 'Enter a four-character room code.';
+    const code = cleanRoomCode(input.value);
+    if (!ROOM_CODE_PATTERN.test(code)) {
+      status.textContent = 'Enter the 4-character code.';
+      status.classList.add('error');
       return;
     }
     void doJoin(code);
   });
-  panel.append(form, status, back);
+  const hint = element('p', 'room-code-hint', 'Codes use letters and 2–9');
+  status.setAttribute('role', 'alert');
+  status.setAttribute('aria-live', 'polite');
+  status.textContent = initialError;
+  if (initialError) status.classList.add('error');
+  submit.disabled = initial.length !== 4;
+  panel.append(form, hint, status, back);
   bindMenuNav(panel, showMultiplayerMenu, input);
-  if (initial.length === 4) {
+  window.requestAnimationFrame(() => input.focus({ preventScroll: true }));
+  if (initial.length === 4 && !initialError) {
     void doJoin(initial);
   }
 }
@@ -350,21 +394,43 @@ function showJoinRoom(prefill?: string): void {
 function showLobby(session: MultiplayerSession): void {
   setRoomInUrl(session.roomCode);
   const panel = menuPanel('Room ready', 'Share this code with the second player.');
+  panel.classList.add('lobby-panel');
   const label = element('p', 'panel__kicker room-label', 'Room code');
   const code = element('p', 'room-code', session.roomCode);
   code.dataset.testid = 'room-code';
   const copy = element('button', 'btn btn--primary menu-button', 'Copy invite link');
   copy.dataset.testid = 'copy-code';
   copy.type = 'button';
+  const invite = element('input', 'invite-link');
+  invite.dataset.testid = 'invite-link';
+  invite.type = 'url';
+  invite.readOnly = true;
+  invite.value = roomInviteUrl(session.roomCode);
+  invite.setAttribute('aria-label', 'Invite link');
   copy.addEventListener('click', () => {
-    void navigator.clipboard?.writeText(roomInviteUrl(session.roomCode))
+    const write = navigator.clipboard?.writeText(invite.value) ?? Promise.reject(new Error('clipboard unavailable'));
+    void write
       .then(() => { copy.textContent = 'Copied'; window.setTimeout(() => { copy.textContent = 'Copy invite link'; }, 1500); })
-      .catch(() => { copy.textContent = 'Select the link to copy'; });
+      .catch(() => { invite.focus({ preventScroll: true }); invite.select(); copy.textContent = 'Select the link to copy'; });
   });
+  const share = element('button', 'btn menu-button', 'Share');
+  share.dataset.testid = 'share-invite';
+  share.type = 'button';
+  if (typeof navigator.share === 'function') {
+    share.addEventListener('click', () => void navigator.share({
+      title: 'PIX & NEE room', text: `Join my PIX & NEE room: ${session.roomCode}`, url: invite.value,
+    }));
+  } else share.hidden = true;
   const role = element('p', 'room-label', '');
   const status = element('p', 'lobby-status', 'Waiting for partner…');
   status.dataset.testid = 'lobby-status';
-  panel.append(label, code, copy, role, status);
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  const reconnecting = element('p', 'lobby-reconnecting');
+  reconnecting.dataset.testid = 'lobby-reconnecting';
+  reconnecting.setAttribute('aria-live', 'polite');
+  reconnecting.hidden = true;
+  panel.append(label, code, invite, copy, share, role, status, reconnecting);
   bindMenuNav(panel, () => {
     void session.dispose();
     showMultiplayerMenu();
@@ -374,6 +440,11 @@ function showLobby(session: MultiplayerSession): void {
     const me = next.localRole;
     role.textContent = me ? `You fly ${me.toUpperCase()} · your friend flies ${me === 'pix' ? 'NEE' : 'PIX'}` : '';
     status.textContent = next.started ? 'Partner connected. Starting…' : 'Waiting for partner…';
+    const partner = next.players.get(me === 'pix' ? 'nee' : 'pix');
+    const selfReconnecting = session.connectionState === 'reconnecting';
+    const partnerReconnecting = !!partner && partner.connected === false;
+    reconnecting.hidden = !selfReconnecting && !partnerReconnecting;
+    reconnecting.textContent = selfReconnecting ? 'Reconnecting…' : 'Partner reconnecting…';
   });
   void session.waitForStart().then(() => {
     removeStatus();

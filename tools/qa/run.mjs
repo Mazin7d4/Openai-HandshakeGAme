@@ -1,6 +1,6 @@
 // Runs the QA suite sequentially (one browser at a time). Usage: npm run qa [-- smoke coop ...]
 import { spawnSync } from 'node:child_process';
-const all = ['seeds', 'challenge', 'night-shift', 'smoke', 'solo-boot', 'coop', 'coop-capture', 'reconnect', 'mobile', 'gamepad', 'no-test-hooks', 'settings', 'a11y-keyboard'];
+const all = ['seeds', 'interp', 'challenge', 'night-shift', 'smoke', 'solo-boot', 'coop', 'coop-capture', 'grab-carry', 'ping-emote', 'reconnect', 'mobile', 'join-mobile', 'emote-mobile', 'gamepad', 'no-test-hooks', 'settings', 'a11y-keyboard'];
 const pick = process.argv.slice(2).filter((a) => all.includes(a));
 const results = [];
 for (const t of pick.length ? pick : all) {

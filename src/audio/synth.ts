@@ -38,6 +38,7 @@ export function chirpParams(voice: Voice, mood: ChirpMood): ZzfxParams {
 }
 
 export const ZZ: Record<string, ZzfxParams> = {
+  ping: [0.45, 0.02, 680, 0.004, 0.035, 0.07, 0, 1, 0, 0, 420, 0.07],
   spotted: [0.75, 0, 880, 0.004, 0.05, 0.07, 1, 1, 0, 0, 440, 0.07, 0, 0, 0, 0, 0.09, 0.8],
   suspicious: [0.35, 0, 640, 0.01, 0.06, 0.1, 0, 1, 5],
   rescue: [0.6, 0, 523, 0.01, 0.06, 0.16, 0, 1, 0, 0, 262, 0.07, 0.15],

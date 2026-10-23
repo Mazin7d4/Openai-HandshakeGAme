@@ -16,10 +16,11 @@ import { GameplayWorld } from '../gameplay/GameplayWorld.ts';
 import { gameEvents } from '../gameplay/GameEvents.ts';
 import { Juice } from '../gameplay/Juice.ts';
 import { TetherMoves, type YankKind } from '../gameplay/TetherMoves.ts';
+import { PingEmote } from '../gameplay/PingEmote.ts';
 import { zeroFlightAxes } from '../input/FlightAxes.ts';
 import { PLAYER_ONE_KEYS } from '../input/KeyboardInput.ts';
 import { MultiplayerSession } from '../network/MultiplayerSession.ts';
-import type { DroneRole } from '../network/NetworkTypes.ts';
+import type { DroneRole, EmoteId } from '../network/NetworkTypes.ts';
 import { getRunState } from '../run/ClientRun.ts';
 import { Drone, DRONE_PALETTES } from '../player/Drone.ts';
 import { DRONE_MODEL_URL } from '../player/DroneVisual.ts';
@@ -79,6 +80,7 @@ export class GameApp {
   private readonly a11y: AccessibilityFeedback | null;
   private readonly coach: OnboardingCoach | null;
   private touch: TouchControls | null = null;
+  private readonly pingEmote: PingEmote;
   private readonly diagnostics = new StabilityDiagnostics();
   private readonly idleAxes = zeroFlightAxes();
   /** TEST-ONLY (?autotest): position-targeted steering for deterministic verifiers. */
@@ -147,6 +149,15 @@ export class GameApp {
     this.multiplayer = multiplayer;
     this.gameplay = gameplay;
     this.runLayout = runLayout;
+    this.pingEmote = new PingEmote(
+      scene,
+      cameraRig.camera.getEngine().getRenderingCanvas() as HTMLCanvasElement,
+      hudParent ?? cameraRig.camera.getEngine().getRenderingCanvas()?.parentElement ?? document.body,
+      cameraRig.camera,
+      this.drones,
+      multiplayer,
+      () => this.hudRole(),
+    );
     this.hud = hudParent
       ? new GameHud(hudParent, {
           onResume: () => this.setPaused(false),
@@ -540,6 +551,18 @@ export class GameApp {
       /** Capture snapshot from synced room state. */
       captures: () => this.gameplay.debugSecurity().captures ?? {},
     });
+    if (this.autopilot) {
+      const test = (window as unknown as { __autotest?: Record<string, unknown> }).__autotest ?? {};
+      (window as unknown as { __autotest: Record<string, unknown> }).__autotest = {
+        ...test,
+        pingEmote: {
+          pings: () => this.pingEmote.overlay.pingsSnapshot(),
+          emotes: () => this.pingEmote.overlay.emotesSnapshot(),
+          ping: () => this.pingEmote.ping(),
+          emote: (id: EmoteId) => this.pingEmote.emote(id),
+        },
+      };
+    }
     // QA / debug: expose camera look yaw ("alpha") for Playwright touch-look checks.
     if (new URLSearchParams(window.location.search).has('debug')) {
       (window as unknown as { __pixneeCamera?: { getLookYaw: () => number; getZoom: () => number } }).__pixneeCamera = {
@@ -571,6 +594,7 @@ export class GameApp {
     this.devOrbit?.dispose();
     this.cameraRig.dispose();
     this.gameplay.dispose();
+    this.pingEmote.dispose();
     this.touch?.dispose();
     this.coach?.dispose();
     this.hud?.dispose();
@@ -698,6 +722,7 @@ export class GameApp {
     }
     this.tether.updateVisual();
     this.cameraRig.update(dt, this.drones, this.gameplay.cameraContext);
+    this.pingEmote.update();
     this.devOrbit?.update(this.drones);
     this.updateAudio();
     this.devReadout?.update(
@@ -874,6 +899,8 @@ export class GameApp {
       onInteract: () => live()?.requestInteract(),
       onPause: () => live()?.requestPause(),
       onSwitch: this.mode !== 'multiplayer' ? () => live()?.requestSwitchDrone() : undefined,
+      onPing: () => this.pingEmote.ping(),
+      onEmote: (id) => this.pingEmote.emote(id),
     });
   }
 
