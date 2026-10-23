@@ -10,6 +10,7 @@ export const PING_LIFETIME_MS = 4000;
 export const EMOTE_LIFETIME_MS = 2000;
 export const PING_COOLDOWN_MS = 750;
 export const EMOTE_COOLDOWN_MS = 500;
+const PAD_BUTTONS = [11, 12, 13, 14, 15] as const;
 const EMOTES: readonly EmoteId[] = ['here', 'wait', 'go', 'yay'];
 
 export class PingEmote {
@@ -65,18 +66,29 @@ export class PingEmote {
     if (this.multiplayer) this.multiplayer.sendEmote(id);
     else this.receiveEmote({ role: this.localRole(), id, at: Date.now() });
   }
+  /** Gamepad: R3 (standard button 11) pings, d-pad 12-15 emotes. GamepadInput reserves exactly these; no stick axes are read here. */
   update(): void {
-    const pads = typeof navigator.getGamepads === 'function' ? navigator.getGamepads() : [];
-    for (const pad of pads) {
-      if (!pad) continue;
+    const pad = this.activePad();
+    if (pad) {
       const pressed = (index: number) => pad.buttons[index]?.pressed === true;
       if (pressed(11) && !this.padState.get(11)) this.ping();
       const mapping: [number, EmoteId][] = [[12, 'here'], [15, 'go'], [13, 'wait'], [14, 'yay']];
       for (const [button, id] of mapping) if (pressed(button) && !this.padState.get(button)) this.emote(id);
-      for (const button of [11, 12, 13, 14, 15]) this.padState.set(button, pressed(button));
+      for (const button of PAD_BUTTONS) this.padState.set(button, pressed(button));
     }
     const positions = new Map<DroneRole, Vector3>(this.drones.map((drone) => [drone.role, drone.position]));
     this.overlay.update(this.localDrone().position, positions);
+  }
+  /** Call on unpause: buttons still held from menu navigation must not fire an emote/ping on resume. */
+  resetPadEdges(): void {
+    const pad = this.activePad();
+    for (const button of PAD_BUTTONS) this.padState.set(button, pad?.buttons[button]?.pressed === true);
+  }
+  /** Same pad selection as GamepadInput: first connected standard-mapped pad. */
+  private activePad(): Gamepad | null {
+    const pads = typeof navigator.getGamepads === 'function' ? navigator.getGamepads() : [];
+    for (const candidate of pads) if (candidate?.connected && candidate.mapping === 'standard') return candidate;
+    return null;
   }
   dispose(): void {
     window.removeEventListener('keydown', this.onKey); this.canvas.removeEventListener('mousedown', this.onMouse); this.canvas.removeEventListener('auxclick', this.onMouse);

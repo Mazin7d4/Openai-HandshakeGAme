@@ -30,6 +30,8 @@ export interface NightShiftSummary {
   multiplier: number;
   best: { floor: number; score: number } | null;
   nextTwist?: { label: string; flavor: string };
+  runEnded?: boolean;
+  captures?: number;
 }
 
 /**
@@ -180,7 +182,9 @@ export class HeistReport {
 
       const multSuffix = nightShift.multiplier > 1 ? ` · x${nightShift.multiplier.toLocaleString('en-US')}` : '';
       const clearedEl = document.createElement('p');
-      clearedEl.textContent = `Floor ${nightShift.floor.toLocaleString('en-US')} cleared · +${nightShift.points.toLocaleString('en-US')}${multSuffix}`;
+      clearedEl.textContent = nightShift.runEnded
+        ? `Run over on floor ${nightShift.floor.toLocaleString('en-US')} · ${nightShift.captures ?? 0} captures`
+        : `Floor ${nightShift.floor.toLocaleString('en-US')} cleared · +${nightShift.points.toLocaleString('en-US')}${multSuffix}`;
       this.nightShiftEl.append(clearedEl);
 
       const scoreEl = document.createElement('p');
