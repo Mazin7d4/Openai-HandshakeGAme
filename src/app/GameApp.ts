@@ -29,7 +29,7 @@ import { createEngine, createScene } from '../scene/createScene.ts';
 import { AccessibilityFeedback } from '../ui/AccessibilityFeedback.ts';
 import { GameHud } from '../ui/GameHud.ts';
 import { OnboardingCoach } from '../ui/OnboardingCoach.ts';
-import { effectiveReducedMotion, saveSettings } from '../ui/Settings.ts';
+import { effectiveReducedMotion, getSettings, saveSettings } from '../ui/Settings.ts';
 import { generateRun, type RunLayout } from '../seed/index.ts';
 import { getRunInfo } from '../net/runInfo.ts';
 import { TouchControls } from '../ui/TouchControls.ts';
@@ -247,6 +247,14 @@ export class GameApp {
           audio.clothesline();
           this.cameraRig.addShake(0.25);
           for (const drone of this.drones) drone.react('proud', 1.4);
+        } else if (e.count === 1 || e.count === 2) {
+          this.juice.burst('confetti', e.position, 18);
+          audio.bump();
+          audioHub.play('snap', { intensity: 0.6, position: e.position });
+          this.cameraRig.addShake(0.12);
+          for (const drone of this.drones) {
+            drone.react(drone.role === 'pix' ? 'proud' : 'shocked', drone.role === 'pix' ? 1.2 : 1.0);
+          }
         } else {
           this.juice.burst('impact', e.position, 5);
           audio.bump();
@@ -307,14 +315,15 @@ export class GameApp {
         }
       }),
       gameEvents.on('yank', (e) => {
-        if (this.mode !== 'night-shift' || e.from !== this.hudRole()) return;
+        if (e.from !== this.hudRole()) return;
+        const reducedMotion = effectiveReducedMotion(getSettings());
         if (e.kind === 'yank') {
-          if (!effectiveReducedMotion()) this.hitStop = 0.07;
+          if (!reducedMotion) this.hitStop = 0.07;
           this.cameraRig.kickFov(0.06);
           this.cameraRig.addShake(0.15);
           audioHub.play('twang', { intensity: e.strength, position: e.position });
         } else if (e.kind === 'sling') {
-          if (!effectiveReducedMotion()) this.hitStop = 0.04;
+          if (!reducedMotion) this.hitStop = 0.04;
           this.cameraRig.kickFov(0.08);
           audioHub.play('twang', { intensity: 1, position: e.position });
         }
@@ -327,7 +336,13 @@ export class GameApp {
       this.unsubscribers.push(multiplayer.onTetherYanked((message) => {
         const role = multiplayer.currentStatus.localRole;
         const local = this.players.find((p) => p.role === role)?.drone;
-        if (local) this.moves.receive(message, local, true);
+        if (local) {
+          this.moves.receive(message, local, true);
+          if (message.kind === 'yank') {
+            audioHub.play('twang', { intensity: message.strength, position: local.position });
+            if (!effectiveReducedMotion(getSettings())) this.hitStop = 0.05;
+          }
+        }
       }));
     }
     this.removeNetworkStatus = multiplayer

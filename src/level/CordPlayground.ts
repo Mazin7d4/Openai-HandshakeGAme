@@ -125,8 +125,8 @@ export class CordPlayground {
   checklist(partner: string): { label: string; done: boolean }[] {
     return [
       { label: 'Topple the desk toys', done: this.state.toppled },
-      { label: 'Slingshot the hoop', done: this.state.hoop },
       { label: `Yank ${partner}${byInput({ keyboard: ' [R]', touch: '', gamepad: '' })}`, done: this.state.yank },
+      { label: 'Slingshot the hoop', done: this.state.hoop },
     ];
   }
 
@@ -147,6 +147,7 @@ export class CordPlayground {
     const nee = drones.get('nee');
     const live = path.length > 1 && pix && nee && (cordState.sweep > 2.5 || cordState.strain > 0.3);
     let newlyToppled = 0;
+    let firstToppled: Cup | null = null;
     for (const cup of this.cups) {
       cup.cooldown = Math.max(0, cup.cooldown - dt);
       if (cup.cooldown <= 0) {
@@ -171,12 +172,13 @@ export class CordPlayground {
       }
       if (!cup.toppled && Vector3.Distance(cup.mesh.position, cup.rest) > 0.45) {
         cup.toppled = true;
+        if (!firstToppled) firstToppled = cup;
         newlyToppled += 1;
       }
     }
     if (newlyToppled > 0) {
       this.cupsToppled += newlyToppled;
-      gameEvents.emit('warmup', { kind: 'topple', position: this.cups[0].mesh.position.clone(), count: this.cupsToppled });
+      gameEvents.emit('warmup', { kind: 'topple', position: firstToppled!.mesh.position.clone(), count: this.cupsToppled });
       if (!this.state.toppled && this.cupsToppled >= 2) { this.state.toppled = true; this.progress('topple'); }
     }
   }
@@ -225,7 +227,15 @@ export class CordPlayground {
   }
 
   private progress(step: 'topple' | 'hoop' | 'yank'): void {
-    const text = step === 'topple' ? 'Oops. Nobody saw that.' : step === 'hoop' ? 'Slingshot! Nothing but hoop' : 'Yank! The cord is a tool';
+    const base = step === 'topple' ? 'Oops. Nobody saw that.' : step === 'hoop' ? 'Slingshot! Nothing but hoop.' : 'Yank! The cord is a tool.';
+    const next = !this.state.toppled
+      ? ''
+      : !this.state.yank
+        ? byInput({ keyboard: ' Now yank your partner [R]', touch: ' Now tap Yank', gamepad: ' Now yank your partner' })
+        : !this.state.hoop
+          ? ' Now stretch the cord and slingshot through the hoop'
+          : '';
+    const text = `${base}${next}`;
     gameEvents.emit('toast', { text, tone: 'good' });
     if (this.done) setTimeout(() => gameEvents.emit('toast', { text: 'Warm-up done. Go steal something', tone: 'good' }), 1400);
   }
