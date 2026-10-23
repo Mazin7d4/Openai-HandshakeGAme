@@ -4,6 +4,8 @@ export type Expression =
   | 'neutral' | 'happy' | 'focused' | 'strained' | 'shocked' | 'stunned'
   | 'yanked' | 'panic' | 'dizzy' | 'proud' | 'sheepish';
 
+export type EmoteFace = 'here' | 'wait' | 'go' | 'yay';
+
 /** Expressions that animate on their own and never blink. */
 const ANIMATED: ReadonlySet<Expression> = new Set(['panic', 'dizzy']);
 

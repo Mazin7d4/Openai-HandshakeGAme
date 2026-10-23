@@ -7,6 +7,9 @@ import type {
 import type { RunMode } from '../../shared/run.ts';
 
 export type DroneRole = 'pix' | 'nee';
+export type EmoteId = 'here' | 'wait' | 'go' | 'yay';
+export interface PingPlacedMessage { role: DroneRole; x: number; y: number; z: number; id: number; at: number }
+export interface EmotePlayedMessage { role: DroneRole; id: EmoteId; at: number }
 
 /** Authoritative run fields mirrored from room state (seed / Night Shift). */
 export interface RunNetworkState {
@@ -31,6 +34,14 @@ export interface DroneNetworkState {
   movement: MovementState;
   selfPowered: boolean;
   tetherPull: number;
+  /** Server-owned capture (co-op). */
+  captured: boolean;
+  /** Patrol index holding this drone; -1 when free. */
+  capturedBy: number;
+  struggles: number;
+  carryFor: number;
+  /** 0–1 rescue progress from synced struggles. */
+  rescueProgress: number;
 }
 
 export type GrabbableMode = 'free' | 'held';
@@ -41,6 +52,8 @@ export interface GrabbableNetworkState {
   velocity: Vec3State;
   orientation: OrientationState;
   heldBy: DroneRole | null;
+  holderId: string;
+  lastEvent: string;
   authority: DroneRole;
   mode: GrabbableMode;
   revision: number;

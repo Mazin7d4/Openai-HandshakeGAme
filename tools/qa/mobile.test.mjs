@@ -4,8 +4,11 @@ import { runTest, url, assert, collectErrors, shot, waitForGame, layoutAudit, de
 
 await runTest('mobile', async (browser, notes) => {
   const errors = [];
-  for (const [label, viewport] of [['portrait', { width: 390, height: 844 }], ['landscape', { width: 844, height: 390 }]]) {
-    const ctx = await browser.newContext({ ...devices['iPhone 13'], viewport, screen: viewport });
+  for (const [label, viewport] of [
+    ['portrait-small', { width: 360, height: 640 }], ['portrait', { width: 390, height: 844 }],
+    ['landscape-small', { width: 640, height: 360 }], ['landscape', { width: 844, height: 390 }],
+  ]) {
+    const ctx = await browser.newContext({ ...devices['iPhone 13'], viewport, screen: viewport, hasTouch: true, isMobile: true });
     const page = await ctx.newPage();
     collectErrors(page, label, errors);
     await page.goto(url());
@@ -28,13 +31,37 @@ await runTest('mobile', async (browser, notes) => {
           .map((id) => !!document.querySelector(`[data-testid="${id}"]`)),
       };
     });
+    const boxes = await page.evaluate(() => {
+      const nodes = [
+        document.querySelector('[data-testid="touch-joystick"]'),
+        ...document.querySelectorAll('.touch-btn'),
+        document.querySelector('[data-testid="touch-pause"]'),
+        document.querySelector('[data-testid="interaction-prompt"]'),
+      ].filter((node) => node && (node.dataset?.testid !== 'interaction-prompt' || node.textContent.trim()));
+      const rects = nodes.map((node) => {
+        const r = node.getBoundingClientRect();
+        return { tap: node.dataset?.testid !== 'interaction-prompt', name: node.dataset?.testid || node.className, left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+      });
+      const failures = [];
+      for (const r of rects) {
+        if (r.left < -0.5 || r.top < -0.5 || r.right > innerWidth + 0.5 || r.bottom > innerHeight + 0.5 || (r.tap && (r.width < 44 || r.height < 44))) failures.push(`bounds ${r.name} ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`);
+      }
+      for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) {
+        const a = rects[i], b = rects[j];
+        const overlap = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        if (overlap > 2 && overlapY > 2) failures.push(`overlap ${a.name}/${b.name}`);
+      }
+      return { rects, failures };
+    });
+    assert(boxes.failures.length === 0, `${label}: touch layout ${boxes.failures.join(', ')}`);
     assert(touch.joystick, `${label}: touch joystick missing`);
     assert(touch.actions.every(Boolean), `${label}: touch action buttons missing ${JSON.stringify(touch.actions)}`);
     if (label === 'portrait') {
       notes.rotateHint = await page.getByTestId('touch-rotate-hint').isVisible().catch(() => false);
     }
     // Landscape: drag the virtual joystick and confirm the local drone moves.
-    if (label === 'landscape') {
+    if (label.startsWith('landscape')) {
       const before = (await worldState(page)).players['player-1'];
       const joy = await page.getByTestId('touch-joystick').boundingBox();
       assert(joy, 'joystick box missing');
@@ -78,6 +105,21 @@ await runTest('mobile', async (browser, notes) => {
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       notes.cameraYawDelta = +(Math.abs(yawAfter - yawBefore)).toFixed(4);
       assert(Math.abs(yawAfter - yawBefore) > 0.01, `camera alpha unchanged (${yawBefore} -> ${yawAfter})`);
+      const zoomBefore = await page.evaluate(() => window.__pixneeCamera?.getZoom?.() ?? null);
+      assert(zoomBefore != null, 'debug camera zoom hook missing');
+      const cx = look.x + look.width * 0.7;
+      const cy = look.y + look.height * 0.35;
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx - 35, y: cy, id: 3 }, { x: cx + 35, y: cy, id: 4 }] });
+      for (let i = 1; i <= 8; i++) {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: cx - 35 - i * 6, y: cy, id: 3 }, { x: cx + 35 + i * 6, y: cy, id: 4 }] });
+        await page.waitForTimeout(35);
+      }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await page.waitForTimeout(150);
+      const zoomAfter = await page.evaluate(() => window.__pixneeCamera?.getZoom?.() ?? 0);
+      notes.cameraZoomDelta = +(Math.abs(zoomAfter - zoomBefore)).toFixed(4);
+      assert(Math.abs(zoomAfter - zoomBefore) > 0.005, `camera zoom unchanged (${zoomBefore} -> ${zoomAfter})`);
       await shot(page, 'mobile-landscape-look');
     }
     notes[label] = { menu, game, touch };

@@ -45,6 +45,17 @@ const MAX_WORLD_COORDINATE = 200;
 const MAX_PLAYER_SPEED = 28;
 const MAX_OBJECT_SPEED = 32;
 const TERMINAL_RANGE = 5;
+const HOLD_OFFSET = { x: 0, y: -1.15, z: 0.35 };
+const MAX_RELEASE_SPEED = Math.max(MAX_OBJECT_SPEED, MAX_PLAYER_SPEED + 10 + 1.8);
+const RELEASE_RANGE = 3.5;
+const HELD_SNAPSHOT_RANGE = 4;
+const HANDOFF_RANGE = 4.5;
+const STEAL_RANGE = 2.0;
+const STEAL_LOCK_MS = 1000;
+const GRAB_COOLDOWN_MS = 250;
+const PING_COOLDOWN_MS = 750;
+const EMOTE_COOLDOWN_MS = 500;
+const EMOTE_IDS = new Set(['here', 'wait', 'go', 'yay']);
 /** Mutable per-room world sinks filled by applyRunLayout (defaults match heist-layout.json). */
 function createWorldSinks() {
   return {
@@ -89,6 +100,16 @@ const Player = schema(
     movement: t.string().default('idle'),
     selfPowered: t.boolean().default(false),
     tetherPull: t.float32().default(0),
+    /** Server-owned capture: locked input + position overridden while true. */
+    captured: t.boolean().default(false),
+    /** Patrol index holding this drone; -1 when free. */
+    capturedBy: t.int8().default(-1),
+    /** Struggle presses while captured (solo needs 3). */
+    struggles: t.uint8().default(0),
+    /** Seconds carried so far (rescue window is 4.5s). */
+    carryFor: t.float32().default(0),
+    /** 0–1 rescue progress (struggles / 3). */
+    rescueProgress: t.float32().default(0),
   },
   'Player',
 );
@@ -100,6 +121,8 @@ const Grabbable = schema(
     velocity: Vec3,
     orientation: Orientation,
     heldBy: t.string().default(''),
+    holderId: t.string().default(''),
+    lastEvent: t.string().default(''),
     authority: t.string().default('pix'),
     mode: t.string().default('free'),
     revision: t.float32().default(0),
@@ -219,6 +242,11 @@ class HandshakeRoom extends Room {
   nightshiftEscapedFloor = 0;
   world = createWorldSinks();
   runLayout = null;
+  heldSinceMs = new Map();
+  lastGrabMs = new Map();
+  pingTimes = new Map();
+  emoteTimes = new Map();
+  pingId = 0;
 
   onCreate(options = {}) {
     liveRooms.add(this);
@@ -251,6 +279,7 @@ class HandshakeRoom extends Room {
       this.applySnapshot(client.sessionId, message);
     });
     this.onMessage('grab-object', (client, message) => this.grabObject(client.sessionId, message));
+    this.onMessage('handoff-object', (client, message) => this.handoffObject(client.sessionId, message));
     this.onMessage('release-object', (client, message) => this.releaseObject(client.sessionId, message));
     this.onMessage('object-snapshot', (client, message) => this.applyObjectSnapshot(client.sessionId, message));
     this.onMessage('hack-start', (client, message) => this.startHack(client.sessionId, message));
@@ -259,23 +288,110 @@ class HandshakeRoom extends Room {
     this.onMessage('mission-tether-save', (client) => this.reportTetherSave(client.sessionId));
     this.onMessage('mission-retry', () => this.resetMission());
     this.onMessage('tether-yank', (client, message) => this.relayTetherYank(client, message));
+    this.onMessage('ping', (client, message) => this.relayPing(client, message));
+    this.onMessage('emote', (client, message) => this.relayEmote(client, message));
     this.onMessage('patrol-stun', (client, message) => this.stunPatrol(client, message));
     this.onMessage('run-capture', (client) => this.handleCapture(client.sessionId));
+    this.onMessage('capture-struggle', (client) => this.reportStruggle(client.sessionId));
     if (TEST_HOOKS) {
       console.log('[handshake] TEST HOOKS enabled');
-      this.onMessage('debug-stage', (client, m) => {
+      this._testPatrolFrozen = false;
+      this.onMessage('debug-patrol-freeze', (_client, m) => {
+        this._testPatrolFrozen = m?.frozen !== false;
+      });
+      this.onMessage('debug-clear-stuns', () => {
+        for (const p of this.securitySim.patrol) {
+          p.stunnedFor = 0;
+          p.dazedFor = 0;
+        }
+        for (const sp of this.state.security.patrols) {
+          sp.stunned = false;
+        }
+      });
+      this.onMessage('debug-stage', (_client, m) => {
         if (m?.stage === 'escape') {
           this.state.mission.stage = 'escape';
           this.state.mission.alarm = true;
           this.state.mission.securityActive = true;
+          if (m?.freezePatrols) this._testPatrolFrozen = true;
         }
       });
       this.onMessage('debug-run-escape', () => this.handleEscape());
       this.onMessage('debug-run-capture', (client) => this.handleCapture(client.sessionId));
+      this.onMessage('debug-force-capture', (client, m) => {
+        for (const p of this.securitySim.patrol) {
+          p.stunnedFor = 0;
+          p.dazedFor = 0;
+        }
+        for (const sp of this.state.security.patrols) {
+          sp.stunned = false;
+        }
+        this.debugForceCapture(client, m);
+      });
+      this.onMessage('debug-force-release', (client, m) => this.debugForceRelease(client, m));
+      this.onMessage('debug-object-place', (_client, m) => {
+        const object = this.state.objects.get(m?.objectId);
+        if (!object || object.mode !== 'free') return;
+        copyVec3(object.position, m, MAX_WORLD_COORDINATE, 'object.position');
+        object.velocity.x = 0; object.velocity.y = 0; object.velocity.z = 0;
+        object.revision += 1;
+      });
+
+      // Frozen test patrols also ignore cord clotheslines, so teleporting a drone
+      // across the room cannot stun-free a captive mid-check.
+      const origStunPatrol = this.stunPatrol.bind(this);
+      this.stunPatrol = (client, message) => {
+        if (!this._testPatrolFrozen) origStunPatrol(client, message);
+      };
+      const origSecurityUpdate = this.securitySim.update.bind(this.securitySim);
+      this.securitySim.update = (dt, ctx) => {
+        const savedPositions = this._testPatrolFrozen
+          ? this.state.security.patrols.map((p) => ({ x: p.x, y: p.y, z: p.z }))
+          : null;
+
+        const result = origSecurityUpdate(dt, ctx);
+
+        if (this._testPatrolFrozen) {
+          // Restore patrol positions to keep them stationary (prevents distance drift and patrol roaming)
+          if (savedPositions) {
+            for (let i = 0; i < savedPositions.length; i++) {
+              const sp = this.state.security.patrols[i];
+              if (sp && savedPositions[i]) {
+                sp.x = savedPositions[i].x;
+                sp.y = savedPositions[i].y;
+                sp.z = savedPositions[i].z;
+              }
+            }
+          }
+
+          // Disarm autonomous grabs and shoves by idle patrol AI
+          if (result.captures?.length) {
+            for (const cap of result.captures) {
+              const rt = this.securitySim.patrol[cap.index];
+              if (rt && rt.carryingRole === cap.role) {
+                rt.carryingRole = null;
+              }
+            }
+            result.captures = [];
+          }
+          result.shoves = [];
+
+          // Keep captive position locked to the stationary patrol
+          for (const over of result.overrides ?? []) {
+            const sp = this.state.security.patrols[over.index];
+            if (sp) {
+              over.position = { x: sp.x, y: sp.y - 0.95, z: sp.z };
+            }
+          }
+        }
+
+        return result;
+      };
     }
     this.setSimulationInterval((deltaMs) => {
       this.updateHack();
       this.updateMission();
+      this.updateHeldObjects();
       this.updateSecurity(deltaMs / 1000);
     });
   }
@@ -406,12 +522,14 @@ class HandshakeRoom extends Room {
     if (!player) {
       return;
     }
-    if (player.connected) {
-      this.freezePlayer(player);
-      this.releaseRole(player.role);
-    }
+    if (player.connected) this.freezePlayer(player);
+    // Hold expired (or consented leave): the carried item finally drops where the drone was.
+    this.dropHeldForRole(player.role, 'disconnect');
+    this.releaseRole(player.role);
     this.state.players.delete(client.sessionId);
     this.state.started = false;
+    this.pingTimes.delete(client.sessionId);
+    this.emoteTimes.delete(client.sessionId);
   }
 
   freezePlayer(player) {
@@ -441,6 +559,23 @@ class HandshakeRoom extends Room {
     if (!player || !player.connected || !message || typeof message !== 'object') {
       return;
     }
+    const prevBoost = player.boost;
+    const boost = enumValue(message.boost, ['off', 'active'], 'off');
+    // Captured drones: server owns position; still accept boost for struggle presses.
+    if (player.captured) {
+      player.boost = boost;
+      player.movement = 'idle';
+      player.selfPowered = false;
+      player.tetherPull = Math.max(0, Math.min(1, finite(message.tetherPull)));
+      player.velocity.x = 0;
+      player.velocity.y = 0;
+      player.velocity.z = 0;
+      if (boost === 'active' && prevBoost !== 'active') {
+        player.struggles = Math.min(7, (player.struggles | 0) + 1);
+        player.rescueProgress = Math.min(1, player.struggles / 3);
+      }
+      return;
+    }
     const position = message.position ?? {};
     const velocity = message.velocity ?? {};
     const orientation = message.orientation ?? {};
@@ -449,7 +584,7 @@ class HandshakeRoom extends Room {
     player.orientation.pitch = finite(orientation.pitch);
     player.orientation.yaw = finite(orientation.yaw);
     player.orientation.roll = finite(orientation.roll);
-    player.boost = enumValue(message.boost, ['off', 'active'], 'off');
+    player.boost = boost;
     player.movement = enumValue(message.movement, ['idle', 'cruising', 'boosting'], 'idle');
     player.selfPowered = message.selfPowered === true;
     player.tetherPull = Math.max(0, Math.min(1, finite(message.tetherPull)));
@@ -462,50 +597,104 @@ class HandshakeRoom extends Room {
   grabObject(sessionId, message) {
     const player = this.state.players.get(sessionId);
     const object = this.state.objects.get(message?.objectId);
-    if (!player || !object || distance(player.position, object.position) > object.grabRadius) {
+    if (!player?.connected || player.captured || !object || distance(player.position, object.position) > object.grabRadius) {
       return;
     }
     if (object.id === 'prototype' && !this.state.hack.doorOpen) return;
-    if (object.heldBy && object.heldBy !== player.role) return;
+    const now = Date.now();
+    if (now - (this.lastGrabMs.get(sessionId) ?? 0) < GRAB_COOLDOWN_MS) return;
+    this.lastGrabMs.set(sessionId, now);
     for (const other of this.state.objects.values()) {
-      if (other.id !== object.id && other.heldBy === player.role) {
+      if (other.id !== object.id && other.holderId === sessionId) {
         return;
       }
     }
-    object.heldBy = player.role;
-    object.authority = player.role;
-    object.mode = 'held';
-    object.revision += 1;
+    if (object.mode === 'held') {
+      if (object.heldBy === player.role) return;
+      const holder = this.state.players.get(object.holderId);
+      if (!holder?.connected || now - (this.heldSinceMs.get(object.id) ?? now) < STEAL_LOCK_MS) return;
+      if (distance(player.position, object.position) > Math.min(STEAL_RANGE, object.grabRadius)) return;
+      const from = object.heldBy;
+      this.setOwnership(object, player, 'steal');
+      this.broadcast('object-event', { objectId: object.id, event: 'steal', from, to: player.role });
+    } else {
+      this.setOwnership(object, player, 'grab');
+    }
     if (object.id === 'prototype') this.triggerAlarm(player.role);
   }
 
-  releaseObject(sessionId, message) {
-    const role = this.roleForSession(sessionId);
+  handoffObject(sessionId, message) {
+    const player = this.state.players.get(sessionId);
     const object = this.state.objects.get(message?.objectId);
-    if (!role || !object || object.heldBy !== role) {
+    const partner = Array.from(this.state.players.values()).find((candidate) => candidate.role !== player?.role);
+    if (!player?.connected || player.captured || !object || object.holderId !== sessionId || !partner?.connected || partner.captured) return;
+    const now = Date.now();
+    if (now - (this.lastGrabMs.get(sessionId) ?? 0) < GRAB_COOLDOWN_MS) return;
+    this.lastGrabMs.set(sessionId, now);
+    if (distance(player.position, partner.position) > HANDOFF_RANGE) return;
+    if (Array.from(this.state.objects.values()).some((candidate) => candidate.id !== object.id && candidate.holderId === partner.playerId)) return;
+    const from = player.role;
+    this.setOwnership(object, partner, 'handoff');
+    this.broadcast('object-event', { objectId: object.id, event: 'handoff', from, to: partner.role });
+  }
+
+  releaseObject(sessionId, message) {
+    const player = this.state.players.get(sessionId);
+    const object = this.state.objects.get(message?.objectId);
+    if (!player?.connected || player.captured || !object || object.holderId !== sessionId) {
       return;
     }
-    copyVec3(object.position, message.position, MAX_WORLD_COORDINATE, 'object.position');
-    copyVec3(object.velocity, message.velocity, MAX_OBJECT_SPEED, 'object.velocity');
-    object.heldBy = '';
-    object.authority = role;
-    object.mode = 'free';
-    object.revision += 1;
+    const release = { x: finite(message?.position?.x, player.position.x + HOLD_OFFSET.x), y: finite(message?.position?.y, player.position.y + HOLD_OFFSET.y), z: finite(message?.position?.z, player.position.z + HOLD_OFFSET.z) };
+    if (distance(player.position, release) > RELEASE_RANGE) Object.assign(release, { x: player.position.x + HOLD_OFFSET.x, y: player.position.y + HOLD_OFFSET.y, z: player.position.z + HOLD_OFFSET.z });
+    copyVec3(object.position, release, MAX_WORLD_COORDINATE, 'object.position');
+    copyVec3(object.velocity, message.velocity, MAX_RELEASE_SPEED, 'object.velocity');
+    this.setOwnership(object, null, message?.thrown === true ? 'throw' : 'drop', player.role);
     if (message?.thrown === true) this.state.mission.objectsThrown += 1;
   }
 
   applyObjectSnapshot(sessionId, message) {
-    const role = this.roleForSession(sessionId);
+    const player = this.state.players.get(sessionId);
     const object = this.state.objects.get(message?.objectId);
-    if (!role || !object || object.authority !== role) {
+    if (!player?.connected || !object || (object.mode === 'held' ? object.holderId !== sessionId : object.authority !== player.role)) {
       return;
     }
-    copyVec3(object.position, message.position, MAX_WORLD_COORDINATE, 'object.position');
+    if (object.mode === 'held' && distance(player.position, message.position ?? {}) > HELD_SNAPSHOT_RANGE) {
+      copyVec3(object.position, { x: player.position.x + HOLD_OFFSET.x, y: player.position.y + HOLD_OFFSET.y, z: player.position.z + HOLD_OFFSET.z }, MAX_WORLD_COORDINATE, 'object.position');
+    } else {
+      copyVec3(object.position, message.position, MAX_WORLD_COORDINATE, 'object.position');
+    }
     copyVec3(object.velocity, message.velocity, MAX_OBJECT_SPEED, 'object.velocity');
     const orientation = message.orientation ?? {};
     object.orientation.pitch = finite(orientation.pitch, object.orientation.pitch);
     object.orientation.yaw = finite(orientation.yaw, object.orientation.yaw);
     object.orientation.roll = finite(orientation.roll, object.orientation.roll);
+  }
+
+  setOwnership(object, holder, event, freeAuthority = holder?.role ?? object.authority) {
+    object.heldBy = holder?.role ?? '';
+    object.holderId = holder?.playerId ?? '';
+    object.mode = holder ? 'held' : 'free';
+    object.authority = freeAuthority;
+    object.lastEvent = event;
+    object.revision += 1;
+    if (holder) this.heldSinceMs.set(object.id, Date.now());
+    else this.heldSinceMs.delete(object.id);
+  }
+
+  heldPosition(player) {
+    return { x: player.position.x + HOLD_OFFSET.x, y: player.position.y + HOLD_OFFSET.y, z: player.position.z + HOLD_OFFSET.z };
+  }
+
+  updateHeldObjects() {
+    for (const object of this.state.objects.values()) {
+      if (object.mode !== 'held') continue;
+      const holder = this.state.players.get(object.holderId);
+      if (!holder?.connected) {
+        const p = holder ? this.heldPosition(holder) : object.position;
+        object.position.x = p.x; object.position.y = p.y; object.position.z = p.z;
+        object.velocity.x = 0; object.velocity.y = 0; object.velocity.z = 0;
+      }
+    }
   }
 
   stationFields(stationId) {
@@ -624,6 +813,10 @@ class HandshakeRoom extends Room {
     const players = Array.from(this.state.players.values()).map((p) => ({
       role: p.role,
       connected: p.connected,
+      captured: p.captured === true,
+      struggles: p.struggles | 0,
+      tetherPull: p.tetherPull,
+      yankedRecently: false,
       position: { x: p.position.x, y: p.position.y, z: p.position.z },
     }));
     const result = this.securitySim.update(dt, {
@@ -643,7 +836,128 @@ class HandshakeRoom extends Room {
       }
     }
     // A shove goes only to the client that owns the shoved drone; it applies the impulse locally.
-    for (const shove of result.shoves) this.clientForRole(shove.role)?.send('patrol-shove', shove);
+    for (const shove of result.shoves ?? []) this.clientForRole(shove.role)?.send('patrol-shove', shove);
+
+    for (const cap of result.captures ?? []) this.beginCapture(cap.role, cap.index);
+    for (const freed of result.releases ?? []) this.finishCapture(freed.role, freed.index, freed.reason);
+    for (const over of result.overrides ?? []) this.applyCaptureOverride(over);
+
+    // Both drones caught → Night Shift capture outcome (and free them so the run can continue).
+    const live = Array.from(this.state.players.values()).filter((p) => p.connected);
+    if (live.length >= 2 && live.every((p) => p.captured)) {
+      this.onCaptureOutcome('both');
+      for (const p of live) {
+        const freed = this.securitySim.releaseRole(p.role, 'timeout');
+        if (freed) this.finishCapture(freed.role, freed.index, 'both');
+      }
+    }
+  }
+
+  beginCapture(role, index) {
+    const player = Array.from(this.state.players.values()).find((p) => p.role === role);
+    if (!player || player.captured) return;
+    player.captured = true;
+    player.capturedBy = index;
+    player.struggles = 0;
+    player.carryFor = 0;
+    player.rescueProgress = 0;
+    for (const object of this.state.objects.values()) {
+      if (object.holderId !== player.playerId) continue;
+      const partner = Array.from(this.state.players.values()).find((candidate) => candidate.role !== role && candidate.connected && !candidate.captured);
+      const from = object.heldBy;
+      const p = this.heldPosition(player);
+      object.position.x = p.x; object.position.y = p.y; object.position.z = p.z;
+      object.velocity.x = 0; object.velocity.y = 0; object.velocity.z = 0;
+      this.setOwnership(object, null, 'captured', partner?.role ?? role);
+      this.broadcast('object-event', { objectId: object.id, event: 'captured', from, to: partner?.role ?? '' });
+    }
+    player.velocity.x = 0;
+    player.velocity.y = 0;
+    player.velocity.z = 0;
+    this.broadcast('drone-captured', { role, index });
+  }
+
+  applyCaptureOverride(over) {
+    const player = Array.from(this.state.players.values()).find((p) => p.role === over.role);
+    if (!player || !player.captured) return;
+    player.position.x = finite(over.position?.x, player.position.x);
+    player.position.y = finite(over.position?.y, player.position.y);
+    player.position.z = finite(over.position?.z, player.position.z);
+    player.capturedBy = over.index;
+    player.carryFor = finite(over.carryFor, player.carryFor);
+    player.struggles = Math.max(player.struggles | 0, over.struggles | 0);
+    player.rescueProgress = Math.max(0, Math.min(1, finite(over.rescueProgress, player.rescueProgress)));
+    player.velocity.x = 0;
+    player.velocity.y = 0;
+    player.velocity.z = 0;
+  }
+
+  finishCapture(role, index, reason) {
+    const player = Array.from(this.state.players.values()).find((p) => p.role === role);
+    if (!player) return;
+    const wasCaptured = player.captured;
+    player.captured = false;
+    player.capturedBy = -1;
+    player.struggles = 0;
+    player.carryFor = 0;
+    player.rescueProgress = 0;
+    if (!wasCaptured) return;
+    if (reason === 'yank' || reason === 'struggle' || reason === 'strain') {
+      this.broadcast('rescued', { role, index, reason });
+    } else if (reason === 'timeout' || reason === 'both') {
+      this.broadcast('drone-freed', { role, index, reason });
+      if (reason === 'timeout') this.onCaptureOutcome('timeout');
+    } else {
+      this.broadcast('drone-freed', { role, index, reason });
+    }
+  }
+
+  /** Night Shift: rescue window expired or both drones grabbed → recordCapture. */
+  onCaptureOutcome(kind) {
+    if (this.state.run.mode !== 'nightshift' || this.state.run.ended) return;
+    // Pick any connected session so handleCapture's seat check passes.
+    const sessionId = Array.from(this.state.players.keys())[0];
+    if (!sessionId) return;
+    this.handleCapture(sessionId);
+    this.broadcast('capture-outcome', { kind, captures: this.state.run.captures });
+  }
+
+  reportStruggle(sessionId) {
+    const player = this.state.players.get(sessionId);
+    if (!player?.captured) return;
+    player.struggles = Math.min(7, (player.struggles | 0) + 1);
+    player.rescueProgress = Math.min(1, player.struggles / 3);
+  }
+
+  debugForceCapture(client, message) {
+    if (!this.state.players.has(client.sessionId)) return;
+    const role = message?.role === 'nee' ? 'nee' : message?.role === 'pix' ? 'pix' : null;
+    if (!role) return;
+    const index = Math.max(0, Math.round(finite(message?.index, 0)));
+    this.state.mission.securityActive = true;
+    const cap = this.securitySim.forceCapture(role, index);
+    if (!cap) return;
+    this.beginCapture(cap.role, cap.index);
+    const p = this.securitySim.patrolPosition(cap.index);
+    if (p) {
+      this.applyCaptureOverride({
+        role: cap.role,
+        index: cap.index,
+        position: { x: p.x, y: p.y - 0.95, z: p.z },
+        carryFor: 0,
+        struggles: 0,
+        rescueProgress: 0,
+      });
+    }
+  }
+
+  debugForceRelease(client, message) {
+    if (!this.state.players.has(client.sessionId)) return;
+    const role = message?.role === 'nee' ? 'nee' : message?.role === 'pix' ? 'pix' : null;
+    if (!role) return;
+    const reason = typeof message?.reason === 'string' ? message.reason : 'yank';
+    const freed = this.securitySim.releaseRole(role, reason);
+    if (freed) this.finishCapture(freed.role, freed.index, reason);
   }
 
   clientForRole(role) {
@@ -658,6 +972,8 @@ class HandshakeRoom extends Room {
   relayTetherYank(client, message) {
     const sender = this.state.players.get(client.sessionId);
     if (!sender || !message || typeof message !== 'object') return;
+    // Captured drone cannot yank; rescuer must be free.
+    if (sender.captured) return;
     const now = Date.now();
     this.yankTimes ??= new Map();
     const kind = enumValue(message.kind, ['yank', 'sling', 'bump'], 'yank');
@@ -674,14 +990,57 @@ class HandshakeRoom extends Room {
     let x = finite(impulse.x), y = finite(impulse.y), z = finite(impulse.z);
     const magnitude = Math.hypot(x, y, z);
     if (magnitude > 16) { x *= 16 / magnitude; y *= 16 / magnitude; z *= 16 / magnitude; }
-    const rescue = kind === 'yank' && message.rescue === true;
-    if (rescue) this.reportTetherSave(client.sessionId);
+    // Server decides rescue: partner is captured + yank kind (solo rescue rules).
+    const rescue = kind === 'yank' && partner.captured === true && distance(sender.position, partner.position) <= 11;
+    if (rescue) {
+      const freed = this.securitySim.releaseRole(partner.role, 'yank');
+      if (freed) this.finishCapture(freed.role, freed.index, 'yank');
+      this.reportTetherSave(client.sessionId);
+    }
     target.send('tether-yanked', {
       kind,
       rescue,
       strength: Math.max(0, Math.min(1, finite(message.strength))),
       impulse: { x, y, z },
     });
+  }
+
+  relayPing(client, message) {
+    const sender = this.state.players.get(client.sessionId);
+    if (!sender || !sender.connected || !message || typeof message !== 'object') return;
+    const now = Date.now();
+    if (now - (this.pingTimes.get(client.sessionId) ?? 0) < PING_COOLDOWN_MS) return;
+    const raw = { x: message.x, y: message.y, z: message.z };
+    if (![raw.x, raw.y, raw.z].every((value) => Number.isFinite(value))) return;
+    const point = {
+      x: Math.max(-MAX_WORLD_COORDINATE, Math.min(MAX_WORLD_COORDINATE, raw.x)),
+      y: Math.max(-20, Math.min(80, raw.y)),
+      z: Math.max(-MAX_WORLD_COORDINATE, Math.min(MAX_WORLD_COORDINATE, raw.z)),
+    };
+    const dx = point.x - sender.position.x;
+    const dy = point.y - sender.position.y;
+    const dz = point.z - sender.position.z;
+    const length = Math.hypot(dx, dy, dz);
+    if (length > 120) {
+      point.x = sender.position.x + dx * 120 / length;
+      point.y = sender.position.y + dy * 120 / length;
+      point.z = sender.position.z + dz * 120 / length;
+      point.x = Math.max(-MAX_WORLD_COORDINATE, Math.min(MAX_WORLD_COORDINATE, point.x));
+      point.y = Math.max(-20, Math.min(80, point.y));
+      point.z = Math.max(-MAX_WORLD_COORDINATE, Math.min(MAX_WORLD_COORDINATE, point.z));
+    }
+    this.pingTimes.set(client.sessionId, now);
+    this.broadcast('ping-placed', { role: sender.role, ...point, id: ++this.pingId, at: now });
+  }
+
+  relayEmote(client, message) {
+    const sender = this.state.players.get(client.sessionId);
+    if (!sender || !sender.connected || !message || typeof message !== 'object') return;
+    if (!EMOTE_IDS.has(message.id)) return;
+    const now = Date.now();
+    if (now - (this.emoteTimes.get(client.sessionId) ?? 0) < EMOTE_COOLDOWN_MS) return;
+    this.emoteTimes.set(client.sessionId, now);
+    this.broadcast('emote-played', { role: sender.role, id: message.id, at: now });
   }
 
   /**
@@ -755,6 +1114,13 @@ class HandshakeRoom extends Room {
     this.doorOpenedAt = 0;
     this.spotCooldownUntil = { pix: 0, nee: 0 };
     this.clotheslines = 0;
+    for (const player of this.state.players.values()) {
+      player.captured = false;
+      player.capturedBy = -1;
+      player.struggles = 0;
+      player.carryFor = 0;
+      player.rescueProgress = 0;
+    }
     this.state.hack.stationAOwner = '';
     this.state.hack.stationBOwner = '';
     this.state.hack.stationCOwner = '';
@@ -764,8 +1130,7 @@ class HandshakeRoom extends Room {
     this.state.hack.doorOpen = false;
     const prototype = this.state.objects.get('prototype');
     if (prototype) {
-      prototype.heldBy = '';
-      prototype.mode = 'free';
+      this.setOwnership(prototype, null, 'reset', 'pix');
       const loot = this.runLayout?.loot ?? layout.objects.prototype;
       prototype.position.x = loot.x;
       prototype.position.y = loot.y;
@@ -774,6 +1139,15 @@ class HandshakeRoom extends Room {
       prototype.velocity.y = 0;
       prototype.velocity.z = 0;
       prototype.revision += 1;
+    }
+    for (const player of this.state.players.values()) {
+      for (const object of this.state.objects.values()) {
+        if (object.holderId !== player.playerId || object.id === 'prototype') continue;
+        const p = this.heldPosition(player);
+        object.position.x = p.x; object.position.y = p.y; object.position.z = p.z;
+        object.velocity.x = 0; object.velocity.y = 0; object.velocity.z = 0;
+        this.setOwnership(object, null, 'reset', player.role);
+      }
     }
     const mission = this.state.mission;
     mission.stage = 'infiltrate';
@@ -797,17 +1171,28 @@ class HandshakeRoom extends Room {
       (player) => player.role === fallback && player.connected,
     );
     for (const object of this.state.objects.values()) {
-      if (object.heldBy === role) {
-        object.heldBy = '';
-        object.mode = 'free';
-      }
-      if (object.authority === role) {
+      if (object.mode === 'free' && object.authority === role) {
         object.authority = fallbackConnected ? fallback : 'pix';
         object.velocity.x = 0;
         object.velocity.y = 0;
         object.velocity.z = 0;
         object.revision += 1;
       }
+    }
+  }
+
+  dropHeldForRole(role, event) {
+    const player = Array.from(this.state.players.values()).find((candidate) => candidate.role === role);
+    if (!player) return;
+    const partner = Array.from(this.state.players.values()).find((candidate) => candidate.role !== role && candidate.connected && !candidate.captured);
+    for (const object of this.state.objects.values()) {
+      if (object.holderId !== player.playerId) continue;
+      const from = object.heldBy;
+      const p = this.heldPosition(player);
+      object.position.x = p.x; object.position.y = p.y; object.position.z = p.z;
+      object.velocity.x = 0; object.velocity.y = 0; object.velocity.z = 0;
+      this.setOwnership(object, null, event, partner?.role ?? role);
+      this.broadcast('object-event', { objectId: object.id, event, from, to: partner?.role ?? '' });
     }
   }
 }

@@ -411,7 +411,7 @@ export class SettingsMenu {
           'settings-touch-opacity',
         ),
         this.rangeRow(
-          'Touch camera sensitivity',
+          'Touch look sensitivity',
           touch.camSensitivity,
           0.25,
           2,
@@ -421,7 +421,7 @@ export class SettingsMenu {
           'settings-touch-sensitivity',
         ),
         this.checkRow(
-          'Touch invert look Y',
+          'Invert touch look Y',
           touch.invertY,
           (v) => saveCameraTouchSettings({ invertY: v }),
           'settings-touch-invert-y',

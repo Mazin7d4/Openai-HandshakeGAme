@@ -24,9 +24,38 @@ import type {
   RoomStatus,
   RunNetworkState,
   SecurityNetworkState,
+  EmoteId,
+  EmotePlayedMessage,
+  PingPlacedMessage,
 } from './NetworkTypes.ts';
 
 const SEND_INTERVAL_MS = 50;
+
+export type JoinErrorKind = 'not-found' | 'full' | 'server' | 'malformed' | 'unknown';
+export interface ClassifiedJoinError { kind: JoinErrorKind; message: string }
+
+/** Normalize Colyseus join errors without changing session synchronization. */
+export function classifyJoinError(error: unknown, code = ''): ClassifiedJoinError {
+  const room = code.trim().toUpperCase();
+  const value = error as { code?: unknown; message?: unknown } | null;
+  const numericCode = Number(value?.code);
+  const message = String(value?.message ?? error ?? '').toLowerCase();
+  const server = /failed to fetch|fetch failed|load failed|econnrefused|networkerror|network error|websocket|connection refused|enotfound|timed out|timeout|unable to connect/.test(message);
+  const full = /already full|no longer available|\bfull\b|\blocked\b|maximum clients|max clients/.test(message);
+  const missing = /not found|does not exist|expired|disposed|invalid room/.test(message);
+  if (!/^[A-HJ-NP-Z2-9]{4}$/.test(room)) return { kind: 'malformed', message: 'Enter the 4-character code.' };
+  if (server) return { kind: 'server', message: import.meta.env.PROD
+    ? "Can't reach the game server right now. Check your connection and try again in a moment."
+    : 'Multiplayer server unavailable. Restart with npm run dev, or run npm run server beside npm run dev:client.' };
+  // Colyseus 0.18 uses 522/523; older deployments used 4212 for invalid room IDs.
+  if (numericCode === 4212 || numericCode === 522) {
+    if (full) return { kind: 'full', message: `Room ${room} is full — two drones max.` };
+    if (missing || !message) return { kind: 'not-found', message: `Room ${room} wasn't found. It may have expired — ask your friend for a new code.` };
+  }
+  if (full) return { kind: 'full', message: `Room ${room} is full — two drones max.` };
+  if (missing) return { kind: 'not-found', message: `Room ${room} wasn't found. It may have expired — ask your friend for a new code.` };
+  return { kind: 'unknown', message: String(value?.message ?? error ?? 'Unable to join room.') };
+}
 
 /** Partner tether move relayed (and validated) by the server. */
 export interface PatrolStunMessage { index: number; by?: string; clotheslines?: number; x: number; y: number; z: number }
@@ -54,6 +83,11 @@ interface SchemaPlayer {
   movement: 'idle' | 'cruising' | 'boosting';
   selfPowered: boolean;
   tetherPull: number;
+  captured?: boolean;
+  capturedBy?: number;
+  struggles?: number;
+  carryFor?: number;
+  rescueProgress?: number;
 }
 
 interface SchemaRun {
@@ -90,6 +124,8 @@ interface SchemaObject {
   velocity: { x: number; y: number; z: number };
   orientation: { pitch: number; yaw: number; roll: number };
   heldBy: string;
+  holderId: string;
+  lastEvent: string;
   authority: DroneRole;
   mode: 'free' | 'held';
   revision: number;
@@ -176,6 +212,11 @@ function copyPlayer(player: SchemaPlayer): DroneNetworkState {
     movement: player.movement,
     selfPowered: player.selfPowered,
     tetherPull: player.tetherPull,
+    captured: player.captured === true,
+    capturedBy: Number.isFinite(player.capturedBy) ? (player.capturedBy as number) : -1,
+    struggles: Math.max(0, (player.struggles ?? 0) | 0),
+    carryFor: Number.isFinite(player.carryFor) ? Number(player.carryFor) : 0,
+    rescueProgress: Math.max(0, Math.min(1, Number(player.rescueProgress) || 0)),
   };
 }
 
@@ -190,6 +231,8 @@ function copyObject(object: SchemaObject): GrabbableNetworkState {
     velocity: { ...object.velocity },
     orientation: { ...object.orientation },
     heldBy: roleOrNull(object.heldBy),
+    holderId: object.holderId ?? '',
+    lastEvent: object.lastEvent ?? '',
     authority: object.authority,
     mode: object.mode,
     revision: object.revision,
@@ -216,6 +259,8 @@ export class MultiplayerSession {
   private readonly shoveListeners = new Set<(message: PatrolShoveMessage) => void>();
   private readonly spottedListeners = new Set<(role: DroneRole) => void>();
   private readonly floorStartListeners = new Set<(payload: FloorStartPayload) => void>();
+  private readonly pingListeners = new Set<(message: PingPlacedMessage) => void>();
+  private readonly emoteListeners = new Set<(message: EmotePlayedMessage) => void>();
   private readonly players = new Map<DroneRole, DroneNetworkState>();
   private readonly objects = new Map<string, GrabbableNetworkState>();
   private status: RoomStatus;
@@ -353,6 +398,10 @@ export class MultiplayerSession {
     this.room.send('grab-object', { objectId });
   }
 
+  requestHandoff(objectId: string): void {
+    this.room.send('handoff-object', { objectId });
+  }
+
   releaseObject(
     objectId: string,
     position: { x: number; y: number; z: number },
@@ -416,6 +465,31 @@ export class MultiplayerSession {
     this.room.send('debug-run-capture');
   }
 
+  /** TEST-ONLY: force a patrol to grab a role (HANDSHAKE_TEST_HOOKS=1). */
+  debugForceCapture(role: DroneRole, index = 0): void {
+    this.room.send('debug-force-capture', { role, index });
+  }
+
+  /** TEST-ONLY: force-free a captured role (HANDSHAKE_TEST_HOOKS=1). */
+  debugForceRelease(role: DroneRole, reason = 'yank'): void {
+    this.room.send('debug-force-release', { role, reason });
+  }
+
+  /** TEST-ONLY: freeze autonomous patrol AI grabs/shoves (HANDSHAKE_TEST_HOOKS=1). */
+  debugPatrolFreeze(frozen = true): void {
+    this.room.send('debug-patrol-freeze', { frozen });
+  }
+
+  /** TEST-ONLY: clear patrol stuns (HANDSHAKE_TEST_HOOKS=1). */
+  debugClearStuns(): void {
+    this.room.send('debug-clear-stuns');
+  }
+
+  /** Boost-struggle while captured (also inferred from snapshot boost edges). */
+  reportStruggle(): void {
+    this.room.send('capture-struggle');
+  }
+
   onFloorStart(listener: (payload: FloorStartPayload) => void): () => void {
     this.floorStartListeners.add(listener);
     return () => {
@@ -440,6 +514,15 @@ export class MultiplayerSession {
   onTetherYanked(listener: (message: TetherYankMessage) => void): () => void {
     this.yankListeners.add(listener);
     return () => this.yankListeners.delete(listener);
+  }
+
+  sendPing(pos: { x: number; y: number; z: number }): void { this.room.send('ping', pos); }
+  sendEmote(id: EmoteId): void { this.room.send('emote', { id }); }
+  onPing(listener: (message: PingPlacedMessage) => void): () => void {
+    this.pingListeners.add(listener); return () => this.pingListeners.delete(listener);
+  }
+  onEmote(listener: (message: EmotePlayedMessage) => void): () => void {
+    this.emoteListeners.add(listener); return () => this.emoteListeners.delete(listener);
   }
 
   reportTetherSave(): void {
@@ -482,6 +565,14 @@ export class MultiplayerSession {
     });
     room.onMessage('tether-yanked', (message: TetherYankMessage) => {
       for (const listener of this.yankListeners) listener(message);
+    });
+    room.onMessage('ping-placed', (message: PingPlacedMessage) => {
+      for (const listener of this.pingListeners) listener(message);
+    });
+    room.onMessage('emote-played', (message: EmotePlayedMessage) => {
+      if (message?.id === 'here' || message?.id === 'wait' || message?.id === 'go' || message?.id === 'yay') {
+        for (const listener of this.emoteListeners) listener(message);
+      }
     });
     room.onMessage('patrol-stunned', (message: PatrolStunMessage) => {
       for (const listener of this.patrolListeners) listener(message);

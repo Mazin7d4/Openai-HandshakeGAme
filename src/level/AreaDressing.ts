@@ -3,7 +3,6 @@ import {
 } from '@babylonjs/core';
 import type { createLabPalette } from './LabPalette.ts';
 import type { PropPlacement } from './PropKit.ts';
-import { addStaticBody } from '../physics/staticBody.ts';
 
 type Palette = ReturnType<typeof createLabPalette>;
 
@@ -14,11 +13,6 @@ type Palette = ReturnType<typeof createLabPalette>;
  * all props sit outside the authored flight routes (under-desk crawl, vent, office door, rack aisles).
  */
 export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: PropPlacement): unknown }): Mesh[] {
-  // Big props get one simple invisible static box so drones no longer fly visually through them.
-  const collide = (x: number, y: number, z: number, w: number, h: number, d: number) => {
-    const c = CreateBox('prop-collider', { width: w, height: h, depth: d }, scene);
-    c.position.set(x, y, z); c.isVisible = false; c.isPickable = false; addStaticBody(c, scene);
-  };
   const make = (name: string, hex: string, roughness: number, metallic = 0, emissive?: string) => {
     const m = new PBRMaterial(`dress-${name}`, scene);
     m.albedoColor = Color3.FromHexString(hex); m.roughness = roughness; m.metallic = metallic;
@@ -195,7 +189,7 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   // ---------- 01 RECEPTION ----------
   kit.place({ prop: 'Plant', x: 15.5, z: -52, scale: 1.05 }); kit.place({ prop: 'Plant', x: -9.5, z: -52.5, scale: 0.8 });
   // Lounge: a long mustard sofa and a low oak coffee table against the east wall.
-  kit.place({ prop: 'Sofa', x: 16.4, z: -47.5, ry: -Math.PI / 2 }); collide(16.4, 1.5, -47.5, 3.8, 3, 9.6);
+  kit.place({ prop: 'Sofa', x: 16.4, z: -47.5, ry: -Math.PI / 2 });
 
   box(11.5, 1.6, -47.5, 4, 0.22, 5, p.wood);
   for (const [dx, dz] of [[-1.6, -2.1], [1.6, -2.1], [-1.6, 2.1], [1.6, 2.1]]) cyl(11.5 + dx, 0.75, -47.5 + dz, 1.5, 0.16, 0.16, p.metal, 8);
@@ -236,7 +230,7 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   frame(-18.6, 7, -35, 9, 4.6, white, true);
   for (let i = 0; i < 5; i++) box(-18.5, 6 + i * 0.55, -38.5 + i * 0.9, 0.04, 0.12, 2 + (i % 3), i % 2 ? p.blue : p.coral);
   // Bookshelf and planter beyond the office glass.
-  kit.place({ prop: 'Bookshelf', x: 17.6, z: -33 }); collide(17.6, 5, -33, 2, 10, 7);
+  kit.place({ prop: 'Bookshelf', x: 17.6, z: -33 });
 
   kit.place({ prop: 'Plant', x: 15.5, z: -40.5, scale: 0.85 }); kit.place({ prop: 'Plant', x: 15.8, z: -28.5, scale: 0.65 });
   box(1, 0.06, -35, 18, 0.02, 0.3, mustard); box(1, 0.06, -35.6, 18, 0.02, 0.15, p.paint);
@@ -262,7 +256,7 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   box(3, 0.04, -24.5, 30, 0.02, 0.25, yellow); box(3, 0.04, -9, 30, 0.02, 0.25, yellow);
   // Precision cooling units and copper refrigerant runs on the east wall.
   for (const z of [-22, -9]) {
-    kit.place({ prop: 'Cooling', x: 17.4, z }); collide(17.4, 5, z, 2.4, 10, 5);
+    kit.place({ prop: 'Cooling', x: 17.4, z });
 
   }
   for (const y of [11.2, 11.7]) cyl(18.3, y, -15.5, 20, 0.3, 0.3, copper, 8).rotation.x = Math.PI / 2;
@@ -274,7 +268,7 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
     cyl(-18.4, y, -20, 80, 0.35, 0.35, m, 8).rotation.x = Math.PI / 2;
   }
   for (const z of [-46, -24, -2]) {
-    kit.place({ prop: 'Shelving', x: -18.2, z }); collide(-18.25, 6, z, 1.1, 12, 6);
+    kit.place({ prop: 'Shelving', x: -18.2, z });
 
   }
   // Robotics-lab finish for the spine: oak wainscot + aluminium rail on both walls, warm wall washers,
