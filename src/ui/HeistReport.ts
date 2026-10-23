@@ -160,7 +160,11 @@ export class HeistReport {
       this.rematchStatusEl.dataset.testid = 'rematch-status';
       this.rematchStatusEl.setAttribute('aria-live', 'polite');
       this.rematchStatusEl.textContent = 'Rematch?';
-      actions.before(this.rematchStatusEl);
+      // Sticky bar: on phones the report scrolls, but the vote state + Rematch stay in view.
+      const bar = document.createElement('div');
+      bar.className = 'heist-report__rematch-bar';
+      bar.append(this.rematchStatusEl, this.rematchBtn!);
+      actions.before(bar);
     }
     this.playerStatsEl = cooperative ? document.createElement('div') : null;
     if (this.playerStatsEl) {
@@ -178,7 +182,6 @@ export class HeistReport {
     save.addEventListener('click', () => void this.saveCard());
 
     if (this.playAgainBtn) actions.append(this.playAgainBtn);
-    if (this.rematchBtn) actions.append(this.rematchBtn);
     actions.append(challenge, save);
     if (handlers.onNewSeed) {
       const fresh = button('New seed', 'btn', 'new-seed');
