@@ -1,4 +1,9 @@
 import type { RunStats } from '../ui/heistAwards.ts';
+import {
+  scoreFloorPure,
+  summarize,
+  type NightShiftFloors,
+} from '../../shared/nightShiftScore.mjs';
 
 export interface FloorScoreEntry {
   points: number;
@@ -97,7 +102,7 @@ export function getBest(): BestScore | null {
   return null;
 }
 
-function updateBest(floor: number, total: number): BestScore {
+export function recordBest(floor: number, total: number): BestScore {
   const current = getBest();
   const next: BestScore = {
     floor: current ? Math.max(current.floor, floor) : floor,
@@ -112,61 +117,28 @@ function updateBest(floor: number, total: number): BestScore {
 }
 
 export function scoreFloor(stats: RunStats, floor: number): ScoreFloorResult {
-  const elapsed = stats.elapsedSeconds ?? 0;
-  const spotted = stats.timesSpotted ?? 0;
-  const saves = stats.tetherSaves ?? 0;
-  const twangs = stats.cordTwangs ?? 0;
-
-  const rawBase = 1000 + Math.max(0, Math.round((300 - elapsed) * 4)) - 150 * spotted + 50 * saves + 25 * Math.min(10, twangs);
-  const base = Math.max(100, rawBase);
-  const clean = spotted === 0;
-
   const state = loadRun();
-  let streak = 0;
-  if (clean) {
-    streak = 1;
-    for (let f = floor - 1; f >= 1; f--) {
-      const entry = state.floors[f];
-      if (entry && entry.clean) {
-        streak++;
-      } else {
-        break;
-      }
-    }
-  }
-
-  const multiplier = Math.min(3, 1 + 0.5 * streak);
-  const points = Math.round(base * multiplier);
-
-  state.floors[floor] = { points, clean };
+  const scored = scoreFloorPure({
+    elapsedSeconds: stats.elapsedSeconds,
+    timesSpotted: stats.timesSpotted,
+    tetherSaves: stats.tetherSaves,
+    cordTwangs: stats.cordTwangs,
+  }, floor, state.floors as NightShiftFloors);
+  state.floors = scored.floors;
   saveRun(state);
-
-  const total = Object.values(state.floors).reduce((sum, entry) => sum + entry.points, 0);
-  updateBest(floor, total);
-
-  return { points, base, multiplier, streak, total };
+  recordBest(floor, scored.total);
+  return {
+    points: scored.points,
+    base: scored.base,
+    multiplier: scored.multiplier,
+    streak: scored.streak,
+    total: scored.total,
+  };
 }
 
 export function runSummary(): RunSummary {
   const state = loadRun();
-  const floorNums = Object.keys(state.floors).map(Number).sort((a, b) => a - b);
-  if (floorNums.length === 0) {
-    return { total: 0, streak: 0, multiplier: 1, lastFloor: 0 };
-  }
-
-  const lastFloor = floorNums[floorNums.length - 1];
-  const total = Object.values(state.floors).reduce((sum, entry) => sum + entry.points, 0);
-
-  let streak = 0;
-  for (let f = lastFloor; f >= 1; f--) {
-    const entry = state.floors[f];
-    if (entry && entry.clean) {
-      streak++;
-    } else {
-      break;
-    }
-  }
-
-  const multiplier = Math.min(3, 1 + 0.5 * streak);
-  return { total, streak, multiplier, lastFloor };
+  return summarize(state.floors as NightShiftFloors);
 }
+
+export { floorBase } from '../../shared/nightShiftScore.mjs';

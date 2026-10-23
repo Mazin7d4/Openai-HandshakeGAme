@@ -98,6 +98,11 @@ interface SchemaRun {
   maxCaptures: number;
   startedAt: number;
   floorTimes: ArrayLike<number> & Iterable<number>;
+  score: number;
+  streak: number;
+  multiplier: number;
+  lastFloorPoints: number;
+  floorCleared: boolean;
   ended: boolean;
 }
 
@@ -178,8 +183,35 @@ const EMPTY_RUN: RunNetworkState = {
   maxCaptures: 3,
   startedAt: 0,
   floorTimes: [],
+  score: 0,
+  streak: 0,
+  multiplier: 1,
+  lastFloorPoints: 0,
+  floorCleared: false,
   ended: false,
 };
+
+export interface FloorClearedMessage {
+  floor: number;
+  seed: number;
+  points: number;
+  base: number;
+  multiplier: number;
+  streak: number;
+  total: number;
+  clean: boolean;
+  next: { seed: number; floor: number };
+}
+
+export interface RunEndedMessage {
+  reason: 'captures' | string;
+  captures: number;
+  floor: number;
+  seed: number;
+  score: number;
+  multiplier: number;
+  streak: number;
+}
 
 export interface CreateRoomOptions {
   seed?: number;
@@ -259,6 +291,8 @@ export class MultiplayerSession {
   private readonly shoveListeners = new Set<(message: PatrolShoveMessage) => void>();
   private readonly spottedListeners = new Set<(role: DroneRole) => void>();
   private readonly floorStartListeners = new Set<(payload: FloorStartPayload) => void>();
+  private readonly floorClearedListeners = new Set<(message: FloorClearedMessage) => void>();
+  private readonly runEndedListeners = new Set<(message: RunEndedMessage) => void>();
   private readonly pingListeners = new Set<(message: PingPlacedMessage) => void>();
   private readonly emoteListeners = new Set<(message: EmotePlayedMessage) => void>();
   private readonly players = new Map<DroneRole, DroneNetworkState>();
@@ -465,6 +499,11 @@ export class MultiplayerSession {
     this.room.send('debug-run-capture');
   }
 
+  /** TEST-ONLY: set server mission stats and clear the current Night Shift floor. */
+  debugRunClear(stats: { timesSpotted?: number; elapsedSeconds?: number; tetherSaves?: number } = {}): void {
+    this.room.send('debug-run-clear', stats);
+  }
+
   /** TEST-ONLY: force a patrol to grab a role (HANDSHAKE_TEST_HOOKS=1). */
   debugForceCapture(role: DroneRole, index = 0): void {
     this.room.send('debug-force-capture', { role, index });
@@ -497,6 +536,16 @@ export class MultiplayerSession {
     };
   }
 
+  onFloorCleared(listener: (message: FloorClearedMessage) => void): () => void {
+    this.floorClearedListeners.add(listener);
+    return () => this.floorClearedListeners.delete(listener);
+  }
+
+  onRunEnded(listener: (message: RunEndedMessage) => void): () => void {
+    this.runEndedListeners.add(listener);
+    return () => this.runEndedListeners.delete(listener);
+  }
+
   /** Ask the server to stun a patrol; it arbitrates and broadcasts 'patrol-stunned' to both clients. */
   requestPatrolStun(message: PatrolStunMessage): void {
     this.room.send('patrol-stun', message);
@@ -527,6 +576,14 @@ export class MultiplayerSession {
 
   reportTetherSave(): void {
     this.room.send('mission-tether-save');
+  }
+
+  sendRunNextFloor(floor: number): void {
+    this.room.send('run-next-floor', { floor });
+  }
+
+  sendRunTwang(): void {
+    this.room.send('run-twang');
   }
 
   retryMission(): void {
@@ -586,6 +643,12 @@ export class MultiplayerSession {
     });
     room.onMessage('floor-start', (message: FloorStartPayload) => {
       this.handleFloorStart(message);
+    });
+    room.onMessage('floor-cleared', (message: FloorClearedMessage) => {
+      for (const listener of this.floorClearedListeners) listener(message);
+    });
+    room.onMessage('run-ended', (message: RunEndedMessage) => {
+      for (const listener of this.runEndedListeners) listener(message);
     });
     room.onReconnect(() => {
       this.networkState = 'connected';
@@ -729,7 +792,15 @@ export class MultiplayerSession {
     syncNetworkRun(run);
     // Reconnect / first join: apply layout hook from room state (deduped by seed:floor:mode).
     if (state.run) {
-      this.handleFloorStart({ seed: run.seed, floor: run.floor, mode: run.mode }, true);
+      this.handleFloorStart({
+        seed: run.seed,
+        floor: run.floor,
+        mode: run.mode,
+        score: run.score,
+        streak: run.streak,
+        multiplier: run.multiplier,
+        captures: run.captures,
+      }, true);
     }
     this.status = {
       roomCode: this.roomCode,
@@ -759,6 +830,11 @@ export class MultiplayerSession {
         const n = Number(value);
         return Number.isFinite(n) ? n : 0;
       }),
+      score: Number.isFinite(run.score) ? run.score : 0,
+      streak: Number.isFinite(run.streak) ? run.streak : 0,
+      multiplier: Number.isFinite(run.multiplier) ? run.multiplier : 1,
+      lastFloorPoints: Number.isFinite(run.lastFloorPoints) ? run.lastFloorPoints : 0,
+      floorCleared: run.floorCleared === true,
       ended: run.ended === true,
     };
   }

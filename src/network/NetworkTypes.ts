@@ -20,6 +20,11 @@ export interface RunNetworkState {
   maxCaptures: number;
   startedAt: number;
   floorTimes: number[];
+  score: number;
+  streak: number;
+  multiplier: number;
+  lastFloorPoints: number;
+  floorCleared: boolean;
   ended: boolean;
 }
 
