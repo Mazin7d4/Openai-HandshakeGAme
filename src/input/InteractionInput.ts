@@ -1,6 +1,7 @@
 import type { KeyBindings } from './KeyboardInput.ts';
 import { zeroInteractionActions, type InteractionActions } from './InteractionActions.ts';
 import { getSettings, subscribeSettings } from '../ui/Settings.ts';
+import type { GamepadInput } from './GamepadInput.ts';
 
 /** Edge-triggered gameplay buttons. Public request methods are the mobile-control seam. */
 export class InteractionInput {
@@ -13,6 +14,7 @@ export class InteractionInput {
   private readonly yankKeys: Set<string>;
   private readonly pressed = new Set<string>();
   private holdToToggle = getSettings().holdToToggle;
+  private readonly gamepad: GamepadInput | null;
   private readonly unsubSettings: () => void;
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
@@ -53,7 +55,8 @@ export class InteractionInput {
     this.pressed.clear();
   };
 
-  constructor(keys: KeyBindings) {
+  constructor(keys: KeyBindings, gamepad: GamepadInput | null = null) {
+    this.gamepad = gamepad;
     this.grabKeys = new Set(keys.grabDrop);
     this.throwKeys = new Set(keys.throwObject);
     this.interactKeys = new Set(keys.interact);
@@ -70,6 +73,15 @@ export class InteractionInput {
 
   sample(): InteractionActions {
     const result = { ...this.actions };
+    if (this.gamepad) {
+      const gamepad = this.gamepad.sampleInteractions();
+      result.grabDrop ||= gamepad.grabDrop;
+      result.throwObject ||= gamepad.throwObject;
+      result.interact ||= gamepad.interact;
+      result.pause ||= gamepad.pause;
+      result.switchDrone ||= gamepad.switchDrone;
+      result.yank ||= gamepad.yank;
+    }
     this.actions.grabDrop = false;
     this.actions.throwObject = false;
     this.actions.interact = false;

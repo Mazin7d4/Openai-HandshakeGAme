@@ -712,7 +712,7 @@ html[data-reduced-motion='1'] *::after {
 .touch-controls--hidden { display: none; }
 /* Look pad covers the action half; buttons sit above and stopPropagation. */
 .touch-look {
-  position: absolute; top: 0; bottom: 0; width: 52%;
+  position: absolute; top: 0; bottom: 0; width: 50%;
   pointer-events: auto; touch-action: none;
   -webkit-touch-callout: none; user-select: none;
 }
@@ -829,6 +829,26 @@ html[data-reduced-motion='1'] *::after {
 @media (orientation: portrait) and (max-width: 480px) {
   .touch-stick { height: min(42vh, 280px); }
   .mission-objective { width: calc(100% - 120px); }
+}
+
+@media (max-width: 380px) {
+  .touch-controls { --touch-btn: 48px; --touch-gap: 6px; }
+  .touch-actions { gap: 6px; }
+  .touch-btn, .touch-pause { min-width: 48px; min-height: 48px; }
+  .touch-btn__glyph { width: 20px; height: 20px; }
+  .touch-btn__label { font-size: 10px; }
+  .touch-stick { width: 46vw; height: min(44vh, 232px); }
+  .touch-play .interaction-prompt { bottom: 116px; max-width: calc(100% - 132px); }
+  .touch-play .onboarding-coach { bottom: 122px; max-width: calc(100% - 132px); }
+}
+
+@media (orientation: landscape) and (max-height: 380px) {
+  .touch-controls { --touch-btn: 48px; --touch-gap: 6px; }
+  .touch-actions { gap: 6px; }
+  .touch-btn, .touch-pause { min-width: 48px; min-height: 48px; }
+  .touch-stick { width: 42vw; height: 200px; }
+  .touch-play .interaction-prompt { bottom: 112px; max-width: calc(100% - 250px); }
+  .touch-play .onboarding-coach { bottom: 116px; max-width: calc(100% - 250px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
