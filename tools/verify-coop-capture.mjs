@@ -192,12 +192,13 @@ try {
 
   // (b) a 'tether-yank' kind 'yank' sent from beyond 11 m does NOT clear captured
   const midPix = (await caps(host)).pix;
-  // Position NEE ~11.3 m away (within 11-13.5 m: client preview allows yank, server accepts message but distance > 11 prevents rescue)
-  await guest.evaluate((p) => {
-    window.__autotest.teleport('nee', p.x, p.y, p.z - 11.3);
-  }, midPix);
-  await host.waitForTimeout(100);
+  // Park NEE ~12.6 m out (past the 11 m rescue range, inside the 13.5 m yank relay)
+  // and yank right away, before the elastic cord drags NEE back in.
   await guest.getByTestId('game-canvas').focus();
+  await guest.evaluate((p) => {
+    window.__autotest.teleport('nee', p.x, p.y, p.z - 12.6);
+  }, midPix);
+  await host.waitForTimeout(80);
   await guest.keyboard.press('r');
   await host.waitForTimeout(300);
   const afterYank = (await caps(host)).pix;

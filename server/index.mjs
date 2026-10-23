@@ -309,6 +309,12 @@ class HandshakeRoom extends Room {
       });
       this.onMessage('debug-force-release', (client, m) => this.debugForceRelease(client, m));
 
+      // Frozen test patrols also ignore cord clotheslines, so teleporting a drone
+      // across the room cannot stun-free a captive mid-check.
+      const origStunPatrol = this.stunPatrol.bind(this);
+      this.stunPatrol = (client, message) => {
+        if (!this._testPatrolFrozen) origStunPatrol(client, message);
+      };
       const origSecurityUpdate = this.securitySim.update.bind(this.securitySim);
       this.securitySim.update = (dt, ctx) => {
         const savedPositions = this._testPatrolFrozen

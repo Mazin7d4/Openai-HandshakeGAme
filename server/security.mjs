@@ -346,9 +346,10 @@ export class SecuritySim {
         } else {
           rt.partnerPrevPos = null;
         }
-        const activelyPulling = tetherDist >= STRAIN_DISTANCE && separationRate > 1.5;
-        const clientStrained = (captive.tetherPull ?? 0) >= STRAIN_TETHER && tetherDist <= STRAIN_DISTANCE + 2;
-        const strained = Boolean(partner && (activelyPulling || clientStrained));
+        // Only the partner's own pull counts: a taut cord from an idle partner
+        // (or from the guard hauling the captive away) never frees.
+        const taut = tetherDist >= STRAIN_DISTANCE || ((captive.tetherPull ?? 0) >= STRAIN_TETHER && tetherDist <= STRAIN_DISTANCE + 2);
+        const strained = Boolean(partner && taut && separationRate > 1.5);
         rt.strainFor = strained ? rt.strainFor + dt : 0;
         if (rt.struggles >= STRUGGLE_NEEDED) {
           const freed = this.releaseCarry(i, 'struggle');
