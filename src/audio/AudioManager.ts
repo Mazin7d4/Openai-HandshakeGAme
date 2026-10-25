@@ -38,13 +38,14 @@ export type AudioEvent =
   | 'hackStart' | 'hackTick' | 'hackSuccess' | 'hackFail'
   | 'suspicious' | 'spotted' | 'stun' | 'cameraBlind' | 'capture' | 'rescue'
   | 'vaultOpen' | 'theft' | 'extract'
-  | 'chirp' | 'ping' | 'emote';
+  | 'chirp' | 'ping' | 'emote'
+  | 'replayDrop';
 
 export const AUDIO_EVENTS: readonly AudioEvent[] = [
   'uiHover', 'uiClick', 'uiConfirm', 'uiBack', 'uiToggle', 'uiError',
   'twang', 'snap', 'yank', 'yanked', 'slingshot', 'bump', 'boost', 'impact', 'grab', 'drop', 'throw',
   'hackStart', 'hackTick', 'hackSuccess', 'hackFail', 'pass',
-  'suspicious', 'spotted', 'stun', 'cameraBlind', 'capture', 'rescue', 'vaultOpen', 'theft', 'extract', 'chirp', 'ping', 'emote',
+  'suspicious', 'spotted', 'stun', 'cameraBlind', 'capture', 'rescue', 'vaultOpen', 'theft', 'extract', 'chirp', 'ping', 'emote', 'replayDrop',
 ];
 
 export type DroneVoice = Voice;
@@ -447,6 +448,12 @@ export class AudioManager {
         this.setAlarmStage(0); this.setMusic('off');
         this.spr(event, 'sting_win', { gain: 1 * vol });
         return;
+      case 'replayDrop':
+        // Slow-mo replay: falling whoosh into a sub-bass drop; music ducks under it.
+        this.start(event, this.synth('whoosh-replay', (r) => whoosh(r, 0.9, 3400, 180, 1.4)), { gain: 0.55 * vol });
+        this.start(event, this.synth('bass-drop', bassDrop), { gain: 0.9 * vol, delay: 0.08 });
+        this.duckMusic(2.5, 0.35);
+        return;
       case 'chirp': {
         const role: DroneVoice = o.role ?? 'pix'; const mood: ChirpMood = o.mood ?? 'neutral';
         this.start(event, this.synth(`chirp-${role}-${mood}`, (r) => zz(r, chirpParams(role, mood))), {
@@ -683,3 +690,19 @@ export class AudioManager {
 }
 
 export const audio = new AudioManager();
+
+/** Sub-bass drop for the escape replay: 95 Hz falling to 32 Hz with a soft click and long decay. */
+function bassDrop(sr: number): Float32Array {
+  const dur = 1.4;
+  const out = new Float32Array(Math.floor(sr * dur));
+  let phase = 0;
+  for (let i = 0; i < out.length; i++) {
+    const t = i / sr;
+    const f = 32 + 63 * Math.exp(-t * 3.2);
+    phase += (2 * Math.PI * f) / sr;
+    const env = Math.min(1, t / 0.012) * Math.exp(-t * 2.1);
+    const body = Math.sin(phase) + 0.25 * Math.sin(phase * 2);
+    out[i] = Math.tanh(body * 1.6) * env * 0.85;
+  }
+  return out;
+}

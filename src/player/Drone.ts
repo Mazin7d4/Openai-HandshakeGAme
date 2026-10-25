@@ -5,6 +5,7 @@ import { PhysicsActivationControl, PhysicsPrestepType, PhysicsShapeType } from '
 import { PhysicsAggregate } from '@babylonjs/core/Physics/v2/physicsAggregate.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { LoadedModel } from '../assets/AssetLoader.ts';
 import type { CameraSubject } from '../camera/CameraSubject.ts';
@@ -161,6 +162,9 @@ export class Drone implements CameraSubject {
   get velocity(): Vector3 {
     return this.flight.velocity;
   }
+
+  /** Banked visual node (replay records its rotation alongside the physics root). */
+  get visualRoot(): TransformNode { return this.visual.root; }
 
   get position(): Vector3 {
     return this.root.position;
