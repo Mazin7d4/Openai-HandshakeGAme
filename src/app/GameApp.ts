@@ -25,6 +25,7 @@ import type { DroneRole, EmoteId } from '../network/NetworkTypes.ts';
 import { getRunState } from '../run/ClientRun.ts';
 import { Drone, DRONE_PALETTES } from '../player/Drone.ts';
 import { DRONE_MODEL_URL } from '../player/DroneVisual.ts';
+import { getSelectedCosmetics } from '../player/Cosmetics.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import { enableHavok } from '../physics/enableHavok.ts';
 import { createEngine, createScene, getQuality } from '../scene/createScene.ts';
@@ -487,6 +488,11 @@ export class GameApp {
       },
     ];
     const drones = players.map((p) => p.drone);
+    // Cosmetic selections are intentionally local until the network schema has a clean
+    // player cosmetic field; only the current player's drone receives this selection.
+    const selectedCosmetics = getSelectedCosmetics();
+    const cosmeticRole = multiplayer?.currentStatus.localRole ?? 'pix';
+    players.find((player) => player.role === cosmeticRole)?.drone.setCosmetics(selectedCosmetics.expression, selectedCosmetics.hat);
     // Arrival readability: the first room is a hover-height composition, so give both mascots
     // a soft ground anchor without adding lights or shadow-map casters (also cheap on low tier).
     addContactShadows(scene, drones.map((drone) => ({ mesh: drone.root, radius: 0.85 })));
