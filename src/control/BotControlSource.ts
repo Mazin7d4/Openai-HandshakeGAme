@@ -30,6 +30,8 @@ export interface BotSensors {
   zipping?(): boolean;
   /** The leader is held by security: yank them free. */
   leaderCaptured?(): boolean;
+  /** Objective state says a yank would crack the carried fragile loot. */
+  avoidYank?(): boolean;
   /** The leader holds any passable object. */
   leaderHolding?(): boolean;
   /** The leader's planar facing, normally the camera's planar forward. */
@@ -112,13 +114,14 @@ export class BotControlSource implements DroneControlSource {
     if (s.zipping?.()) { this.state = 'zip'; return this.idle; }
     // Rescue: react after a short, human-feeling delay, then yank once (cooldown keeps it from spamming).
     const captured = s.leaderCaptured?.() ?? false;
+    const avoidYank = s.avoidYank?.() ?? false;
     this.troubleTime = s.leaderInTrouble?.() || captured ? this.troubleTime + dt : 0;
     if (captured && this.troubleTime > 0.8 && this.yankCooldown === 0) {
       this.state = 'rescue';
       this.yankCooldown = 1.2;
       return { actions: zeroFlightAxes(), interactions: { ...zeroInteractionActions(), yank: true } };
     }
-    if (this.troubleTime > 0.35 && this.yankCooldown === 0) {
+    if (this.troubleTime > 0.35 && !avoidYank && this.yankCooldown === 0) {
       this.state = 'rescue';
       this.yankCooldown = 2.5;
       return { actions: zeroFlightAxes(), interactions: { ...zeroInteractionActions(), yank: true } };
@@ -131,6 +134,9 @@ export class BotControlSource implements DroneControlSource {
         return { actions: zeroFlightAxes(), interactions: this.idle.interactions };
       }
       this.state = 'objective';
+      if (Vector3.Distance(self, objective) <= 1.2) {
+        return { actions: zeroFlightAxes(), interactions: this.idle.interactions };
+      }
       if (this.recover(dt, self, objective, [objective.clone()])) { this.state = 'zip'; return this.idle; }
       return { actions: this.goTo(self, objective, basis), interactions: this.idle.interactions };
     }

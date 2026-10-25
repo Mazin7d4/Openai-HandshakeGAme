@@ -181,13 +181,20 @@ export function objectiveBotTarget(state, plan, botRole, players) {
   if (plan.kind === 'twin-levers' && plan.levers?.length >= 2) {
     const d0 = distance(pos, point(plan.levers[0])), d1 = distance(pos, point(plan.levers[1]));
     if (Math.min(d0, d1) > 6) return null;
-    return { ...point(plan.levers[d0 <= d1 ? 1 : 0]) };
+    const target = point(plan.levers[d0 <= d1 ? 1 : 0]);
+    return { ...target, y: Math.max(1.6, target.y) };
   }
   if (plan.kind === 'pylon-safe' && plan.pylon && plan.safe && plan.anchor) {
     if (distance(pos, point(plan.pylon)) > 10) return null;
-    return { ...(distance(pos, point(plan.safe)) < distance(pos, point(plan.anchor)) ? point(plan.anchor) : point(plan.safe)) };
+    const target = distance(pos, point(plan.safe)) < distance(pos, point(plan.anchor))
+      ? point(plan.anchor)
+      : point(plan.safe);
+    return { ...target, y: Math.max(1.6, target.y) };
   }
-  if (plan.kind === 'relay' && plan.pads?.[state.step]?.role === botRole) return { ...point(plan.pads[state.step]) };
+  if (plan.kind === 'relay' && plan.pads?.[state.step]?.role === botRole) {
+    const target = point(plan.pads[state.step]);
+    return { ...target, y: Math.max(1.6, target.y) };
+  }
   return null;
 }
 

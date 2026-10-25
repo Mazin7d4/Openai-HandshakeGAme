@@ -38,6 +38,7 @@ export function summarize(floors = {}) {
 export function scoreFloorPure(stats = {}, floor = 1, floors = {}) {
   const clean = (stats.timesSpotted ?? 0) === 0;
   const base = floorBase(stats);
+  const payoutScale = Number.isFinite(stats.payoutScale) ? Math.max(0, stats.payoutScale) : 1;
   const nextFloors = { ...floors, [floor]: { points: 0, clean } };
   let streak = 0;
   if (clean) {
@@ -47,7 +48,7 @@ export function scoreFloorPure(stats = {}, floor = 1, floors = {}) {
     }
   }
   const multiplier = Math.min(3, 1 + 0.5 * streak);
-  const points = Math.round(base * multiplier);
+  const points = Math.round(base * multiplier * payoutScale);
   nextFloors[floor] = { points, clean };
   const summary = summarize(nextFloors);
   return { points, base, multiplier, streak, total: summary.total, floors: nextFloors };

@@ -3,6 +3,7 @@ export interface NightShiftStats {
   timesSpotted?: number;
   tetherSaves?: number;
   cordTwangs?: number;
+  payoutScale?: number;
 }
 
 export interface FloorScoreEntry {

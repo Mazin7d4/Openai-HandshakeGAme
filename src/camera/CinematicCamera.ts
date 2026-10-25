@@ -232,7 +232,15 @@ export class CinematicCamera {
   }
   snap(subjects: readonly CameraSubject[]): void { this.placed = false; this.update(0, subjects); }
 
+  /** Test/photo hook only (installed via the dev autopilot): pins the camera to a fixed pose. */
+  debugPose: { eye: Vector3; target: Vector3 } | null = null;
+
   update(dt: number, subjects: readonly CameraSubject[], context: CameraContext = QUIET): void {
+    if (this.debugPose) {
+      this.camera.position.copyFrom(this.debugPose.eye);
+      this.camera.setTarget(this.debugPose.target);
+      return;
+    }
     if (!subjects.length) return;
     this.focus.setAll(0);
     const positions = subjects.map(subject => { const v = new Vector3(); subject.getFocusPosition(v); this.focus.addInPlace(v); return v; });

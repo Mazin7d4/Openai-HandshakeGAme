@@ -96,6 +96,8 @@ export interface RunLayout {
   twist: TwistParams;
   escalation: FloorEscalation;
   cord: { restLength: number; maxLength: number };
+  /** Night Shift floor plan; absent for handcrafted/non-Night-Shift layouts. */
+  plan?: import('../nightshift/types').FloorPlan;
 }
 
 export interface RunSeed {

@@ -48,11 +48,11 @@ export function prepareDailyRun(date: Date = new Date()): void {
   prepareRun({ seed: dailySeed(date), floor: 1, captures: 0, mode: 'nightshift' });
 }
 
-export function prepareChallengeRun(seed: number, timeToBeatMs?: number): void {
+export function prepareChallengeRun(seed: number, timeToBeatMs?: number, floor = 1): void {
   const beat = Number.isFinite(timeToBeatMs) ? Math.max(0, Math.round(timeToBeatMs!)) : undefined;
   prepareRun({
     seed: seed >>> 0,
-    floor: 1,
+    floor: Math.max(1, floor | 0),
     captures: 0,
     mode: 'nightshift',
     ...(beat !== undefined ? { timeToBeatMs: beat } : {}),

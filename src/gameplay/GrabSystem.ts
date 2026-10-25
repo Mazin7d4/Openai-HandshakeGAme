@@ -293,6 +293,11 @@ export class GrabSystem {
     this.drop(role, this.drones.get(role) ?? null);
   }
 
+  resetToCradle(id: string, position: Vector3): void {
+    const object = this.objects.find((candidate) => candidate.id === id);
+    object?.resetToCradle(position);
+  }
+
   objectPosition(id: string): Vector3 | null {
     return this.objects.find((object) => object.id === id)?.position ?? null;
   }

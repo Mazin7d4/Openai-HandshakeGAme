@@ -29,6 +29,9 @@ import type {
   EmoteId,
   EmotePlayedMessage,
   PingPlacedMessage,
+  ObjectiveStateMessage,
+  HazardTripMessage,
+  ObjectiveEventMessage,
 } from './NetworkTypes.ts';
 
 const SEND_INTERVAL_MS = 50;
@@ -292,6 +295,8 @@ export interface FloorClearedMessage {
   streak: number;
   total: number;
   clean: boolean;
+  boss?: boolean;
+  job?: string;
   next: { seed: number; floor: number };
 }
 
@@ -407,6 +412,9 @@ export class MultiplayerSession {
   private readonly pingListeners = new Set<(message: PingPlacedMessage) => void>();
   private readonly emoteListeners = new Set<(message: EmotePlayedMessage) => void>();
   private readonly objectEventListeners = new Set<(message: ObjectEventMessage) => void>();
+  private readonly objectiveStateListeners = new Set<(message: ObjectiveStateMessage) => void>();
+  private readonly hazardTripListeners = new Set<(message: HazardTripMessage) => void>();
+  private readonly objectiveEventListeners = new Set<(message: ObjectiveEventMessage) => void>();
   private readonly players = new Map<DroneRole, DroneNetworkState>();
   private readonly objects = new Map<string, GrabbableNetworkState>();
   private status: RoomStatus;
@@ -598,7 +606,7 @@ export class MultiplayerSession {
   }
 
   /** TEST-ONLY: honoured by the server only when it runs with HANDSHAKE_TEST_HOOKS=1. */
-  debugStage(stage: 'escape'): void {
+  debugStage(stage: 'hack-security' | 'steal-prototype' | 'escape'): void {
     this.room.send('debug-stage', { stage });
   }
 
@@ -691,6 +699,21 @@ export class MultiplayerSession {
     this.objectEventListeners.add(listener); return () => this.objectEventListeners.delete(listener);
   }
 
+  onObjectiveState(listener: (message: ObjectiveStateMessage) => void): () => void {
+    this.objectiveStateListeners.add(listener);
+    return () => this.objectiveStateListeners.delete(listener);
+  }
+
+  onHazardTrip(listener: (message: HazardTripMessage) => void): () => void {
+    this.hazardTripListeners.add(listener);
+    return () => this.hazardTripListeners.delete(listener);
+  }
+
+  onObjectiveEvent(listener: (message: ObjectiveEventMessage) => void): () => void {
+    this.objectiveEventListeners.add(listener);
+    return () => this.objectiveEventListeners.delete(listener);
+  }
+
   reportTetherSave(): void {
     this.room.send('mission-tether-save');
   }
@@ -728,6 +751,9 @@ export class MultiplayerSession {
     this.reconnectDeadlineMs = null;
     this.listeners.clear();
     this.objectEventListeners.clear();
+    this.objectiveStateListeners.clear();
+    this.hazardTripListeners.clear();
+    this.objectiveEventListeners.clear();
     this.rematchStartListeners.clear();
     this.rematchPartnerLeftListeners.clear();
     clearReconnectionToken(this.roomCode);
@@ -779,6 +805,19 @@ export class MultiplayerSession {
     room.onMessage('security-spotted', (message: { role?: string }) => {
       const role = roleOrNull(message?.role ?? '');
       if (role) for (const listener of this.spottedListeners) listener(role);
+    });
+    room.onMessage('objective-state', (message: ObjectiveStateMessage) => {
+      if (message?.state && Number.isFinite(message.floor) && Number.isFinite(message.seed)) {
+        for (const listener of this.objectiveStateListeners) listener(message);
+      }
+    });
+    room.onMessage('hazard-trip', (message: HazardTripMessage) => {
+      if (message?.id && (message.role === 'pix' || message.role === 'nee')) {
+        for (const listener of this.hazardTripListeners) listener(message);
+      }
+    });
+    room.onMessage('objective-event', (message: ObjectiveEventMessage) => {
+      if (message?.type) for (const listener of this.objectiveEventListeners) listener(message);
     });
     room.onMessage('floor-start', (message: FloorStartPayload) => {
       this.handleFloorStart(message);

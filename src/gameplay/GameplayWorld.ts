@@ -23,6 +23,8 @@ import { dressPrototype } from '../level/PrototypeVisual.ts';
 import { dressLabCrate } from '../level/LabCrateVisual.ts';
 import { dressCargoCore, dressCoolantCell } from '../level/GrabbableVisuals.ts';
 import { addContactShadows } from '../level/ContactShadows.ts';
+import { gameEvents } from './GameEvents.ts';
+import { FloorPlanRuntime } from '../run/floorplan/FloorPlanRuntime.ts';
 
 function vec(src: { x: number; y: number; z: number }): Vector3 {
   return new Vector3(src.x, src.y, src.z);
@@ -49,6 +51,8 @@ export class GameplayWorld {
   private readonly removeFloorStart: (() => void) | null;
   private readonly removeObjectEvent: (() => void) | null;
   private readonly playground: CordPlayground;
+  private readonly floorPlanRuntime: FloorPlanRuntime;
+  private readonly removeYank: () => void;
 
   constructor(
     scene: Scene,
@@ -134,11 +138,21 @@ export class GameplayWorld {
           this.mission.notifyGrab(objectId, role);
         },
         onThrow: () => this.mission.notifyThrow(),
-        canGrab: (objectId) => objectId !== 'prototype' || this.hack.allComplete(),
+        canGrab: (objectId) => objectId !== 'prototype' || (
+          this.hack.allComplete() && (this.floorPlanRuntime?.canGrabPrototype() ?? true)
+        ),
       },
     );
     this.hack = new HackSession(scene, plugin, session, uiParent, this.audio, runLayout);
     this.mission = new MissionDirector(scene, mode, session, this.grab, this.audio, uiParent, onLeave, runLayout);
+    this.floorPlanRuntime = new FloorPlanRuntime(
+      scene,
+      session,
+      this.grab,
+      this.mission,
+      this.objects.find((object) => object.id === 'prototype')!,
+    );
+    this.removeYank = gameEvents.on('yank', (event) => this.notifyYank(event.from));
     this.removeObjectEvent = session
       ? session.onObjectEvent((message) => this.grab.handleObjectEvent(message))
       : null;
@@ -173,6 +187,7 @@ export class GameplayWorld {
         this.objects.find((o) => o.id === 'prototype')?.relocateCradle(vec(run.loot));
         this.hack.applyRunLayout(run);
         this.mission.applyRunLayout(run);
+        this.floorPlanRuntime.applyLayout(run);
         this.kitDressing?.dispose();
         void dressRunLayout(this.scene, run).then((h) => { this.kitDressing = h; }).catch((e) => console.warn('[kit] dressing failed', e));
       },
@@ -193,6 +208,7 @@ export class GameplayWorld {
     this.grab.sync(status);
     this.hack.sync(status);
     this.mission.sync(status);
+    this.floorPlanRuntime.sync(status);
   }
 
   handle(
@@ -215,13 +231,27 @@ export class GameplayWorld {
     this.grab.update(dt, drones);
     this.playground.update(dt, drones);
     this.hack.update(dt, drones);
+    this.floorPlanRuntime.update(dt, drones);
     this.mission.update(dt, drones, this.hack, this.grab, tetherStrain);
+  }
+
+  applyHazardPhysics(dt: number, drones: ReadonlyMap<DroneRole, Drone>): void {
+    this.floorPlanRuntime.applyPhysics(dt, drones);
+  }
+
+  notifyYank(role: DroneRole): void {
+    this.floorPlanRuntime.notifyYank(role);
   }
 
   /** TEST-ONLY (?autotest&stage=escape): vault hacked, NEE carrying the prototype, alarm on. */
   debugStartEscape(): void {
     this.hack.debugCompleteAll();
     this.grab.debugGrab('prototype', 'nee');
+  }
+
+  debugStage(stage: 'hack-security' | 'steal-prototype' | 'escape'): void {
+    this.hack.debugCompleteAll();
+    this.mission.debugSetStage(stage);
   }
 
   /** TEST-ONLY (?autotest): security snapshot for multiplayer agreement checks. */
@@ -237,10 +267,16 @@ export class GameplayWorld {
 
   /** Solo companion: where its own console is, once the leader is working nearby. */
   botObjective(role: DroneRole, leader: Vector3): Vector3 | null {
+    const objective = this.floorPlanRuntime.botObjective(role, leader);
+    if (objective) return objective;
     if (this.mission.stage !== 'hack-security') return null;
     const station = this.hack.botStation(role);
     if (!station || Vector3.Distance(station.position, leader) > 15) return null;
     return station.position.add(new Vector3(0, 0.4, 0));
+  }
+
+  botAvoidYank(): boolean {
+    return this.floorPlanRuntime.botAvoidYank();
   }
 
   botWork(role: DroneRole, position: Vector3, dt: number): boolean {
@@ -287,11 +323,13 @@ export class GameplayWorld {
   dispose(): void {
     this.removeFloorStart?.();
     this.removeObjectEvent?.();
+    this.removeYank();
     setLayoutSinkProvider(null);
     this.playground.dispose();
     this.grab.dispose();
     this.hack.dispose();
     this.mission.dispose();
+    this.floorPlanRuntime.dispose();
     this.audio.dispose();
   }
 }

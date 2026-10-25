@@ -36,7 +36,6 @@ import {
   prepareDailyRun,
   runOptionsFromSearch,
 } from './net/runInfo.ts';
-import { getBest } from './run/nightShiftScore.ts';
 import './style.css';
 import { audio } from './audio/AudioManager.ts';
 import { titleMenuNav } from './ui/MenuNavigator.ts';
@@ -249,13 +248,14 @@ function showSinglePlayer(): void {
   const actions = element('div', 'menu-actions');
   actions.append(start, night, menuButton('Back', 'back', showMainMenu, 'btn--quiet'));
   panel.append(actions);
-  const best = getBest();
-  if (best) {
+  bindMenuNav(panel, showMainMenu, start);
+  void import('./run/nightShiftScore.ts').then(({ getBest }) => {
+    const best = getBest();
+    if (!best) return;
     const p = element('p', 'menu-best', `Night Shift best: floor ${best.floor} · ${best.score}`);
     p.dataset.testid = 'night-shift-best';
     panel.append(p);
-  }
-  bindMenuNav(panel, showMainMenu, start);
+  });
 }
 
 function showMultiplayerMenu(): void {
@@ -760,7 +760,7 @@ if (bootParams.has('report')) {
   void bootFromInviteLink();
   preloadNow();
 } else if (urlRun.seed != null) {
-  prepareChallengeRun(urlRun.seed, urlRun.beat);
+  prepareChallengeRun(urlRun.seed, urlRun.beat, urlRun.floor ?? 1);
   void startGame('night-shift');
   preloadNow();
 } else if (bootParams.get('play') === 'solo') {

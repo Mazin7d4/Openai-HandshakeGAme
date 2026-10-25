@@ -116,13 +116,14 @@ export function recordBest(floor: number, total: number): BestScore {
   return next;
 }
 
-export function scoreFloor(stats: RunStats, floor: number): ScoreFloorResult {
+export function scoreFloor(stats: RunStats, floor: number, payoutScale = 1): ScoreFloorResult {
   const state = loadRun();
   const scored = scoreFloorPure({
     elapsedSeconds: stats.elapsedSeconds,
     timesSpotted: stats.timesSpotted,
     tetherSaves: stats.tetherSaves,
     cordTwangs: stats.cordTwangs,
+    payoutScale,
   }, floor, state.floors as NightShiftFloors);
   state.floors = scored.floors;
   saveRun(state);

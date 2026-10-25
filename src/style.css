@@ -1076,6 +1076,23 @@ html[data-reduced-motion='1'] .wake-spinner { display: none; }
   font-size: 26px;
 }
 
+.floor-card__boss {
+  display: inline-block;
+  margin: 4px 0 2px;
+  padding: 4px 8px;
+  border: 1px solid #d9ae45;
+  border-radius: 999px;
+  color: #ffd76a;
+  font: 800 12px/1 var(--font-screen);
+  letter-spacing: .08em;
+}
+
+.floor-card__objective {
+  margin: 8px 0 0;
+  color: #ffd23f;
+  font-size: 13px;
+}
+
 .floor-card--out {
   opacity: 0;
   transform: translateY(-8px);

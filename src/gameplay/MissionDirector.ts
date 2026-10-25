@@ -32,6 +32,9 @@ import { twistFlavor } from '../run/twistFlavor.ts';
 import type { NightShiftSummary } from '../ui/HeistReport.ts';
 import { getSettings, subscribeSettings } from '../ui/Settings.ts';
 import { isTouchPlayDevice } from '../ui/touchDetect.ts';
+import { hazardSummary } from '../../shared/nightshift/hazards.mjs';
+import { objectiveHud } from '../../shared/nightshift/objectives.mjs';
+import type { ObjectivePlan, ObjectiveState } from '../../shared/nightshift/types.d.ts';
 
 export interface WarmupStep {
   label: string;
@@ -125,6 +128,8 @@ export class MissionDirector {
   private objectiveKicker: HTMLElement | null = null;
   private objectiveTextKey = '';
   private rematchPartnerLeft = false;
+  private objectivePlan: ObjectivePlan | null = null;
+  private objectiveState: ObjectiveState | null = null;
 
   constructor(
     scene: Scene,
@@ -361,6 +366,11 @@ export class MissionDirector {
     }
   }
 
+  setObjectiveState(plan: ObjectivePlan | null, state: ObjectiveState | null): void {
+    this.objectivePlan = plan;
+    this.objectiveState = state;
+  }
+
   sync(status: RoomStatus): void {
     const previousAlarm = this.state.alarm;
     this.state = { ...status.mission };
@@ -521,6 +531,15 @@ export class MissionDirector {
     };
   }
 
+  debugSetStage(stage: 'hack-security' | 'steal-prototype' | 'escape'): void {
+    this.state = {
+      ...this.state,
+      stage,
+      alarm: stage === 'escape' ? true : this.state.alarm,
+      securityActive: stage === 'escape' ? true : this.state.securityActive,
+    };
+  }
+
   get cameraContext() {
     return { alarm: this.state.alarm, vaultOpen: this.hacksWereComplete, complete: this.state.extracted };
   }
@@ -552,8 +571,8 @@ export class MissionDirector {
     if (hook.__nightShift) delete hook.__nightShift;
   }
 
-  private spotted(role: DroneRole): void {
-    if (this.spotCooldown > 0 || this.state.stage === 'complete') return;
+  public spotted(role: DroneRole, force = false): void {
+    if ((!force && this.spotCooldown > 0) || this.state.stage === 'complete') return;
     this.spotCooldown = 2.8;
     this.peakDetection = 0;
     // Single-player only: in multiplayer the server detects, counts and broadcasts 'security-spotted'.
@@ -628,20 +647,29 @@ export class MissionDirector {
     const warm = this.state.stage === 'infiltrate' ? this.warmup() : null;
     const job = floorJob(this.runLayout?.floor);
     if (this.objectiveKicker && this.objectiveKicker.textContent !== job.kicker) this.objectiveKicker.textContent = job.kicker;
+    const syncedObjective = this.objectivePlan && this.objectiveState
+      ? objectiveHud(this.objectiveState, this.objectivePlan)
+      : null;
+    const objectiveActive = syncedObjective && !this.objectiveState?.done &&
+      (this.state.stage === 'hack-security' || this.state.stage === 'steal-prototype');
     const [title, detail] = this.state.stage === 'infiltrate'
       ? warm ? ['Warm up on the apron', ''] : [job.infiltrate, this.routeHint]
       : this.state.stage === 'hack-security'
-        ? [job.hack, `${hackCount} / 3 access keys · ${this.routeHint}`]
+        ? objectiveActive
+          ? [syncedObjective.label, syncedObjective.detail]
+          : [job.hack, `${hackCount} / 3 access keys · ${this.routeHint}`]
         : this.state.stage === 'steal-prototype'
-          ? [
-              job.steal,
-              'The vault is open. Rise to the display cradle; ' +
-                byInput({
-                  keyboard: '[E] to carry the core.',
-                  touch: 'tap Grab to carry the core.',
-                  gamepad: 'grab to carry the core.',
-                }),
-            ]
+          ? objectiveActive
+            ? [syncedObjective.label, syncedObjective.detail]
+            : [
+                job.steal,
+                'The vault is open. Rise to the display cradle; ' +
+                  byInput({
+                    keyboard: '[E] to carry the core.',
+                    touch: 'tap Grab to carry the core.',
+                    gamepad: 'grab to carry the core.',
+                  }),
+              ]
           : this.state.stage === 'escape'
             ? [
                 job.escape,
@@ -749,24 +777,45 @@ export class MissionDirector {
     const card = document.createElement('div');
     card.className = 'floor-card';
     card.dataset.testid = 'floor-card';
+    if (this.runLayout?.plan?.job.boss) card.dataset.boss = '1';
 
     const kicker = document.createElement('small');
     kicker.className = 'floor-card__kicker';
     kicker.style.display = 'block';
-    kicker.textContent = floor > 1 ? `Floor ${floor} · ${floorJob(floor).kicker.replace('Night job · ', '')}` : `Floor ${floor}`;
+    const plan = this.runLayout?.plan;
+    kicker.textContent = plan ? `Floor ${floor} · ${plan.job.name}` : (floor > 1 ? `Floor ${floor} · ${floorJob(floor).kicker.replace('Night job · ', '')}` : `Floor ${floor}`);
+    kicker.dataset.testid = 'floor-job';
 
     const title = document.createElement('h3');
     title.textContent = twist.label;
 
     const flavor = document.createElement('p');
     flavor.className = 'floor-card__flavor';
-    flavor.textContent = twistFlavor(twist.id);
+    flavor.textContent = plan?.job.blurb ?? twistFlavor(twist.id);
+
+    const boss = plan?.job.boss ? document.createElement('span') : null;
+    if (boss) {
+      boss.className = 'floor-card__boss';
+      boss.dataset.boss = '1';
+      boss.textContent = 'BOSS VAULT · x2 payout';
+    }
+
+    const pacing = plan ? document.createElement('p') : null;
+    if (pacing && plan) {
+      pacing.className = 'floor-card__objective';
+      const hazards = hazardSummary(plan.hazards);
+      pacing.textContent = plan.job.tutorial && hazards.length === 0
+        ? `${plan.objective.label} · Fly together — the cord is your tool`
+        : `${plan.objective.label} · ${hazards.length ? hazards.join(' · ') : 'No active hazards'}`;
+    }
 
     const score = document.createElement('p');
     score.className = 'floor-card__score';
     score.textContent = `Score ${total.toLocaleString('en-US')} · streak x${multiplier}`;
 
     card.append(kicker, title, flavor, score);
+    if (boss) card.appendChild(boss);
+    if (pacing) card.appendChild(pacing);
 
     const dismiss = () => {
       if (this.floorCardTimer !== null) {
@@ -926,7 +975,7 @@ export class MissionDirector {
       if (!this.floorScored) {
         this.floorScored = true;
         const floor = Math.max(1, this.runLayout.floor | 0);
-        const scored = scoreFloor(stats, floor);
+        const scored = scoreFloor(stats, floor, this.runLayout.plan?.job.payoutScale ?? 1);
         this.updateScoreHud();
         // Mirror onNextFloor: ClientRun.localEscape (advanceFloor) when a run exists, else seed-only advance.
         const run = getRunState();

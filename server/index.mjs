@@ -14,6 +14,8 @@ import {
 } from '../shared/run.ts';
 import { applyRunLayout, generateRun } from '../shared/seed/index.mjs';
 import { scoreFloorPure, dropFloorsFrom } from '../shared/nightShiftScore.mjs';
+import { ObjectiveSim, shouldBroadcast as shouldBroadcastObjective } from './objectiveSim.mjs';
+import { HazardTripGate, checkHazardTrips } from '../shared/nightshift/hazards.mjs';
 import { installLifecycleLogging, logListenError } from './lifecycle.mjs';
 
 const require = createRequire(import.meta.url);
@@ -266,6 +268,11 @@ class HandshakeRoom extends Room {
   nightshiftEscapedFloor = 0;
   world = createWorldSinks();
   runLayout = null;
+  floorPlan = null;
+  objectiveSim = new ObjectiveSim();
+  hazardGate = new HazardTripGate();
+  objectiveBroadcastSeq = -1;
+  objectiveBroadcastElapsed = 0;
   heldSinceMs = new Map();
   lastGrabMs = new Map();
   pingTimes = new Map();
@@ -366,13 +373,29 @@ class HandshakeRoom extends Room {
         }
       });
       this.onMessage('debug-stage', (_client, m) => {
-        if (m?.stage === 'escape') {
+        if (m?.stage === 'hack-security' || m?.stage === 'steal-prototype') {
+          this.state.mission.stage = m.stage;
+          if (m?.openDoor === true) this.state.hack.doorOpen = true;
+        } else if (m?.stage === 'escape') {
           this.state.mission.stage = 'escape';
           this.state.mission.alarm = true;
           this.state.mission.securityActive = true;
           if (m?.openDoor === true) this.state.hack.doorOpen = true;
           if (m?.freezePatrols) this._testPatrolFrozen = true;
         }
+      });
+      this.onMessage('debug-run-floor', (_client, message) => {
+        const floor = Math.max(1, Math.round(finite(message?.floor, this.state.run.floor)));
+        if (this.state.run.mode !== 'nightshift' || this.state.run.ended) return;
+        this.state.run.floor = floor;
+        this.state.run.floorCleared = false;
+        this.nightshiftEscapedFloor = 0;
+        this.nsTwangs.clear();
+        this.resetMission();
+        this.beginFloor();
+      });
+      this.onMessage('debug-objective', (client) => {
+        this.sendObjectiveState(client);
       });
       this.onMessage('debug-run-escape', () => {
         this.clearFloor();
@@ -466,6 +489,7 @@ class HandshakeRoom extends Room {
       try {
         this.updateHack();
         this.botPilot.tick(deltaMs / 1000);
+        this.stepObjective(deltaMs / 1000);
         this.updateMission();
         this.updateHeldObjects(deltaMs / 1000);
         this.updateSecurity(deltaMs / 1000);
@@ -587,6 +611,7 @@ class HandshakeRoom extends Room {
       multiplier: this.state.run.multiplier,
       captures: this.state.run.captures,
     });
+    this.broadcastObjectiveState(true);
   }
 
   /** Night Shift: advance after a server-cleared floor. */
@@ -627,6 +652,7 @@ class HandshakeRoom extends Room {
       timesSpotted: Math.max(0, finite(this.state.mission.timesSpotted, 0)),
       tetherSaves: Math.max(0, finite(this.state.mission.tetherSaves, 0)),
       cordTwangs: twangs,
+      payoutScale: this.floorPlan?.job?.payoutScale ?? 1,
     }, run.floor, this.nsFloors);
     this.nsFloors = scored.floors;
     run.score = scored.total;
@@ -652,6 +678,8 @@ class HandshakeRoom extends Room {
       streak: scored.streak,
       total: scored.total,
       clean: scored.floors[run.floor]?.clean === true,
+      boss: this.floorPlan?.job?.boss === true,
+      job: this.floorPlan?.job?.name ?? '',
       next: { seed: next.seed, floor: next.floor },
     });
   }
@@ -765,6 +793,7 @@ class HandshakeRoom extends Room {
       this.state.players.set(client.sessionId, player);
       this.state.started = true;
       this.broadcast('bot-seat', { role, active: false, handoff: true, by: client.sessionId });
+      this.sendObjectiveState(client);
       return;
     }
 
@@ -788,6 +817,7 @@ class HandshakeRoom extends Room {
     if (this.botEnabled && this.state.players.size === 1) {
       this.addBotSeat(role === 'pix' ? 'nee' : 'pix');
     }
+    this.sendObjectiveState(client);
   }
 
   /** Unexpected drop: hold the seat, freeze the drone, keep match state. */
@@ -911,7 +941,7 @@ class HandshakeRoom extends Room {
     if (!player?.connected || player.captured || !object || distance(player.position, object.position) > object.grabRadius) {
       return;
     }
-    if (object.id === 'prototype' && !this.state.hack.doorOpen) return;
+    if (object.id === 'prototype' && (!this.state.hack.doorOpen || this.objectiveSim.locked)) return;
     const now = Date.now();
     if (now - (this.lastGrabMs.get(sessionId) ?? 0) < GRAB_COOLDOWN_MS) return;
     this.lastGrabMs.set(sessionId, now);
@@ -1131,6 +1161,62 @@ class HandshakeRoom extends Room {
     }
   }
 
+  stepObjective(dt) {
+    if (!this.floorPlan?.objective || this.state.mission.stage === 'complete') return;
+    const events = this.objectiveSim.step(
+      Math.max(0, Math.min(0.25, dt)),
+      Array.from(this.state.players.values()),
+      this.state.objects.get('prototype')?.heldBy ?? '',
+    );
+    for (const event of events) {
+      if (event.type === 'shatter') this.handlePrototypeShatter(event.role);
+      else this.broadcast('objective-event', event);
+    }
+    const elapsed = finite(this.state.mission.elapsedSeconds, 0);
+    if (shouldBroadcastObjective(this.objectiveBroadcastSeq, this.objectiveSim, elapsed - this.objectiveBroadcastElapsed)) {
+      this.broadcastObjectiveState();
+    }
+  }
+
+  objectivePayload() {
+    return {
+      floor: this.state.run.floor,
+      seed: this.state.run.seed,
+      state: this.objectiveSim.snapshot(),
+    };
+  }
+
+  sendObjectiveState(client) {
+    if (this.state.run.mode !== 'nightshift') return;
+    client?.send('objective-state', this.objectivePayload());
+  }
+
+  broadcastObjectiveState(force = false) {
+    if (this.state.run.mode !== 'nightshift' || !this.floorPlan) return;
+    const elapsed = finite(this.state.mission.elapsedSeconds, 0);
+    this.broadcast('objective-state', this.objectivePayload());
+    this.objectiveBroadcastSeq = this.objectiveSim.state.seq;
+    this.objectiveBroadcastElapsed = elapsed;
+  }
+
+  handlePrototypeShatter(role = 'pix') {
+    const prototype = this.state.objects.get('prototype');
+    if (!prototype) return;
+    const loot = this.runLayout?.loot ?? layout.objects.prototype;
+    this.setOwnership(prototype, null, 'shatter', role === 'nee' ? 'nee' : 'pix');
+    prototype.position.x = loot.x;
+    prototype.position.y = loot.y;
+    prototype.position.z = loot.z;
+    prototype.velocity.x = 0;
+    prototype.velocity.y = 0;
+    prototype.velocity.z = 0;
+    prototype.revision += 1;
+    const spottedRole = role === 'nee' ? 'nee' : 'pix';
+    this.markSpotted(spottedRole, true);
+    this.broadcast('objective-event', { type: 'shatter', role: spottedRole });
+    this.broadcastObjectiveState(true);
+  }
+
   updateSecurity(dt) {
     dt = Math.max(0, Math.min(0.1, dt));
     if (this.state.mission.stage === 'complete') return;
@@ -1154,11 +1240,25 @@ class HandshakeRoom extends Room {
     });
     // Each drone has its own spotted cooldown, so both can be spotted in the same window.
     for (const role of result.spotted) {
-      if (!(role in this.spotCooldownUntil)) continue;
-      if (this.spotCooldownUntil[role] <= now && this.state.mission.stage !== 'complete') {
-        this.state.mission.timesSpotted += 1;
-        this.spotCooldownUntil[role] = now + 2800;
-        this.broadcast('security-spotted', { role });
+      this.markSpotted(role);
+    }
+    if (this.floorPlan?.hazards && this.state.mission.stage !== 'complete') {
+      const hazardPlayers = players.map((player) => ({
+        role: player.role,
+        x: player.position.x,
+        y: player.position.y,
+        z: player.position.z,
+        captured: player.captured,
+      }));
+      const ordered = hazardPlayers.slice().sort((a, b) => a.role.localeCompare(b.role));
+      const cordPoints = ordered.map((player) => ({ x: player.x, y: player.y, z: player.z }));
+      const trips = this.hazardGate.filter(
+        checkHazardTrips(this.floorPlan.hazards, this.state.mission.elapsedSeconds, hazardPlayers, cordPoints),
+        this.state.mission.elapsedSeconds,
+      );
+      for (const trip of trips) {
+        this.markSpotted(trip.role);
+        this.broadcast('hazard-trip', { id: trip.id, role: trip.role, via: trip.via });
       }
     }
     // A shove goes only to the client that owns the shoved drone; it applies the impulse locally.
@@ -1177,6 +1277,16 @@ class HandshakeRoom extends Room {
         if (freed) this.finishCapture(freed.role, freed.index, 'both');
       }
     }
+  }
+
+  markSpotted(role, force = false) {
+    if (!(role in this.spotCooldownUntil) || this.state.mission.stage === 'complete') return false;
+    const now = Date.now();
+    if (!force && this.spotCooldownUntil[role] > now) return false;
+    this.state.mission.timesSpotted += 1;
+    this.spotCooldownUntil[role] = now + 2800;
+    this.broadcast('security-spotted', { role });
+    return true;
   }
 
   beginCapture(role, index) {
@@ -1310,6 +1420,7 @@ class HandshakeRoom extends Room {
     if (!partnerEntry) return;
     const [partnerId, partner] = partnerEntry;
     if (!partner.connected || distance(sender.position, partner.position) > 13.5) return;
+    this.objectiveSim.noteYank(sender.role);
     const target = this.clients.find((candidate) => candidate.sessionId === partnerId);
     this.yankTimes.set(client.sessionId, now);
     const impulse = message.impulse ?? {};
@@ -1338,6 +1449,7 @@ class HandshakeRoom extends Room {
     const sender = this.state.players.get('bot');
     const partner = [...this.state.players.values()].find((player) => !player.bot && player.connected);
     if (!sender?.connected || sender.captured || !partner || !partner.captured || distance(sender.position, partner.position) > 11) return false;
+    this.objectiveSim.noteYank(sender.role);
     const freed = this.securitySim.releaseRole(partner.role, 'yank');
     if (!freed) return false;
     this.finishCapture(freed.role, freed.index, 'yank');
@@ -1402,6 +1514,11 @@ class HandshakeRoom extends Room {
   applySeedFloor(seed, floor = 0) {
     const run = generateRun(seed >>> 0, Math.max(0, floor | 0));
     this.runLayout = run;
+    this.floorPlan = run.plan ?? null;
+    this.objectiveSim.reset(this.floorPlan?.objective ?? null);
+    this.hazardGate = new HazardTripGate();
+    this.objectiveBroadcastSeq = -1;
+    this.objectiveBroadcastElapsed = 0;
     applyRunLayout(run, {
       spawn: this.world.spawn,
       extraction: this.world.extraction,
@@ -1513,6 +1630,10 @@ class HandshakeRoom extends Room {
     mission.objectsThrown = 0;
     mission.tetherSaves = 0;
     this.missionStartedAt = Date.now();
+    this.objectiveSim.reset(this.floorPlan?.objective ?? null);
+    this.hazardGate = new HazardTripGate();
+    this.objectiveBroadcastSeq = -1;
+    this.objectiveBroadcastElapsed = 0;
   }
 
   releaseRole(role) {

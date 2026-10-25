@@ -500,6 +500,7 @@ export class GameApp {
             leaderVelocity: () => live.drones?.[0]?.velocity ?? null,
             leaderInTrouble: () => live.drones?.[0]?.inTrouble ?? false,
             leaderCaptured: () => live.drones?.[0]?.isCaptured ?? false,
+            avoidYank: () => live.gameplay?.botAvoidYank() ?? false,
             objective: () => {
               const leader = live.drones?.[0]?.position;
               return leader ? live.gameplay?.botObjective('nee', leader) ?? null : null;
@@ -608,8 +609,17 @@ export class GameApp {
         player.drone.debugTeleport(x, y, z);
         return true;
       },
+      /** Photo/test hook: pin the camera at eye looking at target (null restores the rig). */
+      photo: (eye: { x: number; y: number; z: number } | null, target?: { x: number; y: number; z: number }) => {
+        this.cameraRig.debugPose = eye && target
+          ? { eye: new Vector3(eye.x, eye.y, eye.z), target: new Vector3(target.x, target.y, target.z) }
+          : null;
+      },
       /** Ask the server for a test stage (needs HANDSHAKE_TEST_HOOKS=1 on the server). */
-      debugStage: (stage: 'escape') => this.multiplayer?.debugStage(stage),
+      debugStage: (stage: 'hack-security' | 'steal-prototype' | 'escape') => {
+        if (this.multiplayer) this.multiplayer.debugStage(stage === 'escape' ? 'escape' : stage);
+        else this.gameplay.debugStage(stage);
+      },
       /** Propose a clothesline stun to the server (it validates against its own patrol + player positions). */
       requestStun: (index: number, at?: { x: number; y: number; z: number }) => {
         const point = at ?? this.gameplay.debugSecurity().patrols[index];
@@ -793,6 +803,7 @@ export class GameApp {
     this.gameplay.sfx.cordTension(this.tether.currentStrain);
     if (switchDrone && this.mode === 'dev-local') this.switchDevDrone();
     this.gameplay.update(dt, droneByRole, this.tether.currentStrain);
+    this.gameplay.applyHazardPhysics(dt, droneByRole);
     this.tether.apply(dt, (drone) => {
       const player = this.players.find((candidate) => candidate.drone === drone);
       return player?.control.kind !== 'remote';
