@@ -14,6 +14,7 @@ import type {
 } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
 import { HeistReport, type CoopReportState } from '../ui/HeistReport.ts';
+import { escapeReplay } from '../fx/EscapeReplay.ts';
 import type { RunStats } from '../ui/heistAwards.ts';
 import type { GrabSystem } from './GrabSystem.ts';
 import type { HackSession } from './HackSession.ts';
@@ -269,6 +270,7 @@ export class MissionDirector {
       this.report = new HeistReport(uiParent, {
         audio,
         onLeave,
+        onReplay: () => this.watchReplay(),
         onPlayAgain: () => {
           if (mode === 'night-shift' && this.runLayout) {
             restartNightShift({ seed: this.runLayout.seed, floor: this.runLayout.floor });
@@ -584,14 +586,20 @@ export class MissionDirector {
       this.audio.stopAlarm();
       this.audio.missionComplete();
       gameEvents.emit('heist', { beat: 'extract', position: this.extraction.clone() });
-      // Let the extraction confetti play before the results panel covers it.
+      escapeReplay.markEnd(400);
+      // Let the extraction confetti play, then the slow-mo escape replay, then the results panel.
       if (this.successTimer !== null) window.clearTimeout(this.successTimer);
       this.successTimer = window.setTimeout(() => {
         this.successTimer = null;
-        if (this.state.stage === 'complete') this.presentReport(this.snapshotStats('win'));
+        if (this.state.stage !== 'complete') return;
+        const stats = this.snapshotStats('win');
+        this.playReplayThen(() => {
+          if (this.state.stage === 'complete') this.presentReport(stats);
+        });
       }, 1200);
     } else if (this.state.stage !== 'complete') {
       this.completedPresented = false;
+      if (escapeReplay.active) escapeReplay.skip();
       this.report?.hide();
     }
   }
@@ -793,6 +801,7 @@ export class MissionDirector {
       this.audio.stopAlarm();
       this.audio.missionComplete();
       gameEvents.emit('heist', { beat: 'extract', position: this.extraction.clone() });
+      escapeReplay.markEnd(0);
     }
     const best = recordBest(message.floor, message.total);
     this.lastNightShiftSummary = {
@@ -804,7 +813,32 @@ export class MissionDirector {
       nextTwist: { label: nextTwist.label, flavor: twistFlavor(nextTwist.id) },
     };
     this.updateScoreHud();
-    this.presentReport(this.snapshotStats('win'), true);
+    const stats = this.snapshotStats('win');
+    this.playReplayThen(() => this.presentReport(stats, true));
+  }
+
+  /** Slow-mo escape replay before the report; falls straight through when there is no footage or reduced motion. */
+  private playReplayThen(show: () => void): void {
+    const reveal = () => {
+      this.report?.setReplayAvailable(escapeReplay.hasFootage);
+      show();
+    };
+    if (!escapeReplay.play({ onDone: reveal, subline: this.replaySubline() })) reveal();
+  }
+
+  /** Report "Watch replay": hide the report, replay, bring the same report back. */
+  private watchReplay(): void {
+    if (!this.report || escapeReplay.active) return;
+    this.report.suspend();
+    const played = escapeReplay.play({ manual: true, subline: this.replaySubline(), onDone: () => this.report?.resume() });
+    if (!played) this.report.resume();
+  }
+
+  private replaySubline(): string | undefined {
+    const nightShift = this.mode === 'night-shift' || this.isCoopNightShift();
+    if (!nightShift || !this.runLayout) return undefined;
+    const floor = this.multiplayer?.currentStatus.run.floor ?? this.runLayout.floor;
+    return `Floor ${Math.max(1, floor | 0)} cleared`;
   }
 
   /** Late join / reconnect: rebuild the shared report from server run state if the broadcast was missed. */
@@ -983,6 +1017,7 @@ export class MissionDirector {
   }
 
   private resetRunCounters(): void {
+    escapeReplay.reset();
     this.clotheslines = 0;
     this.cordTwangs = 0;
     this.nearMisses = 0;
