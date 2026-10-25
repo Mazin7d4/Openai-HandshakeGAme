@@ -320,6 +320,10 @@ export interface CreateRoomOptions {
   beat?: number;
 }
 
+export interface QuickMatchOptions extends CreateRoomOptions {
+  qmKey: string;
+}
+
 function copyPlayer(player: SchemaPlayer): DroneNetworkState {
   return {
     playerId: player.playerId,
@@ -451,6 +455,20 @@ export class MultiplayerSession {
     return new MultiplayerSession(room, options.beat);
   }
 
+  static async quickMatch(options: QuickMatchOptions): Promise<MultiplayerSession> {
+    const client = new Client(serverEndpoint());
+    const joinOptions: { quickMatch: true; qmKey: string; seed?: number; mode?: RunMode } = {
+      quickMatch: true,
+      qmKey: options.qmKey,
+    };
+    if (typeof options.seed === 'number' && Number.isFinite(options.seed)) {
+      joinOptions.seed = options.seed >>> 0;
+    }
+    if (options.mode) joinOptions.mode = options.mode;
+    const room = await retryInitialConnect(() => client.joinOrCreate<SchemaRoomState>('handshake', joinOptions));
+    return new MultiplayerSession(room, options.beat);
+  }
+
   static async joinRoom(code: string, options: CreateRoomOptions = {}): Promise<MultiplayerSession> {
     const normalized = code.trim().toUpperCase();
     const existing = loadReconnectionToken(normalized);
@@ -497,6 +515,10 @@ export class MultiplayerSession {
   get reconnectSecondsLeft(): number | null {
     if (this.reconnectDeadlineMs == null) return null;
     return Math.max(0, Math.ceil((this.reconnectDeadlineMs - Date.now()) / 1000));
+  }
+
+  requestBotPartner(): void {
+    this.room.send('quickmatch-bot');
   }
 
   onStatus(listener: StatusListener): () => void {
