@@ -1,5 +1,7 @@
 import { cordState } from '../gameplay/Tether.ts';
-import { Vector3, type Engine, type Scene } from '@babylonjs/core';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Engine } from '@babylonjs/core/Engines/engine.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import { AssetLoader } from '../assets/AssetLoader.ts';
 import { audio as audioHub } from '../audio/AudioManager.ts';
 import { CinematicCamera } from '../camera/CinematicCamera.ts';

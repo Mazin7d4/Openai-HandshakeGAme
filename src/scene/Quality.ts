@@ -1,4 +1,10 @@
-import type { DirectionalLight, Engine, GlowLayer, Light, Observer, Scene, ShadowGenerator } from '@babylonjs/core';
+import type { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
+import type { Engine } from '@babylonjs/core/Engines/engine.js';
+import type { GlowLayer } from '@babylonjs/core/Layers/glowLayer.js';
+import type { Light } from '@babylonjs/core/Lights/light.js';
+import type { Observer } from '@babylonjs/core/Misc/observable.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+import type { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
 import { getSettings, subscribeSettings, type GraphicsQualitySetting } from '../ui/Settings.ts';
 
 /**

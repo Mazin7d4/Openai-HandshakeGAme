@@ -1,16 +1,14 @@
 import { mergeRigidChildren } from '../scene/mergeChildren.ts';
-import {
-  Color3,
-  CreateBox,
-  CreateCylinder,
-  CreateSphere,
-  CreateTorus,
-  Mesh,
-  PBRMaterial,
-  Scene,
-  StandardMaterial,
-  TransformNode,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
+import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.js';
+import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
+import { CreateTorus } from '@babylonjs/core/Meshes/Builders/torusBuilder.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 
 /**
  * Cargo Core: a hand-carry power cell fitting a diameter-1 sphere.

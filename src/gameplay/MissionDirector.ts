@@ -1,4 +1,7 @@
-import { Color3, PointLight, Vector3, type Scene } from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { PointLight } from '@babylonjs/core/Lights/pointLight.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { GameMode } from '../app/GameMode.ts';
 import type { FloorClearedMessage, MultiplayerSession, RunEndedMessage } from '../network/MultiplayerSession.ts';

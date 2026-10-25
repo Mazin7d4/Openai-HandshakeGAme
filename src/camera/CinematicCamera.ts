@@ -1,4 +1,8 @@
-import { FreeCamera, Ray, Vector3, type AbstractMesh, type Scene } from '@babylonjs/core';
+import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera.js';
+import { Ray } from '@babylonjs/core/Culling/ray.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import {
   getCameraTouchSettings,
   subscribeCameraTouchSettings,

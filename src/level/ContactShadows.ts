@@ -1,14 +1,12 @@
-import {
-  Color3,
-  CreateGround,
-  DynamicTexture,
-  Ray,
-  StandardMaterial,
-  Vector3,
-  type AbstractMesh,
-  type InstancedMesh,
-  type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder.js';
+import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
+import { Ray } from '@babylonjs/core/Culling/ray.js';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import type { InstancedMesh } from '@babylonjs/core/Meshes/instancedMesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 
 interface ShadowTargetState {
   readonly target: { mesh: AbstractMesh; radius: number };

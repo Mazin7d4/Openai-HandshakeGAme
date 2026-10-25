@@ -1,18 +1,16 @@
-import {
-  Color3,
-  Color4,
-  ColorCurves,
-  DirectionalLight,
-  Engine,
-  GlowLayer,
-  HemisphericLight,
-  ImageProcessingConfiguration,
-  Mesh,
-  Scene,
-  ShadowGenerator,
-  Vector3,
-  type AbstractMesh,
-} from '@babylonjs/core';
+import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
+import { ColorCurves } from '@babylonjs/core/Materials/colorCurves.js';
+import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
+import { Engine } from '@babylonjs/core/Engines/engine.js';
+import { GlowLayer } from '@babylonjs/core/Layers/glowLayer.js';
+import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
+import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { Scene } from '@babylonjs/core/scene.js';
+import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import './babylonSideEffects.ts';
 import { createStudioEnvironment } from './studioEnvironment.ts';
 import { initialTier, QualityManager } from './Quality.ts';
 

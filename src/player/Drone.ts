@@ -1,15 +1,11 @@
-import {
-  Color3,
-  CreateBox,
-  HavokPlugin,
-  PhysicsActivationControl,
-  PhysicsAggregate,
-  PhysicsPrestepType,
-  PhysicsShapeType,
-  Vector3,
-  type Mesh,
-  type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
+import type { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin.js';
+import { PhysicsActivationControl, PhysicsPrestepType, PhysicsShapeType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import { PhysicsAggregate } from '@babylonjs/core/Physics/v2/physicsAggregate.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { LoadedModel } from '../assets/AssetLoader.ts';
 import type { CameraSubject } from '../camera/CameraSubject.ts';
 import type { FlightAxes } from '../input/FlightAxes.ts';

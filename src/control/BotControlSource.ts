@@ -1,4 +1,4 @@
-import { Vector3 } from '@babylonjs/core';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { zeroFlightAxes, type FlightAxes } from '../input/FlightAxes.ts';
 import { zeroInteractionActions } from '../input/InteractionActions.ts';
 import type { DroneControlFrame, DroneControlSource } from './DroneControlSource.ts';

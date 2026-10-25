@@ -1,7 +1,9 @@
-import {
-  ImportMeshAsync, Matrix, Mesh, PBRMaterial, TransformNode, type Scene,
-} from '@babylonjs/core';
-import '@babylonjs/core/Meshes/thinInstanceMesh.js';
+import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader.js';
+import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import '../assets/registerGltf.ts';
 import '../assets/meshopt.ts';
 
