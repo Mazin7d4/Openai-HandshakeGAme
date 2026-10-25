@@ -527,6 +527,13 @@ export class SecuritySystem {
 
   remoteStun(index: number, at: Vector3): void { this.patrols[index]?.stun(at); }
 
+  /** Patrols that are switched on (AI partner threat avoidance). */
+  activePatrolPositions(): { x: number; y: number; z: number }[] {
+    return this.patrols
+      .filter((patrol) => patrol.currentMood !== 'off')
+      .map((patrol) => ({ x: patrol.position.x, y: patrol.position.y, z: patrol.position.z }));
+  }
+
   /** TEST/DEBUG: rendered patrol positions. */
   patrolPositions(): { x: number; y: number; z: number }[] {
     return this.patrols.map((patrol) => ({ x: patrol.position.x, y: patrol.position.y, z: patrol.position.z }));

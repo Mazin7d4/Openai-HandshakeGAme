@@ -27,6 +27,7 @@ import { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole, EmoteId } from '../network/NetworkTypes.ts';
 import { getRunState } from '../run/ClientRun.ts';
 import { Drone, DRONE_PALETTES } from '../player/Drone.ts';
+import { BotTag } from '../player/BotTag.ts';
 import { DRONE_MODEL_URL } from '../player/DroneVisual.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import { enableHavok } from '../physics/enableHavok.ts';
@@ -79,6 +80,10 @@ export class GameApp {
   private readonly devOrbit: DevOrbitCamera | null;
   private readonly multiplayer: MultiplayerSession | null;
   private readonly removeNetworkStatus: (() => void) | null;
+  private readonly botTags: Map<DroneRole, BotTag>;
+  private readonly initialSpawn = new Map<DroneRole, Vector3>();
+  private readonly aiPartnerEnabled: boolean;
+  private takeoverSpawnApplied = false;
   private readonly snapshots: PlayerSnapshot[] = [];
   private readonly hud: GameHud | null;
   private readonly a11y: AccessibilityFeedback | null;
@@ -153,6 +158,14 @@ export class GameApp {
     this.multiplayer = multiplayer;
     this.gameplay = gameplay;
     this.runLayout = runLayout;
+    this.aiPartnerEnabled = (mode === 'singleplayer' || mode === 'night-shift')
+      && new URLSearchParams(window.location.search).get('bot') !== '0';
+    this.botTags = new Map();
+    for (const player of players) {
+      this.initialSpawn.set(player.role, player.drone.position.clone());
+      this.botTags.set(player.role, new BotTag(scene, player.drone.root));
+    }
+    if (this.aiPartnerEnabled) this.botTags.get('nee')?.setVisible(true);
     this.pingEmote = new PingEmote(
       scene,
       cameraRig.camera.getEngine().getRenderingCanvas() as HTMLCanvasElement,
@@ -392,6 +405,8 @@ export class GameApp {
     }
     this.removeNetworkStatus = multiplayer
       ? multiplayer.onStatus((status) => {
+          this.updateBotTags(status);
+          this.syncTakeoverSpawn(status);
           for (const player of this.players) {
             if (player.control instanceof RemoteControlSource) {
               const remote = status.players.get(player.role);
@@ -403,6 +418,30 @@ export class GameApp {
           this.gameplay.sync(status);
         })
       : null;
+    if (mode === 'singleplayer' || mode === 'night-shift') {
+      (window as unknown as {
+        __pixBot?: () => {
+          enabled: boolean;
+          role: 'nee';
+          state: string;
+          distance: number;
+          zips: number;
+          tag: boolean;
+        };
+      }).__pixBot = () => {
+        const bot = this.players.find((player) => player.role === 'nee')?.control;
+        const self = this.players.find((player) => player.role === 'nee')?.drone.position;
+        const leader = this.players.find((player) => player.role === 'pix')?.drone.position;
+        return {
+          enabled: this.aiPartnerEnabled,
+          role: 'nee',
+          state: bot instanceof BotControlSource ? bot.state : 'idle',
+          distance: self && leader ? Math.hypot(self.x - leader.x, self.z - leader.z) : Number.POSITIVE_INFINITY,
+          zips: bot instanceof BotControlSource ? bot.zips : 0,
+          tag: this.botTags.get('nee')?.visible === true,
+        };
+      };
+    }
   }
 
   static async create(options: GameAppOptions): Promise<GameApp> {
@@ -439,16 +478,19 @@ export class GameApp {
     // Late-bound refs so the single-player companion can perceive drones/camera created below.
     const live: { drones?: Drone[]; camera?: CinematicCamera; gameplay?: GameplayWorld } = {};
     const companionModes: GameMode[] = ['singleplayer', 'night-shift'];
+    const soloCompanion = companionModes.includes(mode);
+    const botEnabled = soloCompanion && new URLSearchParams(window.location.search).get('bot') !== '0';
+    if (soloCompanion) document.documentElement.dataset.aiPartner = botEnabled ? 'on' : 'off';
     const controlFor = (role: DroneRole): DroneControlSource => {
       if (mode === 'multiplayer') {
         return role === localRole
           ? new HumanControlSource(PLAYER_ONE_KEYS)
           : new RemoteControlSource();
       }
-      if (companionModes.includes(mode)) {
+      if (soloCompanion) {
         return role === 'pix'
           ? new HumanControlSource(PLAYER_ONE_KEYS)
-          : new BotControlSource({
+          : botEnabled ? new BotControlSource({
             self: () => live.drones?.[1]?.position ?? null,
             leader: () => live.drones?.[0]?.position ?? null,
             basis: () => live.camera!.getPlanarBasis(),
@@ -470,7 +512,17 @@ export class GameApp {
             cordStrain: () => cordState.strain,
             zip: (path) => live.drones?.[1]?.startZip(path),
             zipping: () => live.drones?.[1]?.isZipping ?? false,
-          });
+            leaderHolding: () => live.gameplay?.heldObjectId('pix') !== null,
+            leaderForward: () => {
+              const forward = live.camera!.getPlanarBasis().forward;
+              return { x: forward.x, z: forward.z };
+            },
+            selfHoldingLoot: () => live.gameplay?.heldObjectId('nee') === 'prototype',
+            exit: () => live.gameplay?.extractionPoint() ?? null,
+            threats: () => live.gameplay?.patrolPositions() ?? [],
+            selfHeldObject: () => live.gameplay?.heldObjectId('nee') ?? null,
+            releaseHeld: () => live.gameplay?.releaseHeldFor('nee'),
+          }) : new BotControlSource();
       }
       return role === 'pix'
         ? new HumanControlSource(PLAYER_ONE_KEYS)
@@ -629,6 +681,9 @@ export class GameApp {
     for (const player of this.players) {
       player.control.dispose();
     }
+    for (const tag of this.botTags.values()) tag.dispose();
+    const botProbe = window as unknown as { __pixBot?: unknown };
+    delete botProbe.__pixBot;
     this.removeNetworkStatus?.();
     for (const unsubscribe of this.unsubscribers) unsubscribe();
     this.juice.dispose();
@@ -828,6 +883,30 @@ export class GameApp {
     return this.mode === 'dev-local'
       ? this.activeDevRole
       : this.multiplayer?.currentStatus.localRole ?? 'pix';
+  }
+
+  private updateBotTags(status: { localRole: DroneRole | null; players: ReadonlyMap<DroneRole, { bot: boolean }> }): void {
+    for (const tag of this.botTags.values()) tag.setVisible(false);
+    if (!status.localRole) return;
+    const remoteRole = status.localRole === 'pix' ? 'nee' : 'pix';
+    this.botTags.get(remoteRole)?.setVisible(status.players.get(remoteRole)?.bot === true);
+  }
+
+  private syncTakeoverSpawn(status: {
+    started: boolean;
+    localRole: DroneRole | null;
+    players: ReadonlyMap<DroneRole, { position: { x: number; y: number; z: number } }>;
+  }): void {
+    if (this.takeoverSpawnApplied || !status.started || !status.localRole) return;
+    const player = this.players.find((candidate) => candidate.role === status.localRole);
+    const remote = status.players.get(status.localRole);
+    const spawn = this.initialSpawn.get(status.localRole);
+    if (!player || !remote || !spawn) return;
+    this.takeoverSpawnApplied = true;
+    const serverPosition = new Vector3(remote.position.x, remote.position.y, remote.position.z);
+    if (Vector3.Distance(spawn, serverPosition) > 3) {
+      player.drone.debugTeleport(serverPosition.x, serverPosition.y, serverPosition.z);
+    }
   }
 
   private partnerOf(player: LocalPlayer): LocalPlayer | undefined {
