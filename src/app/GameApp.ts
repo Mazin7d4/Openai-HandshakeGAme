@@ -16,6 +16,7 @@ import { DevReadout } from '../dev/DevReadout.ts';
 import { reportStabilityIssue, StabilityDiagnostics } from '../dev/StabilityDiagnostics.ts';
 import { TETHER_TUNING, Tether } from '../gameplay/Tether.ts';
 import { GameplayWorld } from '../gameplay/GameplayWorld.ts';
+import { addContactShadows } from '../level/ContactShadows.ts';
 import { gameEvents } from '../gameplay/GameEvents.ts';
 import { Juice } from '../gameplay/Juice.ts';
 import { TetherMoves, type YankKind } from '../gameplay/TetherMoves.ts';
@@ -29,7 +30,7 @@ import { Drone, DRONE_PALETTES } from '../player/Drone.ts';
 import { DRONE_MODEL_URL } from '../player/DroneVisual.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import { enableHavok } from '../physics/enableHavok.ts';
-import { createEngine, createScene } from '../scene/createScene.ts';
+import { createEngine, createScene, getQuality } from '../scene/createScene.ts';
 import { AccessibilityFeedback } from '../ui/AccessibilityFeedback.ts';
 import { GameHud } from '../ui/GameHud.ts';
 import { OnboardingCoach } from '../ui/OnboardingCoach.ts';
@@ -305,22 +306,38 @@ export class GameApp {
       }),
       gameEvents.on('heist', (e) => {
         const pos = e.position;
+        const reducedMotion = effectiveReducedMotion(getSettings());
+        const lowQuality = getQuality(this.scene)?.status.tier === 'low';
         switch (e.beat) {
           case 'vault':
-            this.juice.burst('zap', pos, 40);
+            if (!reducedMotion) {
+              if (!lowQuality) {
+                this.juice.burst('core', pos, 34);
+                this.juice.burst('confetti', pos, 54);
+              }
+            }
             audioHub.play('vaultOpen', { position: pos });
-            this.cameraRig.beat(pos, 2.4);
-            this.cameraRig.addShake(0.12);
+            audioHub.play('celebrate', { position: pos, volume: 0.8 });
+            if (!reducedMotion) this.cameraRig.beat(pos, 2.4);
+            if (!reducedMotion) this.cameraRig.addShake(0.12);
             for (const drone of this.drones) drone.react('happy', 2);
             this.hud?.toast('Vault open. Meet P01', 'good');
             break;
           case 'pickup':
-            this.juice.burst('zap', pos, 60);
-            this.juice.burst('pix', pos, 25);
-            this.juice.burst('nee', pos, 25);
-            this.cameraRig.addShake(0.6);
-            this.cameraRig.kickFov(0.08);
-            this.cameraRig.beat(pos, 1.4);
+            if (!reducedMotion) {
+              if (!lowQuality) {
+                this.juice.burst('core', pos, 42);
+                this.juice.burst('confetti', pos, 64);
+                this.juice.burst('pix', pos, 25);
+                this.juice.burst('nee', pos, 25);
+              }
+            }
+            audioHub.play('celebrate', { position: pos, volume: 0.9 });
+            if (!reducedMotion) {
+              this.cameraRig.addShake(0.6);
+              this.cameraRig.kickFov(0.08);
+            }
+            if (!reducedMotion) this.cameraRig.beat(pos, 1.4);
             for (const p of this.players) {
               if (e.role != null && p.role === e.role) {
                 p.drone.react('proud', 2.5);
@@ -482,6 +499,9 @@ export class GameApp {
       },
     ];
     const drones = players.map((p) => p.drone);
+    // Arrival readability: the first room is a hover-height composition, so give both mascots
+    // a soft ground anchor without adding lights or shadow-map casters (also cheap on low tier).
+    addContactShadows(scene, drones.map((drone) => ({ mesh: drone.root, radius: 0.85 })));
     const tetherTuning = { ...TETHER_TUNING };
     if (runLayout) {
       tetherTuning.restLength = runLayout.cord.restLength;
