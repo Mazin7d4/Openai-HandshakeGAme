@@ -109,7 +109,7 @@ export function createScene(engine: Engine): Scene {
   });
 
   let glow: GlowLayer | null = null;
-  if (!lowFx) {
+  if (!lowFx && initialTier() !== 'low') {
     // Glow discipline: include-list only (prod-art) plus strong decorative materials — not every faint emissive.
     glow = new GlowLayer('glow', scene, { blurKernelSize: 16, mainTextureRatio: 0.5 });
     glow.intensity = 0.5;

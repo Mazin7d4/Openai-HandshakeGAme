@@ -5,8 +5,9 @@ import {
   Vector3,
   type Scene,
 } from '@babylonjs/core';
+import { getQuality } from '../scene/createScene.ts';
 
-export type SparkStyle = 'impact' | 'zap' | 'yank' | 'pix' | 'nee' | 'confetti';
+export type SparkStyle = 'impact' | 'zap' | 'yank' | 'pix' | 'nee' | 'core' | 'confetti';
 
 const STYLES: Record<SparkStyle, { c1: Color4; c2: Color4; speed: number; size: number; life: number }> = {
   impact: { c1: new Color4(1, 0.93, 0.75, 1), c2: new Color4(1, 0.62, 0.3, 1), speed: 4.5, size: 0.14, life: 0.32 },
@@ -14,6 +15,7 @@ const STYLES: Record<SparkStyle, { c1: Color4; c2: Color4; speed: number; size: 
   yank: { c1: new Color4(1, 1, 1, 0.9), c2: new Color4(1, 0.86, 0.45, 0.9), speed: 3.2, size: 0.12, life: 0.3 },
   pix: { c1: new Color4(0.3, 0.85, 1, 1), c2: new Color4(0.75, 0.97, 1, 1), speed: 5, size: 0.16, life: 0.55 },
   nee: { c1: new Color4(1, 0.42, 0.6, 1), c2: new Color4(1, 0.8, 0.6, 1), speed: 5, size: 0.16, life: 0.55 },
+  core: { c1: new Color4(0.5, 1, 0.82, 1), c2: new Color4(0.75, 1, 0.92, 1), speed: 6.5, size: 0.19, life: 0.7 },
   confetti: { c1: new Color4(1, 0.85, 0.3, 1), c2: new Color4(1, 0.55, 0.6, 1), speed: 6, size: 0.18, life: 1.6 },
 };
 
@@ -37,6 +39,7 @@ export class Juice {
     this.texture.hasAlpha = true;
     this.texture.update();
     for (const [style, cfg] of Object.entries(STYLES) as [SparkStyle, (typeof STYLES)[SparkStyle]][]) {
+      if (style === 'core' && getQuality(scene)?.status.tier === 'low') continue;
       const capacity = style === 'confetti' ? 400 : 160;
       const ps = new ParticleSystem(`juice-${style}`, capacity, scene);
       ps.particleTexture = this.texture;
