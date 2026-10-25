@@ -35,6 +35,7 @@ const SEND_INTERVAL_MS = 50;
 const CONNECT_RETRY_BUDGET_MS = 20_000;
 const CONNECT_ATTEMPT_TIMEOUT_MS = 8_000;
 const CONNECT_BACKOFFS_MS = [500, 1_000, 2_000, 3_000];
+export const SERVER_STATE_EVENTS = ['bot-seat', 'drone-captured', 'drone-freed', 'rescued', 'capture-outcome'] as const;
 
 class ConnectTimeoutError extends Error {
   constructor() {
@@ -823,6 +824,8 @@ export class MultiplayerSession {
       if (!role) return;
       for (const listener of this.rematchPartnerLeftListeners) listener({ role });
     });
+    // The client derives these from synced state; handlers exist so the SDK does not warn about unhandled messages.
+    for (const type of SERVER_STATE_EVENTS) room.onMessage(type, () => {});
     room.onReconnect(() => {
       this.networkState = 'connected';
       this.reconnectDeadlineMs = null;
