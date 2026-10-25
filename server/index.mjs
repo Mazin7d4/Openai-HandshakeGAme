@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import layout from '../src/level/heist-layout.json' with { type: 'json' };
 import { Security, createSecurityState, SecuritySim } from './security.mjs';
 import { canPass, facingYaw } from './passRules.mjs';
+import { BotPilot, createBotPlayer } from './botSeat.mjs';
 import {
   createRunState,
   advanceFloor,
@@ -13,11 +14,13 @@ import {
 } from '../shared/run.ts';
 import { applyRunLayout, generateRun } from '../shared/seed/index.mjs';
 import { scoreFloorPure, dropFloorsFrom } from '../shared/nightShiftScore.mjs';
+import { installLifecycleLogging, logListenError } from './lifecycle.mjs';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json');
 
 const PORT = Number.parseInt(process.env.PORT ?? '2567', 10);
+installLifecycleLogging({ port: PORT, roomsCount: () => liveRooms.size });
 // Test-only room messages. `npm run dev` (tools/dev.mjs) turns them on; deployments use `npm start`
 // and must never enable them, so they are refused outright on Render.
 const TEST_HOOKS = process.env.HANDSHAKE_TEST_HOOKS === '1' && !process.env.RENDER;
@@ -96,6 +99,7 @@ const Player = schema(
   {
     playerId: t.string(),
     role: t.string(),
+    bot: t.boolean().default(false),
     connected: t.boolean().default(true),
     position: Vec3,
     velocity: Vec3,
@@ -270,11 +274,16 @@ class HandshakeRoom extends Room {
   nsFloors = {};
   nsTwangs = new Map();
   nsEndedBroadcast = false;
+  lastTickErrorAt = null;
   seedPinned;
   rematchVoteTimes = new Map();
+  botEnabled = false;
+  botPilot;
 
   onCreate(options = {}) {
     liveRooms.add(this);
+    this.botEnabled = options.bot === true;
+    this.botPilot = new BotPilot(this);
     this.seedPinned = typeof options.seed === 'number' && Number.isFinite(options.seed)
       ? options.seed >>> 0
       : undefined;
@@ -294,7 +303,7 @@ class HandshakeRoom extends Room {
     }, LONELY_ROOM_SECONDS * 1000);
     this.maxClients = 2;
     this.roomId = roomCode();
-    this.setMetadata({ code: this.roomId });
+    this.setMetadata({ code: this.roomId, bot: this.botEnabled });
     console.log(`[handshake] room ${this.roomId} created`);
     this.state.security = createSecurityState();
     this.securitySim = new SecuritySim(this.state.security);
@@ -361,6 +370,7 @@ class HandshakeRoom extends Room {
           this.state.mission.stage = 'escape';
           this.state.mission.alarm = true;
           this.state.mission.securityActive = true;
+          if (m?.openDoor === true) this.state.hack.doorOpen = true;
           if (m?.freezePatrols) this._testPatrolFrozen = true;
         }
       });
@@ -387,6 +397,18 @@ class HandshakeRoom extends Room {
         copyVec3(object.position, m, MAX_WORLD_COORDINATE, 'object.position');
         object.velocity.x = 0; object.velocity.y = 0; object.velocity.z = 0;
         object.revision += 1;
+      });
+      this.onMessage('debug-bot-seat', (_client, message) => {
+        this.botEnabled = message?.enable === true;
+        this.setMetadata({ code: this.roomId, bot: this.botEnabled });
+        const human = [...this.state.players.values()].find((player) => !player.bot && player.connected);
+        if (this.botEnabled && human && this.state.players.size === 1 && !this.state.players.get('bot')) {
+          this.addBotSeat(human.role === 'pix' ? 'nee' : 'pix', human.position);
+        } else if (!this.botEnabled && this.state.players.get('bot')) {
+          this.state.players.delete('bot');
+          this.state.started = this.state.players.size === 2;
+          this.broadcast('bot-seat', { role: 'nee', active: false });
+        }
       });
 
       // Frozen test patrols also ignore cord clotheslines, so teleporting a drone
@@ -441,10 +463,20 @@ class HandshakeRoom extends Room {
       };
     }
     this.setSimulationInterval((deltaMs) => {
-      this.updateHack();
-      this.updateMission();
-      this.updateHeldObjects(deltaMs / 1000);
-      this.updateSecurity(deltaMs / 1000);
+      try {
+        this.updateHack();
+        this.botPilot.tick(deltaMs / 1000);
+        this.updateMission();
+        this.updateHeldObjects(deltaMs / 1000);
+        this.updateSecurity(deltaMs / 1000);
+      } catch (error) {
+        const now = Date.now();
+        if (this.lastTickErrorAt === null || now - this.lastTickErrorAt >= 5_000) {
+          this.lastTickErrorAt = now;
+          const message = error?.stack ?? String(error);
+          console.error(`[handshake] room ${this.roomId} tick error: ${String(message).replace(/\s*\n\s*/g, ' | ')}`);
+        }
+      }
     });
   }
 
@@ -496,7 +528,7 @@ class HandshakeRoom extends Room {
   }
 
   clearRematchVotes() {
-    for (const player of this.state.players.values()) player.rematchVote = false;
+    for (const player of this.state.players.values()) player.rematchVote = player.bot === true;
     this.rematchVoteTimes.clear();
   }
 
@@ -504,12 +536,14 @@ class HandshakeRoom extends Room {
     const player = this.state.players.get(client.sessionId);
     if (!player || !player.connected || !this.resultsPhase()) return;
     const want = message?.want === true;
+    const bot = this.state.players.get('bot');
+    if (bot) bot.rematchVote = true;
     if (player.rematchVote === want) return;
     const now = Date.now();
     if (now - (this.rematchVoteTimes.get(client.sessionId) ?? 0) < 300) return;
     this.rematchVoteTimes.set(client.sessionId, now);
     player.rematchVote = want;
-    if (want && this.state.players.size === 2 && Array.from(this.state.players.values()).every((candidate) => candidate.rematchVote === true)) {
+    if (want && this.state.players.size === 2 && Array.from(this.state.players.values()).every((candidate) => candidate.bot || candidate.rematchVote === true)) {
       this.rematch();
     }
   }
@@ -680,18 +714,67 @@ class HandshakeRoom extends Room {
     this.clearFloor();
   }
 
+  addBotSeat(role, position) {
+    if (!this.botEnabled || this.state.players.get('bot') || this.state.players.size >= 2) return;
+    const seat = position
+      ? { x: finite(position.x, this.world.spawn.x), y: finite(position.y, this.world.spawn.y), z: finite(position.z, this.world.spawn.z) }
+      : { x: this.world.spawn.x + (role === 'pix' ? -1.6 : 1.6), y: this.world.spawn.y, z: this.world.spawn.z };
+    const bot = createBotPlayer(Player, role, seat);
+    this.state.players.set('bot', bot);
+    this.state.started = this.state.players.size === 2;
+    if (this.state.started && this._lonelyTimeout) {
+      this._lonelyTimeout.clear();
+      this._lonelyTimeout = null;
+    }
+    this.broadcast('bot-seat', { role, active: true });
+  }
+
   onJoin(client) {
     // Clear empty-room timeout on first join
     if (this._emptyTimeout) {
       this._emptyTimeout.clear();
       this._emptyTimeout = null;
     }
-    const roles = new Set(Array.from(this.state.players.values()).map((player) => player.role));
+    const bot = this.state.players.get('bot');
+    if (bot) {
+      const role = bot.role;
+      const player = new Player();
+      player.playerId = client.sessionId;
+      player.role = role;
+      player.connected = true;
+      player.bot = false;
+      player.position.x = bot.position.x;
+      player.position.y = bot.position.y;
+      player.position.z = bot.position.z;
+      player.velocity.x = bot.velocity.x;
+      player.velocity.y = bot.velocity.y;
+      player.velocity.z = bot.velocity.z;
+      player.orientation.pitch = bot.orientation.pitch;
+      player.orientation.yaw = bot.orientation.yaw;
+      player.orientation.roll = bot.orientation.roll;
+      player.rematchVote = false;
+      for (const object of this.state.objects.values()) {
+        if (object.heldBy === role) object.holderId = client.sessionId;
+      }
+      if (bot.captured) {
+        const freed = this.securitySim.releaseRole(role, 'handoff');
+        if (freed) this.finishCapture(freed.role, freed.index, 'handoff');
+      }
+      this.lastGrabMs.delete('bot');
+      this.state.players.delete('bot');
+      this.state.players.set(client.sessionId, player);
+      this.state.started = true;
+      this.broadcast('bot-seat', { role, active: false, handoff: true, by: client.sessionId });
+      return;
+    }
+
+    const roles = new Set(Array.from(this.state.players.values()).map((candidate) => candidate.role));
     const role = roles.has('pix') ? 'nee' : 'pix';
     const player = new Player();
     player.playerId = client.sessionId;
     player.role = role;
     player.connected = true;
+    player.bot = false;
     player.position.x = this.world.spawn.x + (role === 'pix' ? -1.6 : 1.6);
     player.position.y = this.world.spawn.y;
     player.position.z = this.world.spawn.z;
@@ -702,6 +785,9 @@ class HandshakeRoom extends Room {
       this._lonelyTimeout.clear();
       this._lonelyTimeout = null;
     }
+    if (this.botEnabled && this.state.players.size === 1) {
+      this.addBotSeat(role === 'pix' ? 'nee' : 'pix');
+    }
   }
 
   /** Unexpected drop: hold the seat, freeze the drone, keep match state. */
@@ -711,6 +797,11 @@ class HandshakeRoom extends Room {
       return;
     }
     this.freezePlayer(player);
+    const humanRemaining = [...this.state.players.values()].some((candidate) => !candidate.bot && candidate !== player && candidate.connected);
+    if (!humanRemaining) {
+      const bot = this.state.players.get('bot');
+      if (bot) this.freezePlayer(bot);
+    }
     this.releaseRole(player.role);
     this.allowReconnection(client, RECONNECT_SECONDS);
   }
@@ -719,6 +810,8 @@ class HandshakeRoom extends Room {
     const player = this.state.players.get(client.sessionId);
     if (player) {
       player.connected = true;
+      const bot = this.state.players.get('bot');
+      if (bot) bot.connected = true;
     }
   }
 
@@ -729,16 +822,23 @@ class HandshakeRoom extends Room {
       return;
     }
     if (player.connected) this.freezePlayer(player);
+    const leaverPosition = { x: player.position.x, y: player.position.y, z: player.position.z };
     // Hold expired (or consented leave): the carried item finally drops where the drone was.
     this.dropHeldForRole(player.role, 'disconnect');
     this.releaseRole(player.role);
     player.rematchVote = false;
     this.state.players.delete(client.sessionId);
-    this.state.started = false;
     this.clearRematchVotes();
-    const partner = Array.from(this.state.players.values()).find((candidate) => candidate.connected);
+    const partner = Array.from(this.state.players.values()).find((candidate) => !candidate.bot && candidate.connected);
+    if (this.botEnabled && partner) {
+      this.state.started = true;
+      this.addBotSeat(player.role, leaverPosition);
+    } else {
+      this.state.players.delete('bot');
+      this.state.started = false;
+    }
     const partnerClient = partner ? this.clientForRole(partner.role) : undefined;
-    partnerClient?.send('rematch-partner-left', { role: player.role });
+    if (!this.botEnabled || !partner) partnerClient?.send('rematch-partner-left', { role: player.role });
     this.pingTimes.delete(client.sessionId);
     this.emoteTimes.delete(client.sessionId);
   }
@@ -1211,7 +1311,6 @@ class HandshakeRoom extends Room {
     const [partnerId, partner] = partnerEntry;
     if (!partner.connected || distance(sender.position, partner.position) > 13.5) return;
     const target = this.clients.find((candidate) => candidate.sessionId === partnerId);
-    if (!target) return;
     this.yankTimes.set(client.sessionId, now);
     const impulse = message.impulse ?? {};
     let x = finite(impulse.x), y = finite(impulse.y), z = finite(impulse.z);
@@ -1227,12 +1326,35 @@ class HandshakeRoom extends Room {
         this.reportTetherSave(client.sessionId);
       }
     }
-    target.send('tether-yanked', {
+    target?.send('tether-yanked', {
       kind,
       rescue,
       strength: Math.max(0, Math.min(1, finite(message.strength))),
       impulse: { x, y, z },
     });
+  }
+
+  botYank() {
+    const sender = this.state.players.get('bot');
+    const partner = [...this.state.players.values()].find((player) => !player.bot && player.connected);
+    if (!sender?.connected || sender.captured || !partner || !partner.captured || distance(sender.position, partner.position) > 11) return false;
+    const freed = this.securitySim.releaseRole(partner.role, 'yank');
+    if (!freed) return false;
+    this.finishCapture(freed.role, freed.index, 'yank');
+    sender.rescues = Math.min(65535, sender.rescues + 1);
+    this.reportTetherSave(sender.playerId);
+    const target = this.clientForRole(partner.role);
+    const dx = sender.position.x - partner.position.x;
+    const dy = sender.position.y - partner.position.y;
+    const dz = sender.position.z - partner.position.z;
+    const length = Math.hypot(dx, dy, dz) || 1;
+    target?.send('tether-yanked', {
+      kind: 'yank',
+      rescue: true,
+      strength: 1,
+      impulse: { x: dx / length * 6, y: dy / length * 6, z: dz / length * 6 },
+    });
+    return true;
   }
 
   relayPing(client, message) {
@@ -1459,7 +1581,20 @@ const gameServer = new Server({
   greet: false,
 });
 gameServer.define('handshake', HandshakeRoom);
-await gameServer.listen(PORT, '0.0.0.0');
+// A failed bind is only emitted on the http server (listen() never rejects), which used to leave
+// a zombie process that looked alive to `pgrep` but owned no port. Fail loudly instead.
+const onListenError = (error) => {
+  logListenError(error, PORT);
+  process.exit(1);
+};
+gameServer.transport.server?.once('error', onListenError);
+try {
+  await gameServer.listen(PORT, '0.0.0.0');
+  gameServer.transport.server?.off('error', onListenError);
+} catch (error) {
+  logListenError(error, PORT);
+  process.exit(1);
+}
 
 // --- /health endpoint (installed after listen so Colyseus listeners exist) -----
 const httpServer = gameServer.transport.server;

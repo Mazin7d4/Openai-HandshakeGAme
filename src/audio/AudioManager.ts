@@ -37,7 +37,7 @@ export type AudioEvent =
   | 'grab' | 'drop' | 'throw' | 'pass'
   | 'hackStart' | 'hackTick' | 'hackSuccess' | 'hackFail'
   | 'suspicious' | 'spotted' | 'stun' | 'cameraBlind' | 'capture' | 'rescue'
-  | 'vaultOpen' | 'theft' | 'extract'
+  | 'vaultOpen' | 'theft' | 'extract' | 'celebrate'
   | 'chirp' | 'ping' | 'emote'
   | 'replayDrop';
 
@@ -45,7 +45,7 @@ export const AUDIO_EVENTS: readonly AudioEvent[] = [
   'uiHover', 'uiClick', 'uiConfirm', 'uiBack', 'uiToggle', 'uiError',
   'twang', 'snap', 'yank', 'yanked', 'slingshot', 'bump', 'boost', 'impact', 'grab', 'drop', 'throw',
   'hackStart', 'hackTick', 'hackSuccess', 'hackFail', 'pass',
-  'suspicious', 'spotted', 'stun', 'cameraBlind', 'capture', 'rescue', 'vaultOpen', 'theft', 'extract', 'chirp', 'ping', 'emote', 'replayDrop',
+  'suspicious', 'spotted', 'stun', 'cameraBlind', 'capture', 'rescue', 'vaultOpen', 'theft', 'extract', 'celebrate', 'chirp', 'ping', 'emote', 'replayDrop',
 ];
 
 export type DroneVoice = Voice;
@@ -454,6 +454,21 @@ export class AudioManager {
         this.start(event, this.synth('bass-drop', bassDrop), { gain: 0.9 * vol, delay: 0.08 });
         this.duckMusic(2.5, 0.35);
         return;
+      case 'celebrate': {
+        const buffer = this.synth('celebrate-stinger', (sr) => {
+          const data = new Float32Array(Math.floor(sr * 1.25));
+          const notes = [523.25, 659.25, 783.99, 1046.5];
+          for (let i = 0; i < data.length; i++) {
+            const t = i / sr;
+            const note = notes[Math.min(notes.length - 1, Math.floor(t / 0.25))]!;
+            const env = Math.min(1, t * 18) * Math.max(0, 1 - t / 1.25);
+            data[i] = Math.sin(t * note * Math.PI * 2) * env * 0.18 + Math.sin(t * note * Math.PI * 4) * env * 0.04;
+          }
+          return data;
+        });
+        this.start(event, buffer, { gain: 0.85 * vol, bus: 'sfx' });
+        return;
+      }
       case 'chirp': {
         const role: DroneVoice = o.role ?? 'pix'; const mood: ChirpMood = o.mood ?? 'neutral';
         this.start(event, this.synth(`chirp-${role}-${mood}`, (r) => zz(r, chirpParams(role, mood))), {

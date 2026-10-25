@@ -42,6 +42,7 @@ import { audio } from './audio/AudioManager.ts';
 import { titleMenuNav } from './ui/MenuNavigator.ts';
 import { enterImmersive } from './ui/fullscreen.ts';
 import { isTouchPlayDevice } from './ui/touchDetect.ts';
+import type { TitleAttract } from './ui/TitleAttract.ts';
 
 // Unlock-on-first-gesture, menu UI sounds and M to mute; sound files load lazily once the page is idle.
 audio.install();
@@ -95,6 +96,7 @@ if (!rootNode || !(rootNode instanceof HTMLElement)) {
 const root: HTMLElement = rootNode;
 
 let game: GameApp | null = null;
+let titleAttract: TitleAttract | null = null;
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -168,6 +170,8 @@ function errorMessage(error: unknown): string {
 }
 
 function showMainMenu(): void {
+  titleAttract?.dispose();
+  titleAttract = null;
   const params = new URLSearchParams(window.location.search);
   const beatRaw = params.get('beat');
   const beatMs = beatRaw != null && /^\d+$/.test(beatRaw) ? Number(beatRaw) : NaN;
@@ -176,11 +180,14 @@ function showMainMenu(): void {
     : 'Fly a pair of tethered drones through a sleepy office and lift the core from the vault.';
   const shell = menuShell();
   shell.classList.add('menu-shell--title');
+  const attractCanvas = element('canvas', 'title-attract-canvas');
+  attractCanvas.setAttribute('aria-hidden', 'true');
   const panel = element('section', 'panel menu-panel title-panel');
   panel.append(wordmark(), element('h2', 'title-tagline', 'Two drones. One cord.'));
   panel.append(element('p', 'panel__body menu-subtitle', blurb));
   const play = menuButton('', 'singleplayer', showSinglePlayer, 'btn--primary');
   play.classList.add('btn--hero');
+  play.dataset.titlePlay = 'true';
   play.setAttribute('aria-label', 'Play now');
   play.append(element('span', 'btn__label', 'Play now'), element('span', 'btn__hint', 'Solo · you fly PIX'));
   const daily = menuButton('Daily Heist', 'daily-heist', () => {
@@ -201,10 +208,14 @@ function showMainMenu(): void {
   }
   actions.append(menuButton('Settings', 'title-settings', openTitleSettings, 'btn--quiet'));
   panel.append(actions);
-  shell.append(panel);
+  shell.append(attractCanvas, panel);
   root.replaceChildren(shell);
   // PLAY NOW is first in tab order and already focused, so Enter starts it.
   bindMenuNav(panel, undefined, play);
+  void import('./ui/TitleAttract.ts').then(({ TitleAttract }) => TitleAttract.mount(attractCanvas, play)).then((mounted) => {
+    if (mounted && root.contains(attractCanvas)) titleAttract = mounted;
+    else mounted?.dispose();
+  });
   startWarmup();
 }
 
@@ -329,7 +340,7 @@ async function createRoom(): Promise<void> {
   bindMenuNav(panel, showMultiplayerMenu);
   if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void createRoom(); }))) return;
   try {
-    const session = await (await loadNet()).MultiplayerSession.createRoom(readUrlRunOptions());
+    const session = await (await loadNet()).MultiplayerSession.createRoom({ ...readUrlRunOptions(), bot: new URLSearchParams(location.search).get('bot') === '1' });
     showLobby(session);
   } catch (error) {
     status.textContent = errorMessage(error);
@@ -490,6 +501,8 @@ function showLobby(session: MultiplayerSession): void {
 }
 
 async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<void> {
+  titleAttract?.dispose();
+  titleAttract = null;
   if (isTouchPlayDevice() && (mode === 'singleplayer' || mode === 'night-shift' || mode === 'multiplayer')) void enterImmersive();
   titleMenuNav.detach();
   try { sessionStorage.removeItem(MODE_STASH_KEY); } catch { /* private mode */ }
