@@ -15,6 +15,7 @@ import { loadPropKit } from './PropKit.ts';
 import layout from './heist-layout.json';
 import { mergeRigidChildren } from '../scene/mergeChildren.ts';
 import { createRoundedBox } from '../scene/roundedBox.ts';
+import { addHeroLighting } from './HeroLighting.ts';
 
 const SECURITY_AMBER = Color3.FromHexString('#FFB84D');
 const SCREEN_IDLE = new Color3(0.35, 0.35, 0.35);
@@ -513,5 +514,6 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     if (key === 'escape') continue;
     try { mat.freeze(); } catch { /* ok */ }
   }
+  addHeroLighting(scene);
   return new Vector3(layout.spawn.x, layout.spawn.y, layout.spawn.z);
 }

@@ -31,6 +31,14 @@ export function applyTwistMood(scene: Scene, twist: TwistId | string): { dispose
           fill.intensity = origFillIntensity;
         });
       }
+      const heroLights = scene.lights.filter((light) => light.name.startsWith('hero-'));
+      const originalHeroIntensities = heroLights.map((light) => ({ light, intensity: light.intensity }));
+      for (const item of originalHeroIntensities) item.light.intensity *= 0.35;
+      if (originalHeroIntensities.length > 0) {
+        disposers.push(() => {
+          for (const item of originalHeroIntensities) item.light.intensity = item.intensity;
+        });
+      }
       if (glow) {
         const origGlowIntensity = glow.intensity;
         glow.intensity *= 1.6;

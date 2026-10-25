@@ -157,7 +157,9 @@ export class QualityManager {
   }
 
   private applyLight(light: Light): void {
-    if (ACCENT_LIGHTS.has(light.name)) light.setEnabled(this.tier !== 'low');
+    if (ACCENT_LIGHTS.has(light.name) || light.name.startsWith('hero-key-') || light.name.startsWith('hero-fill-')) {
+      light.setEnabled(this.tier !== 'low');
+    }
   }
 
   private sample(): void {
