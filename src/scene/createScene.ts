@@ -1,18 +1,16 @@
-import {
-  Color3,
-  Color4,
-  ColorCurves,
-  DirectionalLight,
-  Engine,
-  GlowLayer,
-  HemisphericLight,
-  ImageProcessingConfiguration,
-  Mesh,
-  Scene,
-  ShadowGenerator,
-  Vector3,
-  type AbstractMesh,
-} from '@babylonjs/core';
+import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
+import { ColorCurves } from '@babylonjs/core/Materials/colorCurves.js';
+import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
+import { Engine } from '@babylonjs/core/Engines/engine.js';
+import { GlowLayer } from '@babylonjs/core/Layers/glowLayer.js';
+import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
+import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { Scene } from '@babylonjs/core/scene.js';
+import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import './babylonSideEffects.ts';
 import { createStudioEnvironment } from './studioEnvironment.ts';
 import { initialTier, QualityManager } from './Quality.ts';
 
@@ -122,7 +120,19 @@ export function createScene(engine: Engine): Scene {
       for (const mesh of pending.splice(0)) if (isGlowMesh(mesh)) layer.addIncludedOnlyMesh(mesh as Mesh);
     });
   }
-  qualityManagers.set(scene, new QualityManager(scene, { sun, shadows, glow }));
+  const qualityManager = new QualityManager(scene, { sun, shadows, glow });
+  qualityManagers.set(scene, qualityManager);
+  if (params.get('fps') === '1') {
+    let disposed = false;
+    let disposeOverlay = () => {};
+    scene.onDisposeObservable.addOnce(() => {
+      disposed = true;
+      disposeOverlay();
+    });
+    void import('../ui/FpsOverlay.ts').then(({ mountFpsOverlay }) => {
+      if (!disposed) disposeOverlay = mountFpsOverlay(() => qualityManager.status);
+    });
+  }
 
   // Shared soft daylight reflections on painted surfaces, glass, metal and drones.
   scene.environmentTexture = createStudioEnvironment(scene);

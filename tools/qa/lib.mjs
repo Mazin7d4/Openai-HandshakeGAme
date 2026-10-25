@@ -22,7 +22,9 @@ export function url(extra = {}) {
   const u = new URL(BASE_URL);
   u.searchParams.set('debug', '1');
   u.searchParams.set('autotest', '1');
-  if (IS_LOCAL || process.env.QA_SERVER_URL) u.searchParams.set('server', SERVER_URL);
+  if (IS_LOCAL || process.env.QA_SERVER_URL || Object.prototype.hasOwnProperty.call(extra, 'server')) {
+    u.searchParams.set('server', SERVER_URL);
+  }
   for (const [k, v] of Object.entries(extra)) u.searchParams.set(k, v);
   return u.toString();
 }

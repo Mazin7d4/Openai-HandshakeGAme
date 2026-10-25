@@ -1,21 +1,17 @@
-import {
-  type AbstractMesh,
-  ImportMeshAsync,
-  Matrix,
-  Mesh,
-  type Nullable,
-  Quaternion,
-  Ray,
-  type Scene,
-  Vector3,
-} from '@babylonjs/core';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader.js';
+import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { Nullable } from '@babylonjs/core/types.js';
+import { Ray } from '@babylonjs/core/Culling/ray.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import '../../assets/registerGltf.ts';
 import '../../assets/meshopt.ts';
 import type { RunLayout } from '../../seed/index.ts';
 import { mixSeed, mulberry32 } from '../../seed/index.ts';
 import kitManifest from './kit-manifest.json';
 import { DRESSING } from './dressingTable.ts';
-import { applyTwistMood } from './TwistMood.ts';
+import { applyFloorTint, applyTwistMood } from './TwistMood.ts';
 import { getQuality } from '../../scene/createScene.ts';
 
 export interface KitDressingHandle {
@@ -499,6 +495,7 @@ export async function dressRunLayout(scene: Scene, layout: RunLayout): Promise<K
 
   // Apply twist mood
   const twistMood = applyTwistMood(scene, layout.twist.id);
+  const floorTint = applyFloorTint(scene, layout.floor);
 
   const handle: KitDressingHandle = {
     drawCalls,
@@ -506,6 +503,7 @@ export async function dressRunLayout(scene: Scene, layout: RunLayout): Promise<K
     skipped,
     dispose() {
       twistMood.dispose();
+      floorTint.dispose();
       for (const mesh of activePartMeshes) {
         mesh.thinInstanceSetBuffer('matrix', null);
         mesh.thinInstanceCount = 0;
