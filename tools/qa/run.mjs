@@ -5,7 +5,7 @@ import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { freePort, startTestServer } from '../test-server.mjs';
 
-const all = ['seeds', 'bundle-budget', 'pass-rules', 'interp', 'challenge', 'night-shift', 'smoke', 'solo-boot', 'no-cdn', 'bot-solo', 'coop', 'coop-capture', 'grab-carry', 'rematch', 'bot-server', 'leaderboard-server', 'quickmatch-server', 'quickmatch', 'quickmatch-cancel', 'quickmatch-bot', 'quickmatch-private', 'nightshift-coop', 'ping-emote', 'reconnect', 'mobile', 'quality-phone', 'governor', 'mobile-layout', 'join-mobile', 'rematch-mobile', 'leaderboard', 'wake', 'emote-mobile', 'gamepad', 'escape-replay', 'no-test-hooks', 'settings', 'a11y-keyboard'];
+const all = ['seeds', 'bundle-budget', 'pass-rules', 'messages', 'interp', 'challenge', 'night-shift', 'smoke', 'solo-boot', 'no-cdn', 'bot-solo', 'coop', 'coop-capture', 'grab-carry', 'rematch', 'bot-server', 'leaderboard-server', 'quickmatch-server', 'quickmatch', 'quickmatch-cancel', 'quickmatch-bot', 'quickmatch-private', 'nightshift-coop', 'ping-emote', 'reconnect', 'mobile', 'quality-phone', 'governor', 'mobile-layout', 'join-mobile', 'rematch-mobile', 'leaderboard', 'wake', 'emote-mobile', 'gamepad', 'escape-replay', 'no-test-hooks', 'settings', 'a11y-keyboard'];
 const args = process.argv.slice(2);
 const ownServers = process.env.QA_OWN_SERVERS === '1' || args.includes('--own-servers');
 const pick = args.filter((a) => a !== '--own-servers' && all.includes(a));
