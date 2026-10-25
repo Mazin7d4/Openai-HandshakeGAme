@@ -27,6 +27,30 @@ async function audit(page, label) {
   return result;
 }
 
+async function auditGameplayOverlay(page, label) {
+  const result = await page.evaluate(() => {
+    const overlap = (a, b) => a && b && a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom;
+    const coach = document.querySelector('[data-testid="onboarding-coach"]');
+    const prompt = document.querySelector('[data-testid="interaction-prompt"]');
+    const rotate = document.querySelector('[data-testid="touch-rotate-hint"]');
+    const visible = (el) => el && getComputedStyle(el).display !== 'none' && getComputedStyle(el).visibility !== 'hidden' && Number.parseFloat(getComputedStyle(el).opacity) > 0;
+    const coachBox = visible(coach) ? coach.getBoundingClientRect() : null;
+    const promptBox = visible(prompt) ? prompt.getBoundingClientRect() : null;
+    const rotateBox = visible(rotate) ? rotate.getBoundingClientRect() : null;
+    const rotateCenter = rotateBox && document.elementFromPoint(rotateBox.left + rotateBox.width / 2, rotateBox.top + rotateBox.height / 2);
+    return {
+      overlap: overlap(coachBox, promptBox),
+      rotateTopmost: !rotateBox || (rotateCenter && (rotateCenter === rotate || rotate.contains(rotateCenter))),
+      rotateZ: rotate ? getComputedStyle(rotate).zIndex : null,
+      rootZ: rotate?.parentElement ? getComputedStyle(rotate.parentElement).zIndex : null,
+      coach: coachBox && { top: coachBox.top, bottom: coachBox.bottom },
+      prompt: promptBox && { top: promptBox.top, bottom: promptBox.bottom },
+    };
+  });
+  assert(!result.overlap, `${label}: tutorial and interaction prompt overlap ${JSON.stringify(result)}`);
+  assert(result.rotateTopmost, `${label}: rotate overlay is not topmost ${JSON.stringify(result)}`);
+}
+
 await runTest('mobile-layout', async (browser, notes) => {
   const errors = [];
   const context = await browser.newContext({ viewport: { width: 360, height: 640 }, screen: { width: 360, height: 640 }, hasTouch: true, isMobile: true });
@@ -35,6 +59,7 @@ await runTest('mobile-layout', async (browser, notes) => {
 
   await page.goto(url({ play: 'solo' }));
   await waitForGame(page);
+  await auditGameplayOverlay(page, 'portrait gameplay');
   await page.getByTestId('touch-pause').tap();
   notes.pause = await audit(page, 'pause');
   await page.getByTestId('pause-settings').tap();

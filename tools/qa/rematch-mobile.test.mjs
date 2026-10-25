@@ -23,6 +23,12 @@ await runTest('rematch-mobile', async (browser, notes) => {
   const SERVER_URL = `ws://127.0.0.1:${server.port}`;
   const context = await browser.newContext(phone);
   const host = await context.newPage();
+  const unhandledMessages = [];
+  host.on('console', (message) => {
+    if ((message.type() === 'warning' || message.type() === 'error') && /onMessage\(\) not registered/.test(message.text())) {
+      unhandledMessages.push(message.text());
+    }
+  });
   let partner;
   try {
     await host.goto(url({ server: SERVER_URL }));
@@ -74,6 +80,15 @@ await runTest('rematch-mobile', async (browser, notes) => {
     }
     assert(partner.state.mission.stage === 'infiltrate' && partner.state.run.rematches >= 1,
       `partner did not reset after rematch: stage=${partner.state.mission.stage} rematches=${partner.state.run.rematches}`);
+    await host.evaluate(() => window.__autotest?.debugRunClear?.());
+    await host.getByTestId('mission-complete').waitFor({ state: 'visible', timeout: 15_000 });
+    await partner.leave(true);
+    partner = null;
+    await host.getByTestId('rematch-status').filter({ hasText: 'Partner left the room' }).waitFor({ timeout: 10_000 });
+    assert(await rematch.isDisabled(), 'rematch button should be disabled after partner leaves');
+    notes.partnerLeft = true;
+    notes.unhandledMessages = unhandledMessages;
+    assert(unhandledMessages.length === 0, `unhandled message warnings:\n${unhandledMessages.join('\n')}`);
     Object.assign(notes, { code, rematchBox: box, overflow, reset: true });
   } finally {
     try { await partner?.leave(true); } catch { /* already closed */ }

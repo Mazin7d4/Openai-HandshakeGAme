@@ -24,6 +24,7 @@ import {
 } from './PlayerState.ts';
 import { FLIGHT_TUNING } from './FlightTuning.ts';
 import type { Expression } from './DroneFace.ts';
+import type { CosmeticId } from './Cosmetics.ts';
 import { gameEvents } from '../gameplay/GameEvents.ts';
 import { audio } from '../audio/AudioManager.ts';
 
@@ -361,10 +362,17 @@ export class Drone implements CameraSubject {
     const now = performance.now();
     if ((this.showingExpression !== expression || now >= this.showingUntil) && now - this.lastChirpTime >= 350) {
       this.lastChirpTime = now;
-      audio.play('chirp', { role: this.role, mood: expression === 'sheepish' ? 'neutral' : expression, position: this.position });
+      const mood = expression === 'sheepish' || expression === 'star-eyes' || expression === 'heart'
+        || expression === 'sunglasses' || expression === 'sleepy' || expression === 'wink' || expression === 'determined'
+        ? 'neutral' : expression;
+      audio.play('chirp', { role: this.role, mood, position: this.position });
     }
     this.showingExpression = expression;
     this.showingUntil = now + seconds * 1000;
+  }
+
+  setCosmetics(expression: CosmeticId, hat: CosmeticId): void {
+    this.visual.setCosmetics(expression, hat);
   }
 
   get inTrouble(): boolean {

@@ -13,6 +13,7 @@ import type {
   SecurityNetworkState,
 } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
+import { noteVaultCrack } from '../player/Cosmetics.ts';
 import { HeistReport, type CoopReportState } from '../ui/HeistReport.ts';
 import { escapeReplay } from '../fx/EscapeReplay.ts';
 import type { RunStats } from '../ui/heistAwards.ts';
@@ -420,7 +421,10 @@ export class MissionDirector {
     this.cameraDisabledFor = Math.max(0, this.cameraDisabledFor - dt);
     if (hack.allComplete() && !this.hacksWereComplete) {
       this.cameraDisabledFor = 18;
-      if (!this.state.alarm) gameEvents.emit('heist', { beat: 'vault', position: this.vault.clone() });
+      if (!this.state.alarm) {
+        noteVaultCrack();
+        gameEvents.emit('heist', { beat: 'vault', position: this.vault.clone() });
+      }
     }
     this.hacksWereComplete = hack.allComplete();
     if (!this.multiplayer) {
