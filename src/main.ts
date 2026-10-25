@@ -182,6 +182,7 @@ function showMainMenu(): void {
   shell.classList.add('menu-shell--title');
   const attractCanvas = element('canvas', 'title-attract-canvas');
   attractCanvas.setAttribute('aria-hidden', 'true');
+  attractCanvas.dataset.titleFallback = 'key-art';
   const panel = element('section', 'panel menu-panel title-panel');
   panel.append(wordmark(), element('h2', 'title-tagline', 'Two drones. One cord.'));
   panel.append(element('p', 'panel__body menu-subtitle', blurb));
@@ -214,7 +215,10 @@ function showMainMenu(): void {
   bindMenuNav(panel, undefined, play);
   void import('./ui/TitleAttract.ts').then(({ TitleAttract }) => TitleAttract.mount(attractCanvas, play)).then((mounted) => {
     if (mounted && root.contains(attractCanvas)) titleAttract = mounted;
-    else mounted?.dispose();
+    else {
+      mounted?.dispose();
+      shell.classList.add('title-scene-fallback');
+    }
   });
   startWarmup();
 }

@@ -131,8 +131,11 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 }
 .title-attract-canvas {
   position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; display: block;
-  pointer-events: none; opacity: 0.92;
+  pointer-events: none; opacity: 0; transition: opacity 220ms ease;
 }
+.title-attract-canvas--ready { opacity: 1; }
+.menu-art { transition: opacity 350ms ease; }
+.menu-shell--title.title-scene-ready .menu-art { opacity: 0; }
 .menu-shell > .panel { z-index: 1; }
 .title-panel { width: min(460px, 100%); }
 .wordmark { display: flex; align-items: center; gap: 0.08em; margin: 0; font: 900 64px/0.9 var(--font-title); font-stretch: 125%; letter-spacing: -0.02em; }
