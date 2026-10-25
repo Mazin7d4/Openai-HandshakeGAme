@@ -216,3 +216,25 @@ export function applyTwistMood(scene: Scene, twist: TwistId | string): { dispose
     },
   };
 }
+
+/** Night Shift floor 2+ tint: each later floor reads as a later hour (dusk amber, night blue, late violet). */
+const FLOOR_TINTS: readonly [number, number, number][] = [
+  [1.0, 0.86, 0.72],
+  [0.8, 0.88, 1.0],
+  [0.9, 0.82, 1.0],
+];
+
+export function applyFloorTint(scene: Scene, floor: number): { dispose(): void } {
+  const f = floor | 0;
+  if (f <= 1) return { dispose() {} };
+  const [r, g, b] = FLOOR_TINTS[(f - 2) % FLOOR_TINTS.length];
+  const restores: (() => void)[] = [];
+  for (const name of ['sun', 'fill']) {
+    const light = scene.getLightByName(name) as (Light & { diffuse?: Color3 }) | null;
+    if (!light?.diffuse) continue;
+    const original = light.diffuse.clone();
+    light.diffuse = new Color3(original.r * r, original.g * g, original.b * b);
+    restores.push(() => { light.diffuse = original; });
+  }
+  return { dispose() { for (const restore of restores) restore(); } };
+}
