@@ -35,9 +35,9 @@ export interface SettingsMenuOptions {
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'audio', label: 'Audio' },
-  { id: 'visuals', label: 'Visuals' },
-  { id: 'accessibility', label: 'Access' },
-  { id: 'controls', label: 'Controls' },
+  { id: 'visuals', label: 'View' },
+  { id: 'accessibility', label: 'Assist' },
+  { id: 'controls', label: 'Keys' },
 ];
 
 const CONTROL_ROWS: readonly (readonly [string, string])[] = [
