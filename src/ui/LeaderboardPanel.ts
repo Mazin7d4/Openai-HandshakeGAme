@@ -119,7 +119,8 @@ export class LeaderboardPanel {
     this.list.replaceChildren();
     if (!board) return;
     if (!board.entries.length) {
-      this.status.textContent = 'No runs yet. Be the first!';
+      this.list.hidden = true;
+      this.status.textContent = 'Be the first crew tonight';
       return;
     }
     this.status.textContent = '';

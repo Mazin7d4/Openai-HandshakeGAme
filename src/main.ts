@@ -272,6 +272,7 @@ function showMultiplayerMenu(): void {
     menuButton('Create a room', 'create-room', () => {
       void createRoom();
     }, 'btn--primary'),
+    menuButton('Daily (co-op)', 'create-daily-room', () => { void createRoom({ mode: 'daily' }); }),
     menuButton('Join with a code', 'join-room', () => showJoinRoom()),
     menuButton('Quick match', 'quick-match', () => { void quickMatch(); }),
     menuButton('Back', 'back', showMainMenu, 'btn--quiet'),
@@ -480,16 +481,16 @@ async function ensureServerAwake(
   return false;
 }
 
-async function createRoom(): Promise<void> {
+async function createRoom(override: { mode?: 'daily' } = {}): Promise<void> {
   const panel = menuPanel('Creating room', 'Connecting to the multiplayer server…');
   const status = element('p', 'lobby-status', 'Please wait.');
   status.setAttribute('role', 'alert');
   status.setAttribute('aria-live', 'polite');
   panel.append(status);
   bindMenuNav(panel, showMultiplayerMenu);
-  if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void createRoom(); }))) return;
+  if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void createRoom(override); }))) return;
   try {
-    const session = await (await loadNet()).MultiplayerSession.createRoom({ ...readUrlRunOptions(), bot: new URLSearchParams(location.search).get('bot') === '1' });
+    const session = await (await loadNet()).MultiplayerSession.createRoom({ ...readUrlRunOptions(), ...override, bot: new URLSearchParams(location.search).get('bot') === '1' });
     showLobby(session);
   } catch (error) {
     status.textContent = errorMessage(error);

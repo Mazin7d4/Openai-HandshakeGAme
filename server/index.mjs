@@ -549,7 +549,8 @@ class HandshakeRoom extends Room {
 
   initRun(options = {}, begin = true) {
     const mode = isRunMode(options.mode) ? options.mode : 'standard';
-    const seedOpt = typeof options.seed === 'number' && Number.isFinite(options.seed)
+    // Daily rooms always use today's UTC daily seed (shared/run.ts), whatever the client asked for.
+    const seedOpt = mode !== 'daily' && typeof options.seed === 'number' && Number.isFinite(options.seed)
       ? options.seed >>> 0
       : undefined;
     const initial = createRunState({ mode, seed: seedOpt });

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { runTest, url, assert, tryShot, waitForGame, collectErrors, devices } from './lib.mjs';
 import { freePort, startTestServer } from '../test-server.mjs';
+import { dailySeed } from '../../shared/run.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const phone = {
@@ -32,10 +33,21 @@ await runTest('leaderboard', async (browser, notes) => {
   collectErrors(host, 'host', errors);
   let partner;
   try {
-    // The menu's ?mode=daily boots solo, so a co-op daily room is joined through its invite link.
-    partner = await new Client(SERVER_URL).create('handshake', { mode: 'daily' });
-    const code = partner.roomId;
-    await host.goto(url({ server: SERVER_URL, room: code }));
+    // Empty board: a prompt, never a blank table.
+    const empty = await context.newPage();
+    await empty.goto(url({ server: SERVER_URL }));
+    await empty.getByTestId('leaderboards').tap();
+    await empty.getByTestId('lb-status').filter({ hasText: 'Be the first crew tonight' }).waitFor({ timeout: 15_000 });
+    assert(await empty.locator('[data-testid="lb-list"] li').count() === 0, 'empty board rendered rows');
+    assert(!(await empty.getByTestId('lb-list').isVisible()), 'empty board shows a blank table');
+    await empty.close();
+
+    // Co-op daily through the Play-with-a-friend menu entry.
+    await host.goto(url({ server: SERVER_URL }));
+    await host.getByTestId('multiplayer').tap();
+    await host.getByTestId('create-daily-room').tap();
+    const code = (await host.getByTestId('room-code').innerText({ timeout: 20_000 })).trim();
+    partner = await new Client(SERVER_URL).joinById(code);
     await Promise.all([
       waitForGame(host),
       new Promise((resolve) => {
@@ -43,6 +55,8 @@ await runTest('leaderboard', async (browser, notes) => {
         check();
       }),
     ]);
+    assert(partner.state.run.mode === 'daily', `co-op daily room mode ${partner.state.run.mode}`);
+    assert(partner.state.run.seed === dailySeed(new Date()), 'co-op daily room seed is not today\'s daily seed');
 
     await new Promise((resolve) => setTimeout(resolve, 3000));
     await host.evaluate(() => window.__autotest.debugRunClear({ elapsedSeconds: 2, timesSpotted: 0 }));
