@@ -250,7 +250,8 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 .mission-objective--collapsed { pointer-events: auto; cursor: pointer; z-index: 12; }
 .mission-objective--collapsed::before { display: none; }
 .mission-objective--collapsed > span, .mission-objective--collapsed .mission-status-badge,
-.mission-objective--collapsed .mission-objective p, .mission-objective--collapsed .detection-meter { display: none; }
+.mission-objective--collapsed > p, .mission-objective--collapsed .detection-meter, .mission-objective--collapsed .warmup-step { display: none !important; }
+.mission-objective--collapsed { width: auto !important; max-width: min(35vw, 380px); height: 36px; min-height: 36px; box-sizing: border-box; padding: 9px 14px; overflow: hidden; }
 .mission-objective--collapsed h2 { overflow: hidden; margin: 0; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; line-height: 1.2; }
 html[data-reduced-motion='1'] .mission-objective { transition: none; }
 /* the objective plaque hangs from the cord */
@@ -1137,3 +1138,31 @@ html[data-reduced-motion='1'] .wake-spinner { display: none; }
 }
 
 .touch-rotate-hint__dismiss { min-height: 48px; }
+
+/* Portrait phones: the collapsed objective pill may use more width for its one-line title. */
+@media (orientation: portrait) and (max-width: 480px) {
+  .mission-objective--collapsed { max-width: 70vw; }
+}
+
+/* Phones: the first-run coach is a small card in the top-left, clear of the drones at screen centre. */
+.touch-play .onboarding-coach {
+  top: calc(max(12px, env(safe-area-inset-top, 0px)) + 46px); bottom: auto !important;
+  left: max(12px, env(safe-area-inset-left, 0px)); right: auto; transform: none;
+  max-width: min(220px, 34vw); gap: 8px; padding: 6px 8px 6px 10px;
+}
+.touch-play .onboarding-coach__prompt { font-size: 14px; }
+.touch-play .onboarding-coach__touch-glyph { width: 22px; height: 22px; }
+.touch-play .onboarding-coach__skip { min-height: 48px; padding: 4px 8px; font-size: 14px; }
+/* Night Shift keeps its floor chips top-left, so the coach takes the top-right slot under the drone chip. */
+.touch-play:has(.run-hud) .onboarding-coach { left: auto; right: max(12px, env(safe-area-inset-right, 0px)); top: calc(max(12px, env(safe-area-inset-top, 0px)) + 60px); }
+@media (orientation: portrait) and (max-width: 480px) {
+  .touch-play .onboarding-coach { top: calc(max(12px, env(safe-area-inset-top, 0px)) + 140px); max-width: min(220px, 60vw); }
+}
+
+/* Night Shift chips stack under the room / seed label instead of on top of it. */
+.run-hud { top: calc(max(16px, env(safe-area-inset-top, 0px)) + 44px) !important; }
+.touch-play:not(:has(.touch-controls--left)) .run-hud { top: calc(max(12px, env(safe-area-inset-top, 0px)) + 44px) !important; }
+@media (max-height: 420px) {
+  .run-hud { gap: 3px; }
+  .run-hud .twist-chip, .run-hud .score-chip, .run-hud .floor-chip { font-size: 14px; padding: 3px 8px; }
+}
