@@ -14,6 +14,7 @@ export interface CameraContext { alarm: boolean; vaultOpen: boolean; complete: b
 const QUIET: CameraContext = { alarm: false, vaultOpen: false, complete: false };
 const smooth = (a: number, b: number, speed: number, dt: number) => a + (b - a) * (1 - Math.exp(-speed * dt));
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const FRAME_LIFT = 1.7;
 const TOUCH_RELEASE_S = 2;
 const ZOOM_MIN = 0.85;
 const ZOOM_MAX = 1.16;
@@ -275,7 +276,8 @@ export class CinematicCamera {
     const ahead = this.motion.scale(context.alarm ? 0.20 : 0.12);
     ahead.x = clamp(ahead.x, -1.4, 1.4); ahead.y = clamp(ahead.y, -0.65, 0.65); ahead.z = clamp(ahead.z, -1.4, 1.4);
     const targetLook = this.focus.add(ahead);
-    targetLook.y += 0.45 + this.reveal * 0.5;
+    // Look a little above the crew so they sit in the lower-middle third (clear of the objective card).
+    targetLook.y += FRAME_LIFT + this.reveal * 0.5;
     targetLook.z += this.reveal * 1.25;
     const aspect = Math.max(0.4, this.scene.getEngine().getAspectRatio(this.camera));
     const fovTarget = (context.alarm && !context.complete ? 0.94 : 0.86) * this.fovScale;

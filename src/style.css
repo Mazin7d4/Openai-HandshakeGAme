@@ -255,8 +255,10 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 .mission-objective--collapsed::before { display: none; }
 .mission-objective--collapsed > span, .mission-objective--collapsed .mission-status-badge,
 .mission-objective--collapsed > p, .mission-objective--collapsed .detection-meter, .mission-objective--collapsed .warmup-step { display: none !important; }
-.mission-objective--collapsed { width: auto !important; max-width: min(35vw, 380px); height: 36px; min-height: 36px; box-sizing: border-box; padding: 9px 14px; overflow: hidden; }
-.mission-objective--collapsed h2 { overflow: hidden; margin: 0; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; line-height: 1.2; }
+.mission-objective--collapsed { width: auto !important; max-width: min(35vw, 380px); height: auto; min-height: 36px; max-height: 56px; box-sizing: border-box; padding: 8px 14px; overflow: hidden; }
+/* Wraps to two lines inside the 35vw cap instead of truncating ('Warm up on the…' on landscape phones). */
+.mission-objective--collapsed h2 { overflow: hidden; margin: 0; white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; font-size: 15px; line-height: 1.2; }
+@media (max-height: 500px) { .mission-objective--collapsed h2 { font-size: 13px; } .mission-objective--collapsed { padding: 6px 12px; } }
 html[data-reduced-motion='1'] .mission-objective { transition: none; }
 /* the objective plaque hangs from the cord */
 .mission-objective::before { content: ''; position: absolute; left: 50%; bottom: 100%; width: var(--cord); height: 16px; background: var(--graphite); transform: translateX(-50%); }
