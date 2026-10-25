@@ -1,15 +1,11 @@
-import {
-  Color3,
-  CreateBox,
-  HavokPlugin,
-  PhysicsActivationControl,
-  PhysicsAggregate,
-  PhysicsPrestepType,
-  PhysicsShapeType,
-  Vector3,
-  type Mesh,
-  type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
+import type { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin.js';
+import { PhysicsActivationControl, PhysicsPrestepType, PhysicsShapeType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import { PhysicsAggregate } from '@babylonjs/core/Physics/v2/physicsAggregate.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { LoadedModel } from '../assets/AssetLoader.ts';
 import type { CameraSubject } from '../camera/CameraSubject.ts';
 import type { FlightAxes } from '../input/FlightAxes.ts';
@@ -195,12 +191,26 @@ export class Drone implements CameraSubject {
     return target.set(Math.sin(yaw), 0, Math.cos(yaw)).normalize();
   }
 
+  /** Fade out climb near the roof and ease back down if pressed above the soft band. */
+  private softCeiling(): void {
+    const { softCeilingY, hardCeilingY } = FLIGHT_TUNING;
+    const y = this.root.position.y;
+    const v = this.flight.velocity;
+    if (y <= softCeilingY) return;
+    if (y >= hardCeilingY) {
+      if (v.y > -0.6) v.y = -0.6;
+      return;
+    }
+    if (v.y > 0) v.y *= (hardCeilingY - y) / (hardCeilingY - softCeilingY);
+  }
+
   /** Integrate input into the steered velocity and bank pose. */
   steer(dt: number, input: FlightAxes, basis: PlanarBasis, faceGameplayCamera = true): void {
     this.selfPowered =
       input.thrust !== 0 || input.strafe !== 0 || input.lift !== 0 || input.boost;
     this.tetherPull = 0;
     const pose = this.flight.step(input, basis, dt);
+    this.softCeiling();
     this.yankedRecently = Math.max(0, this.yankedRecently - dt);
     if (this.captured) {
       // Hauled by a security pod: mostly its pull, a little wriggle from the stick.

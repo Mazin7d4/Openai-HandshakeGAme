@@ -1,5 +1,8 @@
 import { CordPlayground } from '../level/CordPlayground.ts';
-import { Color3, Vector3, type HavokPlugin, type Scene } from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import { GameAudio } from '../audio/GameAudio.ts';
 import type { GameMode } from '../app/GameMode.ts';
 import type { InteractionActions } from '../input/InteractionActions.ts';

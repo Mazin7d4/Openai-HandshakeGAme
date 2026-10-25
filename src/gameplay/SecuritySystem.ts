@@ -1,13 +1,11 @@
-import {
-  Color3,
-  CreateCylinder,
-  CreateSphere,
-  CreateTorus,
-  StandardMaterial,
-  Vector3,
-  type Mesh,
-  type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.js';
+import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
+import { CreateTorus } from '@babylonjs/core/Meshes/Builders/torusBuilder.js';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { DroneRole, SecurityNetworkState } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
