@@ -211,7 +211,7 @@ class EscapeReplayController {
     this.applyAt(source);
     a.redrawTether();
     this.driveCamera(p);
-    if (!this.stampShown && p > 0.42) {
+    if (!this.stampShown && p > 0.3) {
       this.stampShown = true;
       this.overlay?.classList.add('escape-replay--stamp');
     }

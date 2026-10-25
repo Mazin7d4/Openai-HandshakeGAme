@@ -1,4 +1,7 @@
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.js';
+import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
@@ -8,6 +11,8 @@ import type { Scene } from '@babylonjs/core/scene.js';
 import type { LoadedModel } from '../assets/AssetLoader.ts';
 import { DroneFace, type Expression, type EmoteFace } from './DroneFace.ts';
 import { FLIGHT_TUNING } from './FlightTuning.ts';
+import { createRoundedBox } from '../scene/roundedBox.ts';
+import type { CosmeticId } from './Cosmetics.ts';
 
 export const DRONE_MODEL_URL = `${import.meta.env.BASE_URL}assets/drone/drone.glb`;
 
@@ -51,6 +56,52 @@ function findNode(root: Node, name: string): TransformNode | null {
   return null;
 }
 
+/** One merged, bevelled topper mesh. It never changes the authored drone model. */
+function createCosmeticHat(scene: Scene, parent: TransformNode, id: CosmeticId, accent: Color3): Mesh {
+  const parts: Mesh[] = [];
+  const box = (name: string, width: number, height: number, depth: number, x = 0, y = 0, z = 0): void => {
+    const mesh = createRoundedBox(name, { width, height, depth, radius: 0.035, segments: 2 }, scene);
+    mesh.position.set(x, y, z); parts.push(mesh);
+  };
+  switch (id) {
+    case 'beanie':
+      box('beanie-cuff', 0.48, 0.1, 0.42, 0, 0.02); box('beanie-cap', 0.4, 0.22, 0.36, 0, 0.16);
+      break;
+    case 'crown':
+      box('crown-band', 0.44, 0.1, 0.34, 0, 0.05);
+      for (const x of [-0.16, 0, 0.16]) box('crown-point', 0.09, 0.18, 0.12, x, 0.17);
+      break;
+    case 'antenna-bobble':
+      parts.push(CreateCylinder('bobble-stem', { diameter: 0.045, height: 0.22, tessellation: 10 }, scene));
+      parts[parts.length - 1]!.position.y = 0.11;
+      parts.push(CreateSphere('bobble', { diameter: 0.16, segments: 12 }, scene));
+      parts[parts.length - 1]!.position.y = 0.25;
+      break;
+    case 'headset':
+      box('headset-band', 0.46, 0.05, 0.08, 0, 0.2, 0.02);
+      box('headset-left', 0.07, 0.18, 0.16, -0.25, 0.08); box('headset-right', 0.07, 0.18, 0.16, 0.25, 0.08);
+      break;
+    case 'party-hat':
+      parts.push(CreateCylinder('party-hat', { diameter: 0.42, diameterTop: 0.025, height: 0.34, tessellation: 16 }, scene));
+      parts[parts.length - 1]!.position.y = 0.17;
+      break;
+    case 'safari-hat':
+      box('safari-brim', 0.62, 0.06, 0.5, 0, 0.03); box('safari-crown', 0.38, 0.16, 0.32, 0, 0.13);
+      break;
+  }
+  const merged = Mesh.MergeMeshes(parts, true, true, undefined, false, true) ?? parts[0]!;
+  merged.name = `${parent.name}-${id}`;
+  merged.parent = parent;
+  merged.position.y = parent.getHierarchyBoundingVectors(true).max.y + 0.02;
+  const material = new PBRMaterial(`${merged.name}-material`, scene);
+  material.albedoColor = accent.clone();
+  material.metallic = 0.18;
+  material.roughness = 0.34;
+  merged.material = material;
+  merged.isPickable = false;
+  return merged;
+}
+
 /**
  * Visual-only mascot built from drone.glb. Everything hangs off `root`, which
  * Drone rotates for yaw and banking. Handles hover bob, acceleration lean, pod
@@ -72,6 +123,7 @@ export class DroneVisual {
   private readonly glowMaterials: PBRMaterial[] = [];
   private readonly antennaGlow: PBRMaterial[] = [];
   private readonly glow: Color3;
+  private cosmeticHat: Mesh | null = null;
 
   private time = Math.random() * 10;
   private stretch = 1;
@@ -188,6 +240,16 @@ export class DroneVisual {
   /** Temporary face reaction (presentation only). */
   react(expression: Expression, seconds: number): void {
     this.face.flash(expression, seconds);
+  }
+
+  setCosmetics(expression: CosmeticId, hat: CosmeticId): void {
+    const faces: Partial<Record<CosmeticId, Expression>> = {
+      'star-eyes': 'star-eyes', heart: 'heart', sunglasses: 'sunglasses', sleepy: 'sleepy', wink: 'wink', determined: 'determined',
+    };
+    this.face.setCosmetic(faces[expression] ?? null);
+    this.cosmeticHat?.dispose(false, true);
+    this.cosmeticHat = null;
+    if (hat !== 'none') this.cosmeticHat = createCosmeticHat(this.model.root.getScene(), this.model.root, hat, this.glow);
   }
 
   /** Show one of the flat, screen-native co-op emote expressions. */
@@ -337,6 +399,7 @@ export class DroneVisual {
   }
 
   dispose(): void {
+    this.cosmeticHat?.dispose(false, true);
     this.face.dispose();
     this.model.dispose();
     this.root.dispose(false, true);
