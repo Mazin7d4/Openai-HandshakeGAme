@@ -85,6 +85,7 @@ class EscapeReplayController {
   private readonly ray = new Ray(new Vector3(), new Vector3(0, 1, 0), 1);
   private readonly excluded = new Set<TransformNode>();
   private camDist = 0;
+  private lastNow = 0;
   private readonly onSkipKey = (e: KeyboardEvent) => this.inputSkip(e);
   private readonly onSkipPointer = (e: PointerEvent) => this.inputSkip(e);
 
@@ -157,6 +158,7 @@ class EscapeReplayController {
     this.staticCamera = reduced;
     this.duration = reduced ? PLAY_SECONDS_REDUCED : initialTier() === 'low' ? PLAY_SECONDS_LOW : PLAY_SECONDS;
     this.elapsed = 0;
+    this.lastNow = 0;
     this.onDone = options.onDone;
     this.stampShown = false;
 
@@ -192,7 +194,11 @@ class EscapeReplayController {
   update(realDt: number): void {
     const a = this.actors;
     if (!this.playing || !a) return;
-    this.elapsed += realDt;
+    // Wall clock, not the sim's 50 ms-clamped dt: a slow device still gets a ~3.6 s replay, not a 15 s one.
+    const now = performance.now();
+    const wallDt = this.lastNow > 0 ? Math.min(0.25, (now - this.lastNow) / 1000) : realDt;
+    this.lastNow = now;
+    this.elapsed += wallDt;
     if (this.pollPads()) { this.skip(); return; }
     const p = Math.min(1, this.elapsed / this.duration);
     // Speed ramps linearly from vStart to vEnd (in source seconds per real second); integrate for position.
