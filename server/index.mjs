@@ -14,11 +14,13 @@ import {
 } from '../shared/run.ts';
 import { applyRunLayout, generateRun } from '../shared/seed/index.mjs';
 import { scoreFloorPure, dropFloorsFrom } from '../shared/nightShiftScore.mjs';
+import { installLifecycleLogging, logListenError } from './lifecycle.mjs';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json');
 
 const PORT = Number.parseInt(process.env.PORT ?? '2567', 10);
+installLifecycleLogging({ port: PORT, roomsCount: () => liveRooms.size });
 // Test-only room messages. `npm run dev` (tools/dev.mjs) turns them on; deployments use `npm start`
 // and must never enable them, so they are refused outright on Render.
 const TEST_HOOKS = process.env.HANDSHAKE_TEST_HOOKS === '1' && !process.env.RENDER;
@@ -272,6 +274,7 @@ class HandshakeRoom extends Room {
   nsFloors = {};
   nsTwangs = new Map();
   nsEndedBroadcast = false;
+  lastTickErrorAt = null;
   seedPinned;
   rematchVoteTimes = new Map();
   botEnabled = false;
@@ -460,11 +463,20 @@ class HandshakeRoom extends Room {
       };
     }
     this.setSimulationInterval((deltaMs) => {
-      this.updateHack();
-      this.botPilot.tick(deltaMs / 1000);
-      this.updateMission();
-      this.updateHeldObjects(deltaMs / 1000);
-      this.updateSecurity(deltaMs / 1000);
+      try {
+        this.updateHack();
+        this.botPilot.tick(deltaMs / 1000);
+        this.updateMission();
+        this.updateHeldObjects(deltaMs / 1000);
+        this.updateSecurity(deltaMs / 1000);
+      } catch (error) {
+        const now = Date.now();
+        if (this.lastTickErrorAt === null || now - this.lastTickErrorAt >= 5_000) {
+          this.lastTickErrorAt = now;
+          const message = error?.stack ?? String(error);
+          console.error(`[handshake] room ${this.roomId} tick error: ${String(message).replace(/\s*\n\s*/g, ' | ')}`);
+        }
+      }
     });
   }
 
@@ -1569,7 +1581,20 @@ const gameServer = new Server({
   greet: false,
 });
 gameServer.define('handshake', HandshakeRoom);
-await gameServer.listen(PORT, '0.0.0.0');
+// A failed bind is only emitted on the http server (listen() never rejects), which used to leave
+// a zombie process that looked alive to `pgrep` but owned no port. Fail loudly instead.
+const onListenError = (error) => {
+  logListenError(error, PORT);
+  process.exit(1);
+};
+gameServer.transport.server?.once('error', onListenError);
+try {
+  await gameServer.listen(PORT, '0.0.0.0');
+  gameServer.transport.server?.off('error', onListenError);
+} catch (error) {
+  logListenError(error, PORT);
+  process.exit(1);
+}
 
 // --- /health endpoint (installed after listen so Colyseus listeners exist) -----
 const httpServer = gameServer.transport.server;
