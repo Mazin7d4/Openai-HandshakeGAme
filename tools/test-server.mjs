@@ -23,6 +23,7 @@ export async function startTestServer({ port, env = {}, root, timeoutMs = 20_000
 
   let output = '';
   let settled = false;
+  let childExit = null;
   let timeout;
   let resolveExit;
   const exited = new Promise((resolve) => { resolveExit = resolve; });
@@ -39,9 +40,9 @@ export async function startTestServer({ port, env = {}, root, timeoutMs = 20_000
     const onData = (chunk) => {
       output += chunk.toString();
       if (output.includes(`listening on port ${port}`)) {
-        finish(() => resolve({ child, port, log: () => output, stop }));
+        finish(() => resolve({ child, port, log: () => output, stop, exitInfo: () => childExit }));
       } else if (output.includes('EADDRINUSE')) {
-        // The server process stays alive after a failed listen; fail now with the reason.
+        // Fail now with the listen error rather than waiting for the startup timeout.
         child.kill('SIGTERM');
         finish(() => reject(new Error(`Test server port ${port} already in use: ${tail()}`)));
       }
@@ -50,6 +51,7 @@ export async function startTestServer({ port, env = {}, root, timeoutMs = 20_000
     child.stderr.on('data', onData);
     child.once('error', (error) => finish(() => reject(error)));
     child.once('exit', (code, signal) => {
+      childExit = { code, signal, at: Date.now() };
       resolveExit();
       finish(() => reject(new Error(`Test server exited before listening (code ${code}, signal ${signal}): ${tail()}`)));
     });
