@@ -644,6 +644,7 @@ export class GameApp {
       /** Escape replay state for qa (starts, skips, leads to the report). */
       escapeReplay: () => ({ active: escapeReplay.active, hasFootage: escapeReplay.hasFootage }),
       skipEscapeReplay: () => escapeReplay.skip(),
+      droneMeshes: () => this.drones.map((drone) => drone.root.getChildMeshes(false).filter((mesh) => mesh.getTotalVertices() > 0).length),
     });
     if (this.autopilot) {
       const test = (window as unknown as { __autotest?: Record<string, unknown> }).__autotest ?? {};
