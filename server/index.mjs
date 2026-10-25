@@ -3,6 +3,7 @@ import { schema, t } from '@colyseus/schema';
 import { createRequire } from 'node:module';
 import layout from '../src/level/heist-layout.json' with { type: 'json' };
 import { Security, createSecurityState, SecuritySim } from './security.mjs';
+import { canPass, facingYaw } from './passRules.mjs';
 import {
   createRunState,
   advanceFloor,
@@ -11,6 +12,7 @@ import {
   MAX_CAPTURES,
 } from '../shared/run.ts';
 import { applyRunLayout, generateRun } from '../shared/seed/index.mjs';
+import { scoreFloorPure, dropFloorsFrom } from '../shared/nightShiftScore.mjs';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json');
@@ -49,7 +51,9 @@ const HOLD_OFFSET = { x: 0, y: -1.15, z: 0.35 };
 const MAX_RELEASE_SPEED = Math.max(MAX_OBJECT_SPEED, MAX_PLAYER_SPEED + 10 + 1.8);
 const RELEASE_RANGE = 3.5;
 const HELD_SNAPSHOT_RANGE = 4;
-const HANDOFF_RANGE = 4.5;
+const HANDOFF_RANGE = 2.0;
+// Server range/cone are looser than the client to absorb snapshot latency.
+const HANDOFF_CONE_DEG = 65;
 const STEAL_RANGE = 2.0;
 const STEAL_LOCK_MS = 1000;
 const GRAB_COOLDOWN_MS = 250;
@@ -110,6 +114,14 @@ const Player = schema(
     carryFor: t.float32().default(0),
     /** 0–1 rescue progress (struggles / 3). */
     rescueProgress: t.float32().default(0),
+    rematchVote: t.boolean().default(false),
+    lootDelivered: t.uint16().default(0),
+    lootCarrySeconds: t.float32().default(0),
+    passes: t.uint16().default(0),
+    rescues: t.uint16().default(0),
+    capturedCount: t.uint16().default(0),
+    grabs: t.uint16().default(0),
+    hacks: t.uint16().default(0),
   },
   'Player',
 );
@@ -167,8 +179,16 @@ const Run = schema(
     captures: t.uint8().default(0),
     maxCaptures: t.uint8().default(MAX_CAPTURES),
     startedAt: t.number().default(0),
-    floorTimes: t.array(t.float32),
+    // Primitive child must be the raw type string: t.array(t.float32) registers a bogus "Number" ref type,
+    // which made floorTimes.clear() throw on the second Night Shift floor advance.
+    floorTimes: t.array('float32'),
+    score: t.uint32().default(0),
+    streak: t.uint8().default(0),
+    multiplier: t.float32().default(1),
+    lastFloorPoints: t.uint32().default(0),
+    floorCleared: t.boolean().default(false),
     ended: t.boolean().default(false),
+    rematches: t.uint16().default(0),
   },
   'Run',
 );
@@ -247,9 +267,17 @@ class HandshakeRoom extends Room {
   pingTimes = new Map();
   emoteTimes = new Map();
   pingId = 0;
+  nsFloors = {};
+  nsTwangs = new Map();
+  nsEndedBroadcast = false;
+  seedPinned;
+  rematchVoteTimes = new Map();
 
   onCreate(options = {}) {
     liveRooms.add(this);
+    this.seedPinned = typeof options.seed === 'number' && Number.isFinite(options.seed)
+      ? options.seed >>> 0
+      : undefined;
 
     // Empty-room timeout: disconnect if nobody joins within EMPTY_ROOM_SECONDS
     this._emptyTimeout = this.clock.setTimeout(() => {
@@ -286,12 +314,32 @@ class HandshakeRoom extends Room {
     this.onMessage('hack-complete', (client, message) => this.completeHack(client.sessionId, message));
     this.onMessage('hack-cancel', (client, message) => this.cancelHack(client.sessionId, message));
     this.onMessage('mission-tether-save', (client) => this.reportTetherSave(client.sessionId));
-    this.onMessage('mission-retry', () => this.resetMission());
+    this.onMessage('mission-retry', () => {
+      this.resetPlayerStats();
+      if (this.state.run.mode === 'nightshift') {
+        this.state.run.floorCleared = false;
+        this.nightshiftEscapedFloor = 0;
+        this.nsFloors = dropFloorsFrom(this.nsFloors, this.state.run.floor);
+        this.nsTwangs.clear();
+        this.resetMission();
+      } else {
+        this.resetMission();
+      }
+    });
+    this.onMessage('rematch-vote', (client, message) => this.handleRematchVote(client, message));
+    this.onMessage('run-next-floor', (_client, message) => {
+      const run = this.state.run;
+      if (run.mode !== 'nightshift' || run.ended || !run.floorCleared || message?.floor !== run.floor) return;
+      this.handleEscape();
+    });
+    this.onMessage('run-twang', (client) => this.reportTwang(client.sessionId));
     this.onMessage('tether-yank', (client, message) => this.relayTetherYank(client, message));
     this.onMessage('ping', (client, message) => this.relayPing(client, message));
     this.onMessage('emote', (client, message) => this.relayEmote(client, message));
     this.onMessage('patrol-stun', (client, message) => this.stunPatrol(client, message));
-    this.onMessage('run-capture', (client) => this.handleCapture(client.sessionId));
+    // Captures are server-owned (onCaptureOutcome). Old clients may still send this: accept and ignore,
+    // so one client can't count a team capture twice.
+    this.onMessage('run-capture', () => {});
     this.onMessage('capture-struggle', (client) => this.reportStruggle(client.sessionId));
     if (TEST_HOOKS) {
       console.log('[handshake] TEST HOOKS enabled');
@@ -316,7 +364,11 @@ class HandshakeRoom extends Room {
           if (m?.freezePatrols) this._testPatrolFrozen = true;
         }
       });
-      this.onMessage('debug-run-escape', () => this.handleEscape());
+      this.onMessage('debug-run-escape', () => {
+        this.clearFloor();
+        this.handleEscape();
+      });
+      this.onMessage('debug-run-clear', (_client, message) => this.debugRunClear(message));
       this.onMessage('debug-run-capture', (client) => this.handleCapture(client.sessionId));
       this.onMessage('debug-force-capture', (client, m) => {
         for (const p of this.securitySim.patrol) {
@@ -391,12 +443,12 @@ class HandshakeRoom extends Room {
     this.setSimulationInterval((deltaMs) => {
       this.updateHack();
       this.updateMission();
-      this.updateHeldObjects();
+      this.updateHeldObjects(deltaMs / 1000);
       this.updateSecurity(deltaMs / 1000);
     });
   }
 
-  initRun(options = {}) {
+  initRun(options = {}, begin = true) {
     const mode = isRunMode(options.mode) ? options.mode : 'standard';
     const seedOpt = typeof options.seed === 'number' && Number.isFinite(options.seed)
       ? options.seed >>> 0
@@ -410,8 +462,76 @@ class HandshakeRoom extends Room {
     run.maxCaptures = initial.maxCaptures;
     run.startedAt = initial.startedAt;
     run.ended = false;
+    run.score = 0;
+    run.streak = 0;
+    run.multiplier = 1;
+    run.lastFloorPoints = 0;
+    run.floorCleared = false;
+    run.rematches = 0;
     run.floorTimes.clear();
+    this.nsFloors = {};
+    this.nsTwangs.clear();
+    this.nsEndedBroadcast = false;
+    this.nightshiftEscapedFloor = 0;
     console.log(`[handshake] room ${this.roomId} run mode=${run.mode} seed=${run.seed} floor=${run.floor}`);
+    if (begin) this.beginFloor();
+  }
+
+  /** Per-player report stats span the whole run (all Night Shift floors); cleared on rematch / retry. */
+  resetPlayerStats() {
+    for (const player of this.state.players.values()) {
+      player.lootDelivered = 0;
+      player.lootCarrySeconds = 0;
+      player.passes = 0;
+      player.rescues = 0;
+      player.capturedCount = 0;
+      player.grabs = 0;
+      player.hacks = 0;
+    }
+  }
+
+  resultsPhase() {
+    const run = this.state.run;
+    return this.state.mission.stage === 'complete' || run.ended || (run.mode === 'nightshift' && run.floorCleared);
+  }
+
+  clearRematchVotes() {
+    for (const player of this.state.players.values()) player.rematchVote = false;
+    this.rematchVoteTimes.clear();
+  }
+
+  handleRematchVote(client, message) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player || !player.connected || !this.resultsPhase()) return;
+    const want = message?.want === true;
+    if (player.rematchVote === want) return;
+    const now = Date.now();
+    if (now - (this.rematchVoteTimes.get(client.sessionId) ?? 0) < 300) return;
+    this.rematchVoteTimes.set(client.sessionId, now);
+    player.rematchVote = want;
+    if (want && this.state.players.size === 2 && Array.from(this.state.players.values()).every((candidate) => candidate.rematchVote === true)) {
+      this.rematch();
+    }
+  }
+
+  rematch() {
+    const run = this.state.run;
+    const mode = run.mode;
+    let seed = this.seedPinned != null || mode === 'daily'
+      ? run.mode === 'daily' || this.seedPinned == null ? run.seed : this.seedPinned
+      : createRunState({ mode }).seed;
+    if (this.seedPinned == null && mode !== 'daily' && seed === run.seed) seed = (seed + 1) >>> 0;
+    const rematches = Math.min(65535, (run.rematches | 0) + 1);
+    this.initRun({ mode, seed }, false);
+    this.resetMission();
+    this.resetPlayerStats();
+    this.state.run.rematches = rematches;
+    this.broadcast('rematch-start', {
+      seed: this.state.run.seed,
+      mode: this.state.run.mode,
+      floor: this.state.run.floor,
+      rematches,
+    });
     this.beginFloor();
   }
 
@@ -424,14 +544,23 @@ class HandshakeRoom extends Room {
     if (mode === 'nightshift') {
       this.applySeedFloor(seed, floor);
     }
-    this.broadcast('floor-start', { seed, floor, mode });
+    this.broadcast('floor-start', {
+      seed,
+      floor,
+      mode,
+      score: this.state.run.score,
+      streak: this.state.run.streak,
+      multiplier: this.state.run.multiplier,
+      captures: this.state.run.captures,
+    });
   }
 
-  /** Night Shift: successful extraction → next floor + next seed. */
+  /** Night Shift: advance after a server-cleared floor. */
   handleEscape() {
     const run = this.state.run;
     if (run.mode !== 'nightshift' || run.ended) return;
     if (this.nightshiftEscapedFloor === run.floor) return;
+    if (!run.floorCleared) return;
     this.nightshiftEscapedFloor = run.floor;
     const next = advanceFloor(
       {
@@ -449,8 +578,48 @@ class HandshakeRoom extends Room {
     run.seed = next.seed;
     run.floorTimes.clear();
     for (const t of next.floorTimes) run.floorTimes.push(finite(t, 0));
+    run.floorCleared = false;
+    this.nsTwangs.clear();
     this.resetMission();
     this.beginFloor();
+  }
+
+  clearFloor() {
+    const run = this.state.run;
+    if (run.mode !== 'nightshift' || run.ended || run.floorCleared) return;
+    const twangs = Math.min(10, Math.max(0, ...Array.from(this.nsTwangs.values(), (entry) => entry.floor === run.floor ? entry.count : 0)));
+    const scored = scoreFloorPure({
+      elapsedSeconds: Math.max(0, finite(this.state.mission.elapsedSeconds, 0)),
+      timesSpotted: Math.max(0, finite(this.state.mission.timesSpotted, 0)),
+      tetherSaves: Math.max(0, finite(this.state.mission.tetherSaves, 0)),
+      cordTwangs: twangs,
+    }, run.floor, this.nsFloors);
+    this.nsFloors = scored.floors;
+    run.score = scored.total;
+    run.streak = scored.streak;
+    run.multiplier = scored.multiplier;
+    run.lastFloorPoints = scored.points;
+    run.floorCleared = true;
+    const next = advanceFloor({
+      mode: run.mode,
+      seed: run.seed,
+      floor: run.floor,
+      captures: run.captures,
+      maxCaptures: run.maxCaptures,
+      startedAt: run.startedAt,
+      floorTimes: Array.from(run.floorTimes, (value) => finite(value, 0)),
+    }, finite(this.state.mission.elapsedSeconds, 0));
+    this.broadcast('floor-cleared', {
+      floor: run.floor,
+      seed: run.seed,
+      points: scored.points,
+      base: scored.base,
+      multiplier: scored.multiplier,
+      streak: scored.streak,
+      total: scored.total,
+      clean: scored.floors[run.floor]?.clean === true,
+      next: { seed: next.seed, floor: next.floor },
+    });
   }
 
   /** Night Shift: capture → increment; end the run at maxCaptures. */
@@ -470,9 +639,45 @@ class HandshakeRoom extends Room {
     run.captures = result.state.captures;
     if (result.ended) {
       run.ended = true;
+      this.clearRematchVotes();
       this.state.mission.securityActive = false;
-      this.broadcast('run-ended', { reason: 'captures', captures: run.captures });
+      if (!this.nsEndedBroadcast) {
+        this.nsEndedBroadcast = true;
+        this.broadcast('run-ended', {
+          reason: 'captures', captures: run.captures, floor: run.floor, seed: run.seed,
+          score: run.score, multiplier: run.multiplier, streak: run.streak,
+        });
+      }
     }
+  }
+
+  reportTwang(sessionId) {
+    const run = this.state.run;
+    if (run.mode !== 'nightshift' || run.ended || run.floorCleared || !this.state.players.has(sessionId)) return;
+    const now = Date.now();
+    const entry = this.nsTwangs.get(sessionId) ?? { floor: run.floor, count: 0, at: 0 };
+    if (entry.floor !== run.floor) {
+      entry.floor = run.floor;
+      entry.count = 0;
+      entry.at = 0;
+    }
+    if (now - entry.at < 250) return;
+    entry.at = now;
+    entry.count = Math.min(10, entry.count + 1);
+    this.nsTwangs.set(sessionId, entry);
+  }
+
+  debugRunClear(message) {
+    const mission = this.state.mission;
+    const clamp = (value, fallback) => Math.max(0, finite(value, fallback));
+    if (message && Object.prototype.hasOwnProperty.call(message, 'timesSpotted')) mission.timesSpotted = clamp(message.timesSpotted, mission.timesSpotted);
+    if (message && Object.prototype.hasOwnProperty.call(message, 'elapsedSeconds')) mission.elapsedSeconds = clamp(message.elapsedSeconds, mission.elapsedSeconds);
+    if (message && Object.prototype.hasOwnProperty.call(message, 'tetherSaves')) mission.tetherSaves = clamp(message.tetherSaves, mission.tetherSaves);
+    mission.stage = 'complete';
+    mission.extracted = true;
+    mission.securityActive = false;
+    this.clearRematchVotes();
+    this.clearFloor();
   }
 
   onJoin(client) {
@@ -490,6 +695,7 @@ class HandshakeRoom extends Room {
     player.position.x = this.world.spawn.x + (role === 'pix' ? -1.6 : 1.6);
     player.position.y = this.world.spawn.y;
     player.position.z = this.world.spawn.z;
+    player.rematchVote = false;
     this.state.players.set(client.sessionId, player);
     this.state.started = this.state.players.size === 2;
     if (this.state.started && this._lonelyTimeout) {
@@ -526,8 +732,13 @@ class HandshakeRoom extends Room {
     // Hold expired (or consented leave): the carried item finally drops where the drone was.
     this.dropHeldForRole(player.role, 'disconnect');
     this.releaseRole(player.role);
+    player.rematchVote = false;
     this.state.players.delete(client.sessionId);
     this.state.started = false;
+    this.clearRematchVotes();
+    const partner = Array.from(this.state.players.values()).find((candidate) => candidate.connected);
+    const partnerClient = partner ? this.clientForRole(partner.role) : undefined;
+    partnerClient?.send('rematch-partner-left', { role: player.role });
     this.pingTimes.delete(client.sessionId);
     this.emoteTimes.delete(client.sessionId);
   }
@@ -616,9 +827,11 @@ class HandshakeRoom extends Room {
       if (distance(player.position, object.position) > Math.min(STEAL_RANGE, object.grabRadius)) return;
       const from = object.heldBy;
       this.setOwnership(object, player, 'steal');
+      player.grabs = Math.min(65535, player.grabs + 1);
       this.broadcast('object-event', { objectId: object.id, event: 'steal', from, to: player.role });
     } else {
       this.setOwnership(object, player, 'grab');
+      player.grabs = Math.min(65535, player.grabs + 1);
     }
     if (object.id === 'prototype') this.triggerAlarm(player.role);
   }
@@ -631,10 +844,17 @@ class HandshakeRoom extends Room {
     const now = Date.now();
     if (now - (this.lastGrabMs.get(sessionId) ?? 0) < GRAB_COOLDOWN_MS) return;
     this.lastGrabMs.set(sessionId, now);
-    if (distance(player.position, partner.position) > HANDOFF_RANGE) return;
+    if (!canPass({
+      holder: player.position,
+      holderYaw: facingYaw(player.orientation.yaw),
+      partner: partner.position,
+      range: HANDOFF_RANGE,
+      coneDeg: HANDOFF_CONE_DEG,
+    }).ok) return;
     if (Array.from(this.state.objects.values()).some((candidate) => candidate.id !== object.id && candidate.holderId === partner.playerId)) return;
     const from = player.role;
     this.setOwnership(object, partner, 'handoff');
+    player.passes = Math.min(65535, player.passes + 1);
     this.broadcast('object-event', { objectId: object.id, event: 'handoff', from, to: partner.role });
   }
 
@@ -685,10 +905,13 @@ class HandshakeRoom extends Room {
     return { x: player.position.x + HOLD_OFFSET.x, y: player.position.y + HOLD_OFFSET.y, z: player.position.z + HOLD_OFFSET.z };
   }
 
-  updateHeldObjects() {
+  updateHeldObjects(deltaSeconds = 0) {
     for (const object of this.state.objects.values()) {
       if (object.mode !== 'held') continue;
       const holder = this.state.players.get(object.holderId);
+      if (object.id === 'prototype' && holder) {
+        holder.lootCarrySeconds = Math.min(65535, holder.lootCarrySeconds + Math.max(0, finite(deltaSeconds)));
+      }
       if (!holder?.connected) {
         const p = holder ? this.heldPosition(holder) : object.position;
         object.position.x = p.x; object.position.y = p.y; object.position.z = p.z;
@@ -738,6 +961,7 @@ class HandshakeRoom extends Room {
       distance(player.position, this.world.terminals[stationId]) > TERMINAL_RANGE
     ) return;
     this.state.hack[fields.complete] = true;
+    player.hacks = Math.min(65535, player.hacks + 1);
     this.state.hack[fields.owner] = '';
     this.state.hack.doorOpen =
       this.state.hack.stationAComplete && this.state.hack.stationBComplete &&
@@ -795,11 +1019,13 @@ class HandshakeRoom extends Room {
         (player) => distance(player.position, extraction) <= 5.5,
       );
       if (carrier && distance(carrier.position, extraction) <= 4.5 && bothNear) {
+        carrier.lootDelivered = Math.min(65535, carrier.lootDelivered + 1);
+        this.clearRematchVotes();
         mission.extracted = true;
         mission.stage = 'complete';
         mission.securityActive = false;
         if (this.state.run.mode === 'nightshift') {
-          this.handleEscape();
+          this.clearFloor();
         }
       }
     }
@@ -857,6 +1083,7 @@ class HandshakeRoom extends Room {
     const player = Array.from(this.state.players.values()).find((p) => p.role === role);
     if (!player || player.captured) return;
     player.captured = true;
+    player.capturedCount = Math.min(65535, player.capturedCount + 1);
     player.capturedBy = index;
     player.struggles = 0;
     player.carryFor = 0;
@@ -994,8 +1221,11 @@ class HandshakeRoom extends Room {
     const rescue = kind === 'yank' && partner.captured === true && distance(sender.position, partner.position) <= 11;
     if (rescue) {
       const freed = this.securitySim.releaseRole(partner.role, 'yank');
-      if (freed) this.finishCapture(freed.role, freed.index, 'yank');
-      this.reportTetherSave(client.sessionId);
+      if (freed) {
+        this.finishCapture(freed.role, freed.index, 'yank');
+        sender.rescues = Math.min(65535, sender.rescues + 1);
+        this.reportTetherSave(client.sessionId);
+      }
     }
     target.send('tether-yanked', {
       kind,
@@ -1114,6 +1344,7 @@ class HandshakeRoom extends Room {
     this.doorOpenedAt = 0;
     this.spotCooldownUntil = { pix: 0, nee: 0 };
     this.clotheslines = 0;
+    this.clearRematchVotes();
     for (const player of this.state.players.values()) {
       player.captured = false;
       player.capturedBy = -1;

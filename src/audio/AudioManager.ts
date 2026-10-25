@@ -1,7 +1,7 @@
 import { getSettings, saveSettings, subscribeSettings } from '../ui/Settings.ts';
 import { SFX_SPRITE, type SpriteKey } from './sfxSprite.ts';
 import {
-  alarmCycle, alarmKlaxon, alarmTension, chirpParams, roomTone, snap, stretchLoop, twang, whoosh, zz, ZZ,
+  alarmCycle, alarmKlaxon, alarmTension, chirpParams, passCue, roomTone, snap, stretchLoop, twang, whoosh, zz, ZZ,
   type ChirpMood, type Voice,
 } from './synth.ts';
 
@@ -34,7 +34,7 @@ export type AudioEvent =
   | 'uiHover' | 'uiClick' | 'uiConfirm' | 'uiBack' | 'uiToggle' | 'uiError'
   | 'twang' | 'snap' | 'yank' | 'yanked' | 'slingshot' | 'bump'
   | 'boost' | 'impact'
-  | 'grab' | 'drop' | 'throw'
+  | 'grab' | 'drop' | 'throw' | 'pass'
   | 'hackStart' | 'hackTick' | 'hackSuccess' | 'hackFail'
   | 'suspicious' | 'spotted' | 'stun' | 'cameraBlind' | 'capture' | 'rescue'
   | 'vaultOpen' | 'theft' | 'extract' | 'celebrate'
@@ -44,7 +44,7 @@ export const AUDIO_EVENTS: readonly AudioEvent[] = [
   'uiHover', 'uiClick', 'uiConfirm', 'uiBack', 'uiToggle', 'uiError',
   'twang', 'snap', 'yank', 'yanked', 'slingshot', 'bump', 'boost', 'impact', 'grab', 'drop', 'throw',
   'hackStart', 'hackTick', 'hackSuccess', 'hackFail',
-  'suspicious', 'spotted', 'stun', 'cameraBlind', 'capture', 'rescue', 'vaultOpen', 'theft', 'extract', 'celebrate', 'chirp', 'ping', 'emote',
+  'pass', 'suspicious', 'spotted', 'stun', 'cameraBlind', 'capture', 'rescue', 'vaultOpen', 'theft', 'extract', 'celebrate', 'chirp', 'ping', 'emote',
 ];
 
 export type DroneVoice = Voice;
@@ -417,6 +417,7 @@ export class AudioManager {
         return;
       case 'drop': this.spr(event, 'drop', { gain: 0.7 * vol, pos }); return;
       case 'throw': this.start(event, this.synth('whoosh-throw', (r) => whoosh(r, 0.3, 900, 2400, 1.4)), { gain: 0.55 * vol, pos }); return;
+      case 'pass': this.start(event, this.synth('pass', passCue), { gain: 0.65 * vol, pos }); return;
       case 'hackStart': this.start(event, this.synth('hackStart', (r) => zz(r, ZZ.hackStart)), { bus: 'ui', gain: 0.5 * vol }); return;
       case 'hackTick': this.spr(event, 'hack_tick', { bus: 'ui', gain: 0.6 * vol, rate: 0.85 + clamp(o.progress ?? 0) * 0.6 }); return;
       case 'hackSuccess': this.spr(event, 'hack_ok', { bus: 'ui', gain: 0.75 * vol }); return;

@@ -8,7 +8,13 @@ const preloadGame = () => (gameModules.promise ??= loadGame());
 import { classifyJoinError, MultiplayerSession } from './network/MultiplayerSession.ts';
 import type { RoomStatus } from './network/NetworkTypes.ts';
 import { RECONNECT_GRACE_SECONDS } from './network/ReconnectionToken.ts';
-import { pingServer, wakeServer } from './network/ServerEndpoint.ts';
+import {
+  revalidateWarmup,
+  retryWarmup,
+  startWarmup,
+  waitForServer,
+  warmupIsFresh,
+} from './network/ServerWarmup.ts';
 import {
   getRunState,
   readUrlRunOptions,
@@ -29,7 +35,9 @@ import { getBest } from './run/nightShiftScore.ts';
 import './style.css';
 import { audio } from './audio/AudioManager.ts';
 import { titleMenuNav } from './ui/MenuNavigator.ts';
-import { TitleAttract } from './ui/TitleAttract.ts';
+import { enterImmersive } from './ui/fullscreen.ts';
+import { isTouchPlayDevice } from './ui/touchDetect.ts';
+import type { TitleAttract } from './ui/TitleAttract.ts';
 
 // Unlock-on-first-gesture, menu UI sounds and M to mute; sound files load lazily once the page is idle.
 audio.install();
@@ -106,7 +114,10 @@ function menuButton(label: string, testId: string, action: () => void, variant: 
   button.type = 'button';
   button.dataset.testid = testId;
   button.setAttribute('aria-label', label || testId.replace(/-/g, ' '));
-  button.addEventListener('click', action);
+  button.addEventListener('click', () => {
+    if (isTouchPlayDevice() && ['singleplayer', 'start-singleplayer', 'night-shift', 'create-room'].includes(testId)) void enterImmersive();
+    action();
+  });
   return button;
 }
 
@@ -196,10 +207,11 @@ function showMainMenu(): void {
   root.replaceChildren(shell);
   // PLAY NOW is first in tab order and already focused, so Enter starts it.
   bindMenuNav(panel, undefined, play);
-  void TitleAttract.mount(attractCanvas, play).then((mounted) => {
+  void import('./ui/TitleAttract.ts').then(({ TitleAttract }) => TitleAttract.mount(attractCanvas, play)).then((mounted) => {
     if (mounted && root.contains(attractCanvas)) titleAttract = mounted;
     else mounted?.dispose();
   });
+  startWarmup();
 }
 
 function openTitleSettings(): void {
@@ -253,50 +265,61 @@ function showMultiplayerMenu(): void {
   );
   panel.append(actions);
   bindMenuNav(panel, showMainMenu, '[data-testid="create-room"]');
-  void pingServer(2500);
 }
 
 async function ensureServerAwake(
   panel: HTMLElement,
   back: () => void,
   retry: () => void,
+  onCancel: () => void = back,
 ): Promise<boolean> {
   panel.querySelectorAll('.wake-overlay').forEach((node) => node.remove());
-  const ui = { overlay: null as HTMLElement | null, title: null as HTMLElement | null, detail: null as HTMLElement | null };
+  if (warmupIsFresh()) return true;
+  revalidateWarmup();
 
-  const result = await wakeServer({
-    onWaiting(attempt) {
-      if (!ui.overlay) {
-        ui.overlay = element('div', 'wake-overlay');
-        ui.overlay.dataset.testid = 'wake-overlay';
-        ui.title = element('p', 'wake-title', 'Waking server…');
-        ui.detail = element('p', 'wake-detail', `Free server is starting up (up to a minute). Attempt ${attempt}`);
-        ui.overlay.append(ui.title, ui.detail);
-        panel.append(ui.overlay);
-      } else {
-        ui.detail!.textContent = `Free server is starting up (up to a minute). Attempt ${attempt}`;
-      }
+  const controller = new AbortController();
+  const overlay = element('div', 'wake-overlay');
+  overlay.dataset.testid = 'wake-overlay';
+  overlay.setAttribute('role', 'status');
+  overlay.setAttribute('aria-live', 'polite');
+  const spinner = element('div', 'wake-spinner');
+  spinner.setAttribute('aria-hidden', 'true');
+  const title = element('p', 'wake-title', 'Waking server…');
+  title.dataset.testid = 'wake-title';
+  const detail = element('p', 'wake-detail', 'The free server is starting up. ');
+  const seconds = element('span', '', '0');
+  seconds.dataset.testid = 'wake-elapsed';
+  detail.append(seconds, ' s');
+  const cancel = menuButton('Cancel', 'wake-cancel', () => controller.abort(), 'btn--quiet');
+  overlay.append(spinner, title, detail, cancel);
+  // Only show the overlay once the first ping actually failed ('waking'), so a fast answer never flashes it.
+  const result = await waitForServer({
+    signal: controller.signal,
+    onTick(elapsedMs, current) {
+      seconds.textContent = String(Math.floor(elapsedMs / 1_000));
+      if (current !== 'ready' && current !== 'unknown' && !overlay.isConnected) panel.append(overlay);
     },
   });
-
-  if (result) {
-    ui.overlay?.remove();
+  if (!overlay.isConnected) panel.append(overlay);
+  if (result === 'ready') {
+    overlay.remove();
     return true;
   }
-
-  // Failed — show error UI
-  if (!ui.overlay) {
-    ui.overlay = element('div', 'wake-overlay');
-    ui.overlay.dataset.testid = 'wake-overlay';
-    ui.title = element('p', 'wake-title');
-    ui.detail = element('p', 'wake-detail');
-    ui.overlay.append(ui.title, ui.detail);
-    panel.append(ui.overlay);
+  if (result === 'cancelled') {
+    overlay.remove();
+    onCancel();
+    return false;
   }
-  ui.title!.textContent = "Server didn't wake up";
-  ui.detail!.textContent = 'Check your connection and retry.';
-  ui.overlay.append(
-    menuButton('Retry', 'wake-retry', retry),
+
+  spinner.remove();
+  title.textContent = "Server didn't wake up";
+  detail.textContent = 'Check your connection and retry.';
+  cancel.remove();
+  overlay.append(
+    menuButton('Retry', 'wake-retry', () => {
+      retryWarmup();
+      retry();
+    }),
     menuButton('Back', 'back', back),
   );
   return false;
@@ -360,21 +383,28 @@ function showJoinRoom(prefill?: string, initialError = ''): void {
   const status = element('p', 'lobby-status');
   const back = menuButton('Back', 'back', showMultiplayerMenu, 'btn--quiet');
   form.append(input, submit);
+  let joinInFlight = false;
 
   async function doJoin(code: string): Promise<void> {
+    if (joinInFlight) return;
+    joinInFlight = true;
+    if (isTouchPlayDevice()) void enterImmersive();
     submit.disabled = true;
     status.textContent = 'Connecting…';
-    if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void doJoin(code); }))) {
-      submit.disabled = false;
-      return;
-    }
+    status.classList.remove('error');
     try {
+      if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void doJoin(input.value); }, () => {
+        submit.disabled = false;
+        status.textContent = '';
+      }))) return;
       const session = await MultiplayerSession.joinRoom(code, readUrlRunOptions());
       showLobby(session);
     } catch (error: unknown) {
       status.textContent = classifyJoinError(error, code).message;
       status.classList.add('error');
       submit.disabled = false;
+    } finally {
+      joinInFlight = false;
     }
   }
 
@@ -466,6 +496,7 @@ function showLobby(session: MultiplayerSession): void {
 async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<void> {
   titleAttract?.dispose();
   titleAttract = null;
+  if (isTouchPlayDevice() && (mode === 'singleplayer' || mode === 'night-shift' || mode === 'multiplayer')) void enterImmersive();
   titleMenuNav.detach();
   try { sessionStorage.removeItem(MODE_STASH_KEY); } catch { /* private mode */ }
   const canvas = element('canvas');

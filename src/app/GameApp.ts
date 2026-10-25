@@ -182,6 +182,11 @@ export class GameApp {
     }
     this.juice = new Juice(scene);
     const audio = gameplay.sfx;
+    if (multiplayer) {
+      this.unsubscribers.push(multiplayer.onObjectEvent((event) => {
+        if (event.event === 'handoff') audioHub.play('pass');
+      }));
+    }
     this.moves = new TetherMoves(
       audio,
       cameraRig,
@@ -559,6 +564,8 @@ export class GameApp {
       runState: () => getRunState(),
       /** TEST-ONLY Night Shift floor advance (HANDSHAKE_TEST_HOOKS=1). */
       debugRunEscape: () => this.multiplayer?.debugRunEscape(),
+      /** TEST-ONLY: force the authoritative room into the results phase. */
+      debugRunClear: (stats: { timesSpotted?: number; elapsedSeconds?: number; tetherSaves?: number } = {}) => this.multiplayer?.debugRunClear(stats),
       /** TEST-ONLY Night Shift capture (HANDSHAKE_TEST_HOOKS=1). */
       debugRunCapture: () => this.multiplayer?.debugRunCapture(),
       /** TEST-ONLY: force patrol grab / free (HANDSHAKE_TEST_HOOKS=1). */
@@ -879,6 +886,7 @@ export class GameApp {
 
   private setPaused(paused: boolean): void {
     this.paused = paused;
+    if (!paused) this.pingEmote.resetPadEdges();
     this.hud?.setPaused(paused);
     this.touch?.setVisible(!paused);
   }
@@ -917,7 +925,10 @@ export class GameApp {
       onGrab: () => live()?.requestGrabDrop(),
       onYank: () => live()?.requestYank(),
       onInteract: () => live()?.requestInteract(),
-      onPause: () => live()?.requestPause(),
+      // Pause is a UI state transition, not movement input. Applying it from the
+      // touch event keeps the edge from being lost between pointer dispatch and
+      // the next gameplay sample (notably on portrait phones with the rotate hint).
+      onPause: () => this.setPaused(true),
       onSwitch: this.mode !== 'multiplayer' ? () => live()?.requestSwitchDrone() : undefined,
       onPing: () => this.pingEmote.ping(),
       onEmote: (id) => this.pingEmote.emote(id),

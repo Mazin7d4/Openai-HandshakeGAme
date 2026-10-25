@@ -1,7 +1,7 @@
 import { Color3, PointLight, Vector3, type Scene } from '@babylonjs/core';
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { GameMode } from '../app/GameMode.ts';
-import type { MultiplayerSession } from '../network/MultiplayerSession.ts';
+import type { FloorClearedMessage, MultiplayerSession, RunEndedMessage } from '../network/MultiplayerSession.ts';
 import type {
   DroneNetworkState,
   DroneRole,
@@ -10,7 +10,7 @@ import type {
   SecurityNetworkState,
 } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
-import { HeistReport } from '../ui/HeistReport.ts';
+import { HeistReport, type CoopReportState } from '../ui/HeistReport.ts';
 import type { RunStats } from '../ui/heistAwards.ts';
 import type { GrabSystem } from './GrabSystem.ts';
 import type { HackSession } from './HackSession.ts';
@@ -23,10 +23,11 @@ import { updateHeistPresentation } from '../level/PrototypeHeist.ts';
 import { gameEvents } from './GameEvents.ts';
 import { getRunState, localEscape, localCapture, nextFloorSeed as runNextFloorSeed } from '../run/ClientRun.ts';
 import { byInput } from '../ui/inputHints.ts';
-import { beginFloor, getBest, resetRun, runSummary, scoreFloor } from '../run/nightShiftScore.ts';
+import { beginFloor, getBest, recordBest, resetRun, runSummary, scoreFloor } from '../run/nightShiftScore.ts';
 import { twistFlavor } from '../run/twistFlavor.ts';
 import type { NightShiftSummary } from '../ui/HeistReport.ts';
 import { getSettings, subscribeSettings } from '../ui/Settings.ts';
+import { isTouchPlayDevice } from '../ui/touchDetect.ts';
 
 export interface WarmupStep {
   label: string;
@@ -100,6 +101,9 @@ export class MissionDirector {
   private floorCardRemoveTimer: number | null = null;
   private floorScored = false;
   private lastNightShiftSummary?: NightShiftSummary;
+  private objectiveCollapseTimer: number | null = null;
+  private objectiveTextKey = '';
+  private rematchPartnerLeft = false;
 
   constructor(
     scene: Scene,
@@ -146,9 +150,23 @@ export class MissionDirector {
     const offLine = gameEvents.on('clothesline', () => { if (!this.multiplayer) this.clotheslines += 1; });
     const offYank = gameEvents.on('yank', (event) => {
       this.cordTwangs += 1;
+      if (this.isCoopNightShift()) multiplayer?.sendRunTwang();
       this.yankBy.push(event.from);
     });
-    this.unsubscribe = () => { offStun?.(); offSpotted?.(); offShove?.(); offLine(); offYank(); };
+    const offFloorCleared = multiplayer?.onFloorCleared((message) => this.handleFloorCleared(message));
+    const offRunEnded = multiplayer?.onRunEnded((message) => this.handleRunEnded(message));
+    const offRematchStart = multiplayer?.onRematchStart(() => {
+      this.rematchPartnerLeft = false;
+      this.resetLocal();
+    });
+    const offRematchPartnerLeft = multiplayer?.onRematchPartnerLeft(() => {
+      this.rematchPartnerLeft = true;
+      this.updateReportStatus(multiplayer.currentStatus);
+    });
+    this.unsubscribe = () => {
+      offStun?.(); offSpotted?.(); offShove?.(); offLine(); offYank(); offFloorCleared?.(); offRunEnded?.();
+      offRematchStart?.(); offRematchPartnerLeft?.();
+    };
 
     if (uiParent) {
       const objective = document.createElement('aside');
@@ -174,6 +192,10 @@ export class MissionDirector {
       detection.append(this.detectionFill);
       objective.append(kicker, this.statusBadge, this.objectiveTitle, this.objectiveDetail, detection);
       uiParent.append(objective);
+      objective.addEventListener('click', () => {
+        if (objective.dataset.collapsed !== '1') return;
+        this.expandObjective();
+      });
       this.colourBlindSafe = getSettings().colourBlindSafe;
       this.unsubSettings = subscribeSettings((s) => {
         this.colourBlindSafe = s.colourBlindSafe;
@@ -181,7 +203,7 @@ export class MissionDirector {
       });
 
       // Night Shift chrome lives left of center so it clears the right-side touch / active-drone HUD.
-      if (mode === 'night-shift' || runLayout) {
+      if (mode === 'night-shift' || this.isCoopNightShift() || runLayout) {
         const info = getRunInfo();
         this.timeToBeatMs = info.timeToBeatMs;
         this.runChrome = document.createElement('aside');
@@ -227,20 +249,25 @@ export class MissionDirector {
         audio,
         onLeave,
         onPlayAgain: () => {
-          if (mode === 'multiplayer') multiplayer?.retryMission();
-          else if (mode === 'night-shift' && this.runLayout) {
+          if (mode === 'night-shift' && this.runLayout) {
             restartNightShift({ seed: this.runLayout.seed, floor: this.runLayout.floor });
           } else {
             this.resetLocal();
           }
         },
+        onRematchVote: mode === 'multiplayer' ? (want) => multiplayer?.sendRematchVote(want) : undefined,
         onNewSeed: mode === 'night-shift' ? () => {
           resetRun();
           clearRunIntent();
           restartNightShift({ seed: randomSeed(), floor: 1 }, false);
         } : undefined,
-        // Night Shift: advance ClientRun seed/floor, stash, restart same mode.
-        onNextFloor: mode === 'night-shift' ? () => {
+        // Night Shift: solo advances locally; co-op asks the server once.
+        onNextFloor: mode === 'night-shift' || this.isCoopNightShift() ? () => {
+          if (this.isCoopNightShift()) {
+            const floor = this.multiplayer?.currentStatus.run.floor ?? this.runLayout?.floor;
+            if (floor != null) this.multiplayer?.sendRunNextFloor(floor);
+            return;
+          }
           const advanced = localEscape(this.state.elapsedSeconds);
           if (advanced) {
             restartNightShift({ seed: advanced.seed, floor: advanced.floor });
@@ -276,6 +303,16 @@ export class MissionDirector {
         summary: runSummary,
         best: getBest,
       };
+    } else if (this.isCoopNightShift()) {
+      (window as unknown as { __nightShift?: unknown }).__nightShift = {
+        summary: () => {
+          const run = this.multiplayer?.currentStatus.run;
+          return run
+            ? { total: run.score, streak: run.streak, multiplier: run.multiplier, lastFloor: run.floorCleared ? run.floor : run.floor - 1 }
+            : { total: 0, streak: 0, multiplier: 1, lastFloor: 0 };
+        },
+        best: getBest,
+      };
     }
   }
 
@@ -283,6 +320,7 @@ export class MissionDirector {
   applyRunLayout(run: RunLayout): void {
     this.runLayout = run;
     this.floorScored = false;
+    this.completedPresented = false;
     this.vault.set(run.loot.x, run.loot.y, run.loot.z);
     this.extraction.set(run.extraction.x, run.extraction.y, run.extraction.z);
     this.security.applyRunLayout(run);
@@ -292,6 +330,10 @@ export class MissionDirector {
       beginFloor(floor);
       this.updateScoreHud();
       this.showFloorCard(floor, run.twist);
+    } else if (this.isCoopNightShift()) {
+      this.report?.hide();
+      this.updateScoreHud();
+      this.showFloorCard(Math.max(1, run.floor | 0), run.twist);
     }
   }
 
@@ -306,6 +348,11 @@ export class MissionDirector {
     }
     if (!previousAlarm && this.state.alarm) this.beginAlarm();
     this.syncCaptureFromRoom(status);
+    this.updateReportStatus(status);
+    if (this.isCoopNightShift()) {
+      this.updateScoreHud();
+      this.restoreCoopReport(status);
+    }
     this.presentStageChange();
   }
 
@@ -459,6 +506,7 @@ export class MissionDirector {
     if (this.alarmTimer !== null) window.clearTimeout(this.alarmTimer);
     if (this.floorCardTimer !== null) window.clearTimeout(this.floorCardTimer);
     if (this.floorCardRemoveTimer !== null) window.clearTimeout(this.floorCardRemoveTimer);
+    if (this.objectiveCollapseTimer !== null) window.clearTimeout(this.objectiveCollapseTimer);
     this.floorCard?.remove();
     this.floorCard = null;
     this.audio.stopAlarm();
@@ -536,6 +584,10 @@ export class MissionDirector {
   }
   get stage(): string { return this.state.stage; }
 
+  private isCoopNightShift(): boolean {
+    return this.mode === 'multiplayer' && this.multiplayer?.currentStatus.run.mode === 'nightshift';
+  }
+
   private renderObjective(hackCount: number): void {
     if (!this.objectiveTitle || !this.objectiveDetail || !this.detectionFill) return;
     const warm = this.state.stage === 'infiltrate' ? this.warmup() : null;
@@ -578,12 +630,34 @@ export class MissionDirector {
       this.lastWarmupKey = null;
       this.objectiveDetail.textContent = detail;
     }
+    // Re-expand only on a new objective title; per-step detail ticks would keep it open.
+    const objectiveKey = title;
+    if (objectiveKey !== this.objectiveTextKey) {
+      this.objectiveTextKey = objectiveKey;
+      this.expandObjective();
+    }
     const detectionPct = Math.round(this.security.detection * 100);
     this.detectionFill.style.width = `${detectionPct}%`;
     this.detectionMeter?.setAttribute('aria-valuenow', String(detectionPct));
     this.objective?.classList.toggle('alarm', this.state.alarm);
     this.objective?.classList.toggle('security-active', this.state.securityActive && !this.state.alarm);
     this.renderObjectiveBadge();
+  }
+
+  private compactObjective(): boolean {
+    return isTouchPlayDevice() || window.matchMedia('(max-width: 900px), (max-height: 500px)').matches;
+  }
+
+  private expandObjective(): void {
+    if (!this.objective || !this.compactObjective()) return;
+    if (this.objectiveCollapseTimer !== null) window.clearTimeout(this.objectiveCollapseTimer);
+    this.objective.classList.remove('mission-objective--collapsed');
+    this.objective.dataset.collapsed = '0';
+    this.objectiveCollapseTimer = window.setTimeout(() => {
+      this.objectiveCollapseTimer = null;
+      this.objective?.classList.add('mission-objective--collapsed');
+      if (this.objective) this.objective.dataset.collapsed = '1';
+    }, 4000);
   }
 
   /** Colourblind-safe shape + text for alarm / security (amber = security only). */
@@ -630,7 +704,10 @@ export class MissionDirector {
       this.floorCard = null;
     }
 
-    const { total, multiplier } = runSummary();
+    const serverRun = this.isCoopNightShift() ? this.multiplayer?.currentStatus.run : null;
+    const { total, multiplier } = serverRun
+      ? { total: serverRun.score, multiplier: serverRun.multiplier }
+      : runSummary();
     const card = document.createElement('div');
     card.className = 'floor-card';
     card.dataset.testid = 'floor-card';
@@ -677,6 +754,78 @@ export class MissionDirector {
     this.floorCardTimer = window.setTimeout(dismiss, 3200);
   }
 
+  private handleFloorCleared(message: FloorClearedMessage): void {
+    if (!this.isCoopNightShift() || !message?.next) return;
+    const wasComplete = this.state.stage === 'complete';
+    if (this.successTimer !== null) {
+      window.clearTimeout(this.successTimer);
+      this.successTimer = null;
+    }
+    const nextTwist = generateRun(message.next.seed, message.next.floor).twist;
+    this.floorScored = true;
+    this.completedPresented = true;
+    if (!wasComplete) {
+      this.audio.stopAlarm();
+      this.audio.missionComplete();
+      gameEvents.emit('heist', { beat: 'extract', position: this.extraction.clone() });
+    }
+    const best = recordBest(message.floor, message.total);
+    this.lastNightShiftSummary = {
+      floor: message.floor,
+      points: message.points,
+      total: message.total,
+      multiplier: message.multiplier,
+      best,
+      nextTwist: { label: nextTwist.label, flavor: twistFlavor(nextTwist.id) },
+    };
+    this.updateScoreHud();
+    this.presentReport(this.snapshotStats('win'), true);
+  }
+
+  /** Late join / reconnect: rebuild the shared report from server run state if the broadcast was missed. */
+  private restoreCoopReport(status: RoomStatus): void {
+    const run = status.run;
+    if (!run || run.mode !== 'nightshift') return;
+    const current = this.lastNightShiftSummary;
+    if (run.ended) {
+      if (!current?.runEnded) {
+        this.handleRunEnded({
+          reason: 'captures', captures: run.captures, floor: run.floor, seed: run.seed,
+          score: run.score, multiplier: run.multiplier, streak: run.streak,
+        });
+      }
+      return;
+    }
+    if (run.floorCleared && current?.floor !== run.floor) {
+      this.handleFloorCleared({
+        floor: run.floor, seed: run.seed, points: run.lastFloorPoints, base: 0,
+        multiplier: run.multiplier, streak: run.streak, total: run.score, clean: run.streak > 0,
+        next: { seed: runNextFloorSeed(run.seed, run.floor + 1), floor: run.floor + 1 },
+      });
+    }
+  }
+
+  private handleRunEnded(message: RunEndedMessage): void {
+    if (!this.isCoopNightShift()) return;
+    if (this.successTimer !== null) {
+      window.clearTimeout(this.successTimer);
+      this.successTimer = null;
+    }
+    this.completedPresented = true;
+    this.audio.stopAlarm();
+    const best = recordBest(message.floor, message.score);
+    this.lastNightShiftSummary = {
+      floor: message.floor,
+      points: 0,
+      total: message.score,
+      multiplier: message.multiplier,
+      best,
+      runEnded: true,
+      captures: message.captures,
+    };
+    this.presentReport({ ...this.snapshotStats('fail'), seed: message.seed }, true);
+  }
+
   private renderFloorHud(): void {
     if (!this.floorChip || !this.runLayout) return;
     // RunState / generateRun floors are already 1-based for Night Shift boots.
@@ -690,7 +839,11 @@ export class MissionDirector {
 
   private updateScoreHud(): void {
     if (!this.scoreChip) return;
-    const { total, multiplier } = runSummary();
+    const coop = this.isCoopNightShift();
+    const serverRun = coop ? this.multiplayer?.currentStatus.run : null;
+    const { total, multiplier } = serverRun
+      ? { total: serverRun.score, multiplier: serverRun.multiplier }
+      : runSummary();
     const multText = multiplier > 1 ? ` · x${multiplier}` : '';
     this.scoreChip.textContent = `Score ${total.toLocaleString('en-US')}${multText}`;
   }
@@ -698,6 +851,13 @@ export class MissionDirector {
   private presentReport(stats: RunStats, force = false): void {
     if (!this.report) return;
     if (!force && this.state.stage !== 'complete') return;
+    if (this.isCoopNightShift()) {
+      // Only the server's floor-cleared / run-ended for THIS floor drives the co-op report (never a stale one).
+      const floor = this.multiplayer?.currentStatus.run.floor;
+      const summary = this.lastNightShiftSummary;
+      if (summary && summary.floor === floor) this.report.show(stats, summary, this.coopReportState());
+      return;
+    }
     if (this.mode === 'night-shift' && this.runLayout && stats.outcome === 'win') {
       if (!this.floorScored) {
         this.floorScored = true;
@@ -722,10 +882,28 @@ export class MissionDirector {
           },
         };
       }
-      this.report.show(stats, this.lastNightShiftSummary);
+      this.report.show(stats, this.lastNightShiftSummary, this.coopReportState());
     } else {
-      this.report.show(stats, this.lastNightShiftSummary);
+      this.report.show(stats, this.lastNightShiftSummary, this.coopReportState());
     }
+  }
+
+  private coopReportState(): CoopReportState | undefined {
+    if (!this.multiplayer) return undefined;
+    return {
+      localRole: this.multiplayer.currentStatus.localRole,
+      players: this.multiplayer.currentStatus.players,
+      partnerLeft: this.rematchPartnerLeft,
+    };
+  }
+
+  private updateReportStatus(status: RoomStatus): void {
+    if (!this.multiplayer || !this.report) return;
+    this.report.updateCoopStatus({
+      localRole: status.localRole,
+      players: status.players,
+      partnerLeft: this.rematchPartnerLeft,
+    });
   }
 
   private snapshotStats(outcome: RunStats['outcome']): RunStats {

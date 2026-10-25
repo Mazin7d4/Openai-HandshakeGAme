@@ -94,6 +94,27 @@ export function whoosh(sr: number, dur: number, from: number, to: number, q = 1.
   return out;
 }
 
+/** Two quick rising handoff blips, deliberately unlike pickup/drop sounds. */
+export function passCue(sr: number): Float32Array {
+  const len = Math.floor(sr * 0.18);
+  const out = new Float32Array(len);
+  let phase = 0;
+  for (let i = 0; i < len; i++) {
+    const t = i / sr;
+    const start = t < 0.09 ? 0 : 0.1;
+    const local = t - start;
+    const active = local >= 0 && local < 0.07;
+    if (!active) continue;
+    const p = local / 0.07;
+    const frequency = (t < 0.09 ? 660 : 820) + (t < 0.09 ? 330 : 170) * p;
+    phase += 2 * Math.PI * frequency / sr;
+    const triangle = 2 * Math.abs(2 * ((phase / (2 * Math.PI)) % 1) - 1) - 1;
+    const envelope = Math.min(1, local / 0.006) * Math.exp(-local / 0.055);
+    out[i] = (Math.sin(phase) * 0.65 + triangle * 0.35) * envelope * 0.7;
+  }
+  return out;
+}
+
 /** Seamless loop of creaky rubber stretch (rate/gain driven by strain). */
 export function stretchLoop(sr: number): Float32Array {
   const len = sr; const out = new Float32Array(len); let lp = 0, bp = 0;
