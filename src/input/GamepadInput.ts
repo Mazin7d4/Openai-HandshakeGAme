@@ -34,7 +34,7 @@ export class GamepadInput {
     const [lookX, lookY] = radialDeadzone(this.pad.axes[2] ?? 0, this.pad.axes[3] ?? 0);
     this.axes.strafe = moveX;
     this.axes.thrust = -moveY;
-    this.axes.lift = this.held(0) ? 1 : this.active(6) ? -1 : 0;
+    this.axes.lift = (this.held(0) || this.held(10)) ? 1 : this.active(6) ? -1 : 0;
     this.axes.boost = this.held(0);
     if (camera && (lookX || lookY)) camera.gamepadLook(lookX, lookY, dt);
     // D-pad (12-15) and R3 (11) are reserved for Netcode emotes and ping; never read them here.

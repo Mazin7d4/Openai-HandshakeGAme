@@ -1,5 +1,8 @@
 import { CordPlayground } from '../level/CordPlayground.ts';
-import { Color3, Vector3, type HavokPlugin, type Scene } from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import { GameAudio } from '../audio/GameAudio.ts';
 import type { GameMode } from '../app/GameMode.ts';
 import type { InteractionActions } from '../input/InteractionActions.ts';
@@ -43,6 +46,7 @@ export class GameplayWorld {
   private kitDressing: { dispose(): void } | null = null;
   private runLayout: RunLayout | null;
   private readonly removeFloorStart: (() => void) | null;
+  private readonly removeObjectEvent: (() => void) | null;
   private readonly playground: CordPlayground;
 
   constructor(
@@ -122,6 +126,7 @@ export class GameplayWorld {
       objects,
       session,
       mode === 'multiplayer' ? session?.currentStatus.localRole ?? null : null,
+      scene,
       {
         onGrab: (objectId, role) => {
           this.audio.pickup();
@@ -133,6 +138,9 @@ export class GameplayWorld {
     );
     this.hack = new HackSession(scene, plugin, session, uiParent, this.audio, runLayout);
     this.mission = new MissionDirector(scene, mode, session, this.grab, this.audio, uiParent, onLeave, runLayout);
+    this.removeObjectEvent = session
+      ? session.onObjectEvent((message) => this.grab.handleObjectEvent(message))
+      : null;
     this.playground = new CordPlayground(scene);
     const partner = mode === 'multiplayer' && session?.currentStatus.localRole === 'nee' ? 'PIX' : 'NEE';
     this.mission.setWarmup(() => (this.playground.done ? null : this.playground.checklist(partner)));
@@ -263,6 +271,7 @@ export class GameplayWorld {
 
   dispose(): void {
     this.removeFloorStart?.();
+    this.removeObjectEvent?.();
     setLayoutSinkProvider(null);
     this.playground.dispose();
     this.grab.dispose();

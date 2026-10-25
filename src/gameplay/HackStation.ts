@@ -1,12 +1,10 @@
-import {
-  Color3,
-  CreateTorus,
-  DynamicTexture,
-  StandardMaterial,
-  Vector3,
-  type Mesh,
-  type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateTorus } from '@babylonjs/core/Meshes/Builders/torusBuilder.js';
+import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { DroneRole } from '../network/NetworkTypes.ts';
 import { addStaticBody } from '../physics/staticBody.ts';
 import { createRoundedBox } from '../scene/roundedBox.ts';
