@@ -156,6 +156,7 @@ type StatusListener = (status: RoomStatus) => void;
 interface SchemaPlayer {
   playerId: string;
   role: DroneRole;
+  bot?: boolean;
   connected: boolean;
   position: { x: number; y: number; z: number };
   velocity: { x: number; y: number; z: number };
@@ -314,14 +315,20 @@ export interface RematchStartMessage {
 export interface CreateRoomOptions {
   seed?: number;
   mode?: RunMode;
+  bot?: boolean;
   /** Challenge beat target in ms (client-only; not sent to the server). */
   beat?: number;
+}
+
+export interface QuickMatchOptions extends CreateRoomOptions {
+  qmKey: string;
 }
 
 function copyPlayer(player: SchemaPlayer): DroneNetworkState {
   return {
     playerId: player.playerId,
     role: player.role,
+    bot: player.bot === true,
     connected: player.connected,
     position: {
       x: player.position.x,
@@ -438,12 +445,27 @@ export class MultiplayerSession {
 
   static async createRoom(options: CreateRoomOptions = {}): Promise<MultiplayerSession> {
     const client = new Client(serverEndpoint());
-    const createOptions: { seed?: number; mode?: RunMode } = {};
+    const createOptions: { seed?: number; mode?: RunMode; bot?: boolean } = {};
     if (typeof options.seed === 'number' && Number.isFinite(options.seed)) {
       createOptions.seed = options.seed >>> 0;
     }
     if (options.mode) createOptions.mode = options.mode;
+    if (options.bot === true) createOptions.bot = true;
     const room = await retryInitialConnect(() => client.create<SchemaRoomState>('handshake', createOptions));
+    return new MultiplayerSession(room, options.beat);
+  }
+
+  static async quickMatch(options: QuickMatchOptions): Promise<MultiplayerSession> {
+    const client = new Client(serverEndpoint());
+    const joinOptions: { quickMatch: true; qmKey: string; seed?: number; mode?: RunMode } = {
+      quickMatch: true,
+      qmKey: options.qmKey,
+    };
+    if (typeof options.seed === 'number' && Number.isFinite(options.seed)) {
+      joinOptions.seed = options.seed >>> 0;
+    }
+    if (options.mode) joinOptions.mode = options.mode;
+    const room = await retryInitialConnect(() => client.joinOrCreate<SchemaRoomState>('handshake', joinOptions));
     return new MultiplayerSession(room, options.beat);
   }
 
@@ -493,6 +515,10 @@ export class MultiplayerSession {
   get reconnectSecondsLeft(): number | null {
     if (this.reconnectDeadlineMs == null) return null;
     return Math.max(0, Math.ceil((this.reconnectDeadlineMs - Date.now()) / 1000));
+  }
+
+  requestBotPartner(): void {
+    this.room.send('quickmatch-bot');
   }
 
   onStatus(listener: StatusListener): () => void {

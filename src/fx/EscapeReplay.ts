@@ -45,6 +45,15 @@ const WINDOW_SECONDS = 2.4;
 const PLAY_SECONDS = 3.6;
 const PLAY_SECONDS_LOW = 3.0;
 const PLAY_SECONDS_REDUCED = 1.6;
+/** End of the orbit: 3/4 front, about level with the drones. */
+const END_RADIUS = 5.6;
+const END_HEIGHT = 0.25;
+const THREE_QUARTER = 0.7;
+
+function wrapAngle(a: number): number {
+  return Math.atan2(Math.sin(a), Math.cos(a));
+}
+
 const SKIP_ARM_MS = 250;
 /** Floats per node per frame: position xyz + rotation (quat xyzw, or euler xyz + pad for drone visuals). */
 const STRIDE = 7;
@@ -79,12 +88,14 @@ class EscapeReplayController {
   private orbitStart = 0;
   private orbitRadius = 10;
   private orbitHeight = 5;
+  private orbitEnd = 0;
   private gamepadHeld = new Set<string>();
   private readonly centroid = new Vector3();
   private readonly tmp = new Vector3();
   private readonly ray = new Ray(new Vector3(), new Vector3(0, 1, 0), 1);
   private readonly excluded = new Set<TransformNode>();
   private camDist = 0;
+  private lastNow = 0;
   private readonly onSkipKey = (e: KeyboardEvent) => this.inputSkip(e);
   private readonly onSkipPointer = (e: PointerEvent) => this.inputSkip(e);
 
@@ -157,6 +168,7 @@ class EscapeReplayController {
     this.staticCamera = reduced;
     this.duration = reduced ? PLAY_SECONDS_REDUCED : initialTier() === 'low' ? PLAY_SECONDS_LOW : PLAY_SECONDS;
     this.elapsed = 0;
+    this.lastNow = 0;
     this.onDone = options.onDone;
     this.stampShown = false;
 
@@ -172,6 +184,7 @@ class EscapeReplayController {
     this.excluded.clear();
     for (const d of this.actors!.drones) for (const m of d.root.getChildMeshes(false)) this.excluded.add(m);
     for (const m of this.actors!.props) this.excluded.add(m);
+    this.orbitEnd = this.pickFrontAngle();
     a.scene.physicsEnabled = false;
 
     this.overlay = this.buildOverlay(a.uiParent, options.subline, reduced);
@@ -192,7 +205,11 @@ class EscapeReplayController {
   update(realDt: number): void {
     const a = this.actors;
     if (!this.playing || !a) return;
-    this.elapsed += realDt;
+    // Wall clock, not the sim's 50 ms-clamped dt: a slow device still gets a ~3.6 s replay, not a 15 s one.
+    const now = performance.now();
+    const wallDt = this.lastNow > 0 ? Math.min(0.25, (now - this.lastNow) / 1000) : realDt;
+    this.lastNow = now;
+    this.elapsed += wallDt;
     if (this.pollPads()) { this.skip(); return; }
     const p = Math.min(1, this.elapsed / this.duration);
     // Speed ramps linearly from vStart to vEnd (in source seconds per real second); integrate for position.
@@ -358,8 +375,8 @@ class EscapeReplayController {
   }
 
   /**
-   * Orbit + dolly onto the drones, starting from the gameplay camera's own (unoccluded) offset:
-   * swing ~0.6 rad round the crew while closing to ~55% distance and dropping toward eye level.
+   * Orbit + dolly from the gameplay camera's own (unoccluded) offset round to a 3/4 front view at
+   * drone level (see pickFrontAngle), pulling in front of any scenery in the way.
    * Reduced motion holds the starting framing.
    */
   private driveCamera(p: number): void {
@@ -369,9 +386,9 @@ class EscapeReplayController {
     this.centroid.scaleInPlace(1 / Math.max(1, a.drones.length));
     const cam = a.camera;
     const ease = this.staticCamera ? 0 : p * p * (3 - 2 * p);
-    const angle = this.orbitStart + ease * 0.6;
-    const radius = this.orbitRadius * (1 - ease * 0.45);
-    const height = this.orbitHeight * (1 - ease * 0.5) + ease * 0.8;
+    const angle = this.orbitStart + wrapAngle(this.orbitEnd - this.orbitStart) * ease;
+    const radius = this.orbitRadius + (END_RADIUS - this.orbitRadius) * ease;
+    const height = this.orbitHeight + (END_HEIGHT - this.orbitHeight) * ease;
     // Keep a clear line to the crew: pull the camera in front of any opaque scenery between them.
     this.tmp.set(Math.sin(angle) * radius, height, Math.cos(angle) * radius);
     const want = this.tmp.length();
@@ -383,6 +400,31 @@ class EscapeReplayController {
     this.tmp.y += 0.3;
     cam.setTarget(this.tmp);
     cam.fov = this.cameraRestore ? this.cameraRestore.fov * (1 - ease * 0.15) : cam.fov;
+  }
+
+  /**
+   * End framing: a 3/4 front view on the side the crew faces (face screens point along +Z of each
+   * drone's visual root), so PIX's cyan and NEE's coral faces read. Of the two 3/4 sides, prefer the
+   * one with a clear sightline, then the shorter swing from the gameplay camera.
+   */
+  private pickFrontAngle(): number {
+    const a = this.actors!;
+    let fx = 0, fz = 0;
+    for (const d of a.drones) {
+      const yaw = d.visualRoot.rotation.y;
+      fx += Math.sin(yaw); fz += Math.cos(yaw);
+    }
+    const front = fx * fx + fz * fz > 1e-4 ? Math.atan2(fx, fz) : this.orbitStart + Math.PI;
+    let best = front;
+    let bestScore = -Infinity;
+    for (const side of [-1, 1]) {
+      const angle = front + side * THREE_QUARTER;
+      this.tmp.set(Math.sin(angle) * END_RADIUS, END_HEIGHT, Math.cos(angle) * END_RADIUS);
+      const clear = Math.min(1, this.clearDistance(this.tmp, this.tmp.length()) / (END_RADIUS * 0.8));
+      const score = clear * 4 - Math.abs(wrapAngle(angle - this.orbitStart));
+      if (score > bestScore) { bestScore = score; best = angle; }
+    }
+    return best;
   }
 
   /** Distance from the crew toward `offset` before opaque scenery gets in the way (minus a margin). */
