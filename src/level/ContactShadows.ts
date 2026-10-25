@@ -71,7 +71,8 @@ export function addContactShadows(scene: Scene, targets: { mesh: AbstractMesh; r
   // Pre-allocated Ray and Vector3s to ensure zero per-frame allocations
   const rayOrigin = new Vector3();
   const rayDirection = new Vector3(0, -1, 0);
-  const ray = new Ray(rayOrigin, rayDirection, 30);
+  // Blobs hide above 12 m, so a longer ray only adds triangle tests against far-away meshes.
+  const ray = new Ray(rayOrigin, rayDirection, 12);
 
   let currentTarget: AbstractMesh | null = null;
   const predicate = (m: AbstractMesh): boolean =>
