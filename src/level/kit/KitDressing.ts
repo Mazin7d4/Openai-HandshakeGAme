@@ -1,14 +1,10 @@
-import {
-  type AbstractMesh,
-  ImportMeshAsync,
-  Matrix,
-  Mesh,
-  type Nullable,
-  Quaternion,
-  Ray,
-  type Scene,
-  Vector3,
-} from '@babylonjs/core';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader.js';
+import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { Nullable } from '@babylonjs/core/types.js';
+import { Ray } from '@babylonjs/core/Culling/ray.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import '../../assets/registerGltf.ts';
 import '../../assets/meshopt.ts';
 import type { RunLayout } from '../../seed/index.ts';

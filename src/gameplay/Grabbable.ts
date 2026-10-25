@@ -1,19 +1,14 @@
-import {
-  Color3,
-  CreateBox,
-  CreateCylinder,
-  CreateSphere,
-  HavokPlugin,
-  PhysicsActivationControl,
-  PhysicsAggregate,
-  PhysicsMotionType,
-  PhysicsPrestepType,
-  PhysicsShapeType,
-  Quaternion,
-  Vector3,
-  type Mesh,
-  type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
+import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.js';
+import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
+import type { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin.js';
+import { PhysicsActivationControl, PhysicsMotionType, PhysicsPrestepType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import { PhysicsAggregate } from '@babylonjs/core/Physics/v2/physicsAggregate.js';
+import { PhysicsShapeType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { DroneRole, GrabbableNetworkState } from '../network/NetworkTypes.ts';
 import { reportStabilityIssue } from '../dev/StabilityDiagnostics.ts';
 import { COLLISION_GROUP } from '../physics/CollisionGroups.ts';

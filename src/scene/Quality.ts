@@ -1,4 +1,10 @@
-import type { DirectionalLight, Engine, GlowLayer, Light, Observer, Scene, ShadowGenerator } from '@babylonjs/core';
+import type { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
+import type { Engine } from '@babylonjs/core/Engines/engine.js';
+import type { GlowLayer } from '@babylonjs/core/Layers/glowLayer.js';
+import type { Light } from '@babylonjs/core/Lights/light.js';
+import type { Observer } from '@babylonjs/core/Misc/observable.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+import type { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
 import { getSettings, subscribeSettings, type GraphicsQualitySetting } from '../ui/Settings.ts';
 
 /**
@@ -69,7 +75,7 @@ export interface QualityHooks { sun: DirectionalLight; shadows: ShadowGenerator;
 /** Accent lights a level may add; disabled on low (emissive cues carry the look instead). */
 const ACCENT_LIGHTS = new Set(['vault-spot', 'alarm-light']);
 
-export interface QualityStatus { tier: QualityTier; auto: boolean; reason: string; renderer: string; avgFps: number; changes: string[] }
+export interface QualityStatus { tier: QualityTier; auto: boolean; reason: string; renderer: string; avgFps: number; changes: string[]; dynScale: number }
 
 export class QualityManager {
   private tier: QualityTier;
@@ -85,6 +91,10 @@ export class QualityManager {
   private highWindows = 0;
   private lastStepUp = -1e9;
   private avgFps = 0;
+  /** Phones on the low tier: extra resolution divisor (1 = none) the governor trades for a steady 60. */
+  private dynScale = 1;
+  private dynLow = 0;
+  private dynHigh = 0;
   private readonly frameObserver: Observer<Scene>;
   private readonly lightObserver: Observer<Light>;
   private readonly unsubscribe: () => void;
@@ -111,7 +121,7 @@ export class QualityManager {
   }
 
   get status(): QualityStatus {
-    return { tier: this.tier, auto: this.auto, reason: this.reason, renderer: this.guess.renderer, avgFps: Math.round(this.avgFps * 10) / 10, changes: [...this.changes] };
+    return { tier: this.tier, auto: this.auto, reason: this.reason, renderer: this.guess.renderer, avgFps: Math.round(this.avgFps * 10) / 10, changes: [...this.changes], dynScale: this.dynScale };
   }
 
   setSetting(setting: GraphicsQualitySetting): void {
@@ -131,6 +141,7 @@ export class QualityManager {
     this.changes.push(`${Math.round(performance.now() / 1000)}s ${this.tier}->${tier} (${why}, ${this.avgFps.toFixed(1)} fps)`);
     if (this.changes.length > 12) this.changes.shift();
     this.tier = tier;
+    this.dynScale = 1; this.dynLow = 0; this.dynHigh = 0;
     this.apply();
     // Shader recompiles after a tier change make the next frames slow; don't judge them.
     this.warmupUntil = performance.now() + 4000; this.lowWindows = 0; this.highWindows = 0;
@@ -143,7 +154,7 @@ export class QualityManager {
     if (forcedScale > 1) scaling = forcedScale;
     else if (tier === 'high') scaling = 1 / Math.min(dpr, 2);
     else if (tier === 'medium') scaling = 1 / Math.min(dpr, 1.25);
-    else scaling = this.guess.software ? 2 : Math.max(1.25, 1.75 / Math.max(1, dpr / 1.5));
+    else scaling = (this.guess.software ? 2 : Math.max(1.25, 1.75 / Math.max(1, dpr / 1.5))) * this.dynScale;
     engine.setHardwareScalingLevel(scaling);
     const { sun, shadows, glow } = this.hooks;
     sun.shadowEnabled = tier !== 'low';
@@ -174,7 +185,12 @@ export class QualityManager {
     this.avgFps = this.avgFps ? this.avgFps * 0.5 + fps * 0.5 : fps;
     if (!this.auto || now < this.warmupUntil) return;
     const i = TIERS.indexOf(this.tier);
-    if (fps < 26) { this.lowWindows++; this.highWindows = 0; } else if (fps > 52) { this.highWindows++; this.lowWindows = 0; } else { this.lowWindows = 0; this.highWindows = 0; }
+    // Phones aim for a steady 60 (rAF caps at the display rate): on the low tier, trade a little
+    // resolution for frame time before anything else, and never climb into a tier that can't hold ~45.
+    const phone = this.guess.mobile && !this.guess.software;
+    if (phone && this.tier === 'low' && this.stepDynamicScale(fps)) return;
+    const downBelow = phone ? 45 : 26;
+    if (fps < downBelow) { this.lowWindows++; this.highWindows = 0; } else if (fps > 52) { this.highWindows++; this.lowWindows = 0; } else { this.lowWindows = 0; this.highWindows = 0; }
     if (this.lowWindows >= 2 && i > 0) {
       // Dropping straight after a climb means the climb was wrong: stop climbing for this session.
       if (now - this.lastStepUp < 30000) this.ceiling = this.tier === 'high' ? 'medium' : 'low';
@@ -183,6 +199,21 @@ export class QualityManager {
       this.lastStepUp = now;
       this.setTier(TIERS[i + 1], 'fps headroom');
     }
+  }
+
+  /** Low-tier phone resolution governor. Returns true when it changed the scale this window. */
+  private stepDynamicScale(fps: number): boolean {
+    if (fps < 50) { this.dynLow++; this.dynHigh = 0; } else if (fps > 57) { this.dynHigh++; this.dynLow = 0; } else { this.dynLow = 0; this.dynHigh = 0; }
+    let next = this.dynScale;
+    if (this.dynLow >= 2 && this.dynScale < 1.6) next = Math.min(1.6, this.dynScale + 0.15);
+    else if (this.dynHigh >= 5 && this.dynScale > 1) next = Math.max(1, this.dynScale - 0.15);
+    if (next === this.dynScale) return false;
+    this.changes.push(`${Math.round(performance.now() / 1000)}s low scale x${this.dynScale.toFixed(2)}->x${next.toFixed(2)} (${fps.toFixed(1)} fps)`);
+    if (this.changes.length > 12) this.changes.shift();
+    this.dynScale = Math.round(next * 100) / 100; this.dynLow = 0; this.dynHigh = 0;
+    this.apply();
+    this.warmupUntil = performance.now() + 2000;
+    return true;
   }
 
   dispose(): void {

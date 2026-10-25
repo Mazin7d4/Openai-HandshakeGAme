@@ -1,4 +1,8 @@
-import { Color3, PointLight, Scene, SpotLight, Vector3 } from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { PointLight } from '@babylonjs/core/Lights/pointLight.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+import { SpotLight } from '@babylonjs/core/Lights/spotLight.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 
 type RoomMood = {
   id: 'arrival' | 'office' | 'server' | 'vault' | 'escape' | 'extraction';

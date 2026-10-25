@@ -5,7 +5,12 @@ import type { GameMode } from './app/GameMode.ts';
 const loadGame = () => Promise.all([import('./app/GameApp.ts'), import('./level/PrototypeHeist.ts')]);
 const gameModules = { promise: null as ReturnType<typeof loadGame> | null };
 const preloadGame = () => (gameModules.promise ??= loadGame());
-import { classifyJoinError, MultiplayerSession } from './network/MultiplayerSession.ts';
+// Colyseus (client + schema) is only needed once a room is created or joined, so it stays out of
+// the title's entry chunk; it is prefetched with the game once the title is idle.
+import type { MultiplayerSession } from './network/MultiplayerSession.ts';
+import havokWasmUrl from '@babylonjs/havok/lib/esm/HavokPhysics.wasm?url';
+let netModule: Promise<typeof import('./network/MultiplayerSession.ts')> | null = null;
+const loadNet = () => (netModule ??= import('./network/MultiplayerSession.ts').catch((error) => { netModule = null; throw error; }));
 import type { RoomStatus } from './network/NetworkTypes.ts';
 import { RECONNECT_GRACE_SECONDS } from './network/ReconnectionToken.ts';
 import {
@@ -243,6 +248,7 @@ function showSinglePlayer(): void {
 }
 
 function showMultiplayerMenu(): void {
+  void loadNet().catch(() => {});
   const panel = menuPanel('Play with a friend', 'Make a private room and share its code, or join a friend\'s room.');
   const actions = element('div', 'menu-actions');
   actions.append(
@@ -323,7 +329,7 @@ async function createRoom(): Promise<void> {
   bindMenuNav(panel, showMultiplayerMenu);
   if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void createRoom(); }))) return;
   try {
-    const session = await MultiplayerSession.createRoom(readUrlRunOptions());
+    const session = await (await loadNet()).MultiplayerSession.createRoom(readUrlRunOptions());
     showLobby(session);
   } catch (error) {
     status.textContent = errorMessage(error);
@@ -334,6 +340,7 @@ async function createRoom(): Promise<void> {
 }
 
 function showJoinRoom(prefill?: string, initialError = ''): void {
+  void loadNet().catch(() => {});
   // menuButton passes the click event when used directly as the action; only strings count.
   const initial = typeof prefill === 'string' ? cleanRoomCode(prefill) : '';
   const panel = menuPanel('Join a room', 'Type the four-character code your friend sees.');
@@ -386,10 +393,10 @@ function showJoinRoom(prefill?: string, initialError = ''): void {
         submit.disabled = false;
         status.textContent = '';
       }))) return;
-      const session = await MultiplayerSession.joinRoom(code, readUrlRunOptions());
+      const session = await (await loadNet()).MultiplayerSession.joinRoom(code, readUrlRunOptions());
       showLobby(session);
     } catch (error: unknown) {
-      status.textContent = classifyJoinError(error, code).message;
+      status.textContent = await loadNet().then((net) => net.classifyJoinError(error, code).message, () => errorMessage(error));
       status.classList.add('error');
       submit.disabled = false;
     } finally {
@@ -680,6 +687,7 @@ async function showHeistReportDemo(): Promise<void> {
 }
 
 async function bootFromInviteLink(): Promise<boolean> {
+  void loadNet().catch(() => {});
   const code = roomCodeFromUrl();
   if (!code) return false;
 
@@ -691,7 +699,7 @@ async function bootFromInviteLink(): Promise<boolean> {
     return true;
   }
 
-  const resumed = await MultiplayerSession.resumeRoom(code, readUrlRunOptions().beat);
+  const resumed = await (await loadNet()).MultiplayerSession.resumeRoom(code, readUrlRunOptions().beat);
   if (resumed) {
     status.textContent = resumed.currentStatus.started
       ? 'Seat restored. Returning to the match…'
@@ -708,27 +716,50 @@ async function bootFromInviteLink(): Promise<boolean> {
   return true;
 }
 
+/** Warm the HTTP cache for the Havok wasm (same URL + credentials as the Havok loader's fetch). */
+function prefetchHavokWasm(): void {
+  void fetch(havokWasmUrl, { credentials: 'same-origin' }).then((response) => response.arrayBuffer()).catch(() => {});
+}
+function preloadNow(): void {
+  setTimeout(() => {
+    void preloadGame().catch(() => { gameModules.promise = null; });
+    prefetchHavokWasm();
+  }, 0);
+}
+/** Title path: let the title paint (fonts, key art) first, then fetch the game in the background. */
+function preloadWhenIdle(): void {
+  const run = () => {
+    const idle = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback;
+    const go = () => {
+      void preloadGame().catch(() => { gameModules.promise = null; })
+        .finally(() => { prefetchHavokWasm(); void loadNet().catch(() => {}); });
+    };
+    if (idle) idle(go, { timeout: 1500 }); else setTimeout(go, 200);
+  };
+  if (document.readyState === 'complete') run(); else window.addEventListener('load', run, { once: true });
+}
+
 const bootParams = new URLSearchParams(window.location.search);
 const urlRun = runOptionsFromSearch(bootParams);
 if (bootParams.has('report')) {
   void showHeistReportDemo();
 } else if (roomCodeFromUrl()) {
   void bootFromInviteLink();
-  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+  preloadNow();
 } else if (urlRun.seed != null) {
   prepareChallengeRun(urlRun.seed, urlRun.beat);
   void startGame('night-shift');
-  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+  preloadNow();
 } else if (bootParams.get('play') === 'solo') {
   void startGame('singleplayer');
-  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+  preloadNow();
 } else if (bootParams.get('play') === 'daily' || urlRun.mode === 'daily') {
   prepareDailyRun(new Date());
   void startGame('night-shift');
-  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+  preloadNow();
 } else {
   showMainMenu();
-  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+  preloadWhenIdle();
 }
 
 if (import.meta.hot) {
