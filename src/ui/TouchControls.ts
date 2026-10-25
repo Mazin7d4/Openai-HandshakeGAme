@@ -261,11 +261,13 @@ export class TouchControls {
       this.radial.append(item);
     }
 
-    this.root.append(this.lookPad, this.stickPad, this.actions, this.pause, this.rotateHint);
-    // Radial lives outside the touch layer's stacking context so it sits above coach cards and toasts.
+    this.root.append(this.lookPad, this.stickPad, this.actions, this.pause);
+    // Radial and rotate hint live outside the touch layer's stacking context: the
+    // radial must remain tappable, while the rotate hint must sit above every HUD card.
     parent.append(this.radial);
     document.addEventListener('pointerdown', this.onOutsidePointer, true);
     parent.append(this.root);
+    parent.append(this.rotateHint);
 
     this.applyLayout(settings.touchHandedness);
     this.applyOpacity(settings.touchOpacity);
@@ -312,6 +314,7 @@ export class TouchControls {
 
   setVisible(visible: boolean): void {
     this.root.classList.toggle('touch-controls--hidden', !visible);
+    this.rotateHint.classList.toggle('touch-rotate-hint--hidden', !visible);
     if (!visible) {
       this.clearStick();
       this.lookFingers.clear();
@@ -333,6 +336,7 @@ export class TouchControls {
   dispose(): void {
     document.removeEventListener('pointerdown', this.onOutsidePointer, true);
     this.radial.remove();
+    this.rotateHint.remove();
     if (this.disposed) return;
     this.disposed = true;
     this.clearStick();

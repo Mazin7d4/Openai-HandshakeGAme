@@ -932,6 +932,8 @@ html[data-reduced-motion='1'] .wake-spinner { display: none; }
   text-align: center; pointer-events: auto; touch-action: manipulation;
   opacity: 0; transition: opacity var(--t-ui) var(--ease-out);
 }
+.touch-rotate-hint--hidden { display: none !important; }
+.touch-rotate-hint { z-index: 1000; }
 .touch-rotate-hint.visible { display: grid; gap: 8px; justify-items: center; opacity: 1; }
 .touch-rotate-hint p { margin: 0; color: var(--graphite); font: 700 16px/1.3 var(--font-body); }
 .touch-rotate-hint strong { color: var(--graphite); font: 800 20px/1.1 var(--font-title); }
@@ -1149,7 +1151,9 @@ html[data-reduced-motion='1'] .wake-spinner { display: none; }
 /* Portrait phones: coach and prompts sit above the two-column action grid (264px tall). */
 @media (orientation: portrait) and (max-width: 480px) {
   .touch-play .onboarding-coach,
-  .touch-play .interaction-prompt { bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + 280px); max-width: calc(100% - 24px); }
+  .touch-play .interaction-prompt { max-width: calc(100% - 24px); }
+  .touch-play .interaction-prompt { bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + 280px); }
+  .touch-play .onboarding-coach { bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + 370px); }
 }
 
 .touch-rotate-hint__dismiss { min-height: 48px; }
