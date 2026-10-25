@@ -1,13 +1,10 @@
-import {
-  Color3,
-  CreateBox,
-  CreateCylinder,
-  PhysicsShapeType,
-  Quaternion,
-  Vector3,
-  type Mesh,
-  type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
+import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.js';
+import { PhysicsShapeType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import { addStaticBody } from '../physics/staticBody.ts';
 import { applySolidColor } from '../scene/solidMaterial.ts';
 

@@ -5,10 +5,21 @@ import type { GameMode } from './app/GameMode.ts';
 const loadGame = () => Promise.all([import('./app/GameApp.ts'), import('./level/PrototypeHeist.ts')]);
 const gameModules = { promise: null as ReturnType<typeof loadGame> | null };
 const preloadGame = () => (gameModules.promise ??= loadGame());
-import { classifyJoinError, MultiplayerSession } from './network/MultiplayerSession.ts';
+// Colyseus (client + schema) is only needed once a room is created or joined, so it stays out of
+// the title's entry chunk; it is prefetched with the game once the title is idle.
+import type { MultiplayerSession } from './network/MultiplayerSession.ts';
+import havokWasmUrl from '@babylonjs/havok/lib/esm/HavokPhysics.wasm?url';
+let netModule: Promise<typeof import('./network/MultiplayerSession.ts')> | null = null;
+const loadNet = () => (netModule ??= import('./network/MultiplayerSession.ts').catch((error) => { netModule = null; throw error; }));
 import type { RoomStatus } from './network/NetworkTypes.ts';
 import { RECONNECT_GRACE_SECONDS } from './network/ReconnectionToken.ts';
-import { pingServer, wakeServer } from './network/ServerEndpoint.ts';
+import {
+  revalidateWarmup,
+  retryWarmup,
+  startWarmup,
+  waitForServer,
+  warmupIsFresh,
+} from './network/ServerWarmup.ts';
 import {
   getRunState,
   readUrlRunOptions,
@@ -29,6 +40,9 @@ import { getBest } from './run/nightShiftScore.ts';
 import './style.css';
 import { audio } from './audio/AudioManager.ts';
 import { titleMenuNav } from './ui/MenuNavigator.ts';
+import { enterImmersive } from './ui/fullscreen.ts';
+import { isTouchPlayDevice } from './ui/touchDetect.ts';
+import type { TitleAttract } from './ui/TitleAttract.ts';
 
 // Unlock-on-first-gesture, menu UI sounds and M to mute; sound files load lazily once the page is idle.
 audio.install();
@@ -82,6 +96,8 @@ if (!rootNode || !(rootNode instanceof HTMLElement)) {
 const root: HTMLElement = rootNode;
 
 let game: GameApp | null = null;
+let titleAttract: TitleAttract | null = null;
+let quickMatchInFlight = false;
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -104,7 +120,10 @@ function menuButton(label: string, testId: string, action: () => void, variant: 
   button.type = 'button';
   button.dataset.testid = testId;
   button.setAttribute('aria-label', label || testId.replace(/-/g, ' '));
-  button.addEventListener('click', action);
+  button.addEventListener('click', () => {
+    if (isTouchPlayDevice() && ['singleplayer', 'start-singleplayer', 'night-shift', 'create-room'].includes(testId)) void enterImmersive();
+    action();
+  });
   return button;
 }
 
@@ -152,6 +171,8 @@ function errorMessage(error: unknown): string {
 }
 
 function showMainMenu(): void {
+  titleAttract?.dispose();
+  titleAttract = null;
   const params = new URLSearchParams(window.location.search);
   const beatRaw = params.get('beat');
   const beatMs = beatRaw != null && /^\d+$/.test(beatRaw) ? Number(beatRaw) : NaN;
@@ -160,11 +181,14 @@ function showMainMenu(): void {
     : 'Fly a pair of tethered drones through a sleepy office and lift the core from the vault.';
   const shell = menuShell();
   shell.classList.add('menu-shell--title');
+  const attractCanvas = element('canvas', 'title-attract-canvas');
+  attractCanvas.setAttribute('aria-hidden', 'true');
   const panel = element('section', 'panel menu-panel title-panel');
   panel.append(wordmark(), element('h2', 'title-tagline', 'Two drones. One cord.'));
   panel.append(element('p', 'panel__body menu-subtitle', blurb));
   const play = menuButton('', 'singleplayer', showSinglePlayer, 'btn--primary');
   play.classList.add('btn--hero');
+  play.dataset.titlePlay = 'true';
   play.setAttribute('aria-label', 'Play now');
   play.append(element('span', 'btn__label', 'Play now'), element('span', 'btn__hint', 'Solo · you fly PIX'));
   const daily = menuButton('Daily Heist', 'daily-heist', () => {
@@ -185,10 +209,15 @@ function showMainMenu(): void {
   }
   actions.append(menuButton('Settings', 'title-settings', openTitleSettings, 'btn--quiet'));
   panel.append(actions);
-  shell.append(panel);
+  shell.append(attractCanvas, panel);
   root.replaceChildren(shell);
   // PLAY NOW is first in tab order and already focused, so Enter starts it.
   bindMenuNav(panel, undefined, play);
+  void import('./ui/TitleAttract.ts').then(({ TitleAttract }) => TitleAttract.mount(attractCanvas, play)).then((mounted) => {
+    if (mounted && root.contains(attractCanvas)) titleAttract = mounted;
+    else mounted?.dispose();
+  });
+  startWarmup();
 }
 
 function openTitleSettings(): void {
@@ -231,61 +260,191 @@ function showSinglePlayer(): void {
 }
 
 function showMultiplayerMenu(): void {
-  const panel = menuPanel('Play with a friend', 'Make a private room and share its code, or join a friend\'s room.');
+  void loadNet().catch(() => {});
+  const panel = menuPanel('Play with a friend', 'Make a private room and share its code, join a friend\'s room, or quick-match with another player.');
   const actions = element('div', 'menu-actions');
   actions.append(
     menuButton('Create a room', 'create-room', () => {
       void createRoom();
     }, 'btn--primary'),
     menuButton('Join with a code', 'join-room', () => showJoinRoom()),
+    menuButton('Quick match', 'quick-match', () => { void quickMatch(); }),
     menuButton('Back', 'back', showMainMenu, 'btn--quiet'),
   );
   panel.append(actions);
   bindMenuNav(panel, showMainMenu, '[data-testid="create-room"]');
-  void pingServer(2500);
+}
+
+function quickMatchKey(): string {
+  const options = readUrlRunOptions();
+  const mode = options.mode ?? 'standard';
+  const seed = options.seed ?? (mode === 'daily' ? dailySeed(new Date()) : undefined);
+  let key = seed == null ? mode : `${mode}:${seed}`;
+  const pool = new URLSearchParams(window.location.search).get('qmPool');
+  const cleanPool = pool?.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 16) ?? '';
+  if (cleanPool) key += `:${cleanPool}`;
+  return key;
+}
+
+function quickMatchTimeout(): number {
+  const raw = Number.parseInt(new URLSearchParams(window.location.search).get('qmTimeout') ?? '', 10);
+  return Number.isFinite(raw) ? Math.max(2_000, Math.min(120_000, raw)) : 45_000;
+}
+
+async function quickMatch(): Promise<void> {
+  if (quickMatchInFlight) return;
+  quickMatchInFlight = true;
+  const panel = menuPanel('Quick match', 'Find another player, or invite an AI partner while you wait.');
+  panel.dataset.testid = 'qm-panel';
+  const status = element('p', 'lobby-status', 'Looking for a partner…');
+  status.dataset.testid = 'qm-status';
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  const elapsed = element('span', '', 'Searching · 0 s');
+  elapsed.dataset.testid = 'qm-elapsed';
+  const cancel = menuButton('Cancel', 'qm-cancel', () => { void leave(); }, 'btn--quiet');
+  const actions = element('div', 'menu-actions');
+  actions.append(cancel);
+  panel.append(status, elapsed, actions);
+  bindMenuNav(panel, () => { void leave(); }, cancel);
+
+  let session: MultiplayerSession | null = null;
+  let pendingJoin: Promise<MultiplayerSession> | null = null;
+  let removeStatus: (() => void) | null = null;
+  let elapsedTimer: number | undefined;
+  let timeoutTimer: number | undefined;
+  let startTimer: number | undefined;
+  let active = true;
+  let botShown = false;
+  const startedAt = Date.now();
+  let timeoutNote: HTMLElement | null = null;
+  const clearTimers = () => {
+    if (elapsedTimer !== undefined) window.clearInterval(elapsedTimer);
+    if (timeoutTimer !== undefined) window.clearTimeout(timeoutTimer);
+    if (startTimer !== undefined) window.clearTimeout(startTimer);
+  };
+  const cleanup = () => {
+    active = false;
+    quickMatchInFlight = false;
+    clearTimers();
+    removeStatus?.();
+    removeStatus = null;
+  };
+  async function leave(): Promise<void> {
+    if (!active) return;
+    cleanup();
+    const joining = pendingJoin;
+    if (session) await session.dispose();
+    if (joining) void joining.then((late) => late.dispose()).catch(() => {});
+    showMultiplayerMenu();
+  }
+  function startWhenReady(): void {
+    if (!session || !active) return;
+    cleanup();
+    void startGame('multiplayer', session);
+  }
+  elapsedTimer = window.setInterval(() => {
+    elapsed.textContent = `Searching · ${Math.floor((Date.now() - startedAt) / 1_000)} s`;
+  }, 1_000);
+  timeoutTimer = window.setTimeout(() => {
+    if (!active || botShown) return;
+    botShown = true;
+    timeoutNote = element('p', 'menu-subtitle', 'No one yet. Keep waiting or play with the AI partner — a player who joins later takes its seat.');
+    actions.prepend(menuButton('Play with AI partner', 'qm-play-bot', () => session?.requestBotPartner(), 'btn--primary'));
+    panel.append(timeoutNote);
+  }, quickMatchTimeout());
+
+  if (!(await ensureServerAwake(panel, () => { void leave(); }, () => {
+    cleanup();
+    void quickMatch();
+  }, () => { void leave(); }))) return;
+  if (!active) return; // cancelled while the server was waking
+  try {
+    pendingJoin = (await loadNet()).MultiplayerSession.quickMatch({ ...readUrlRunOptions(), qmKey: quickMatchKey() });
+    session = await pendingJoin;
+    if (!active) {
+      await session.dispose();
+      return;
+    }
+    removeStatus = session.onStatus((next) => {
+      if (!active || !next.started || !next.localRole) return;
+      const partnerRole = next.localRole === 'pix' ? 'nee' : 'pix';
+      const partner = next.players.get(partnerRole);
+      if (partner?.bot !== true) {
+        status.textContent = `Partner found! You fly ${next.localRole.toUpperCase()} · they fly ${partnerRole.toUpperCase()}`;
+        status.dataset.testid = 'qm-found';
+        cancel.hidden = true;
+        elapsed.hidden = true;
+        actions.querySelector('[data-testid="qm-play-bot"]')?.remove();
+        timeoutNote?.remove();
+        startTimer = window.setTimeout(startWhenReady, 800);
+      } else {
+        startWhenReady();
+      }
+    });
+  } catch (error) {
+    if (!active) return;
+    cleanup();
+    status.textContent = errorMessage(error);
+    status.classList.add('error');
+    panel.append(menuButton('Back', 'back', showMultiplayerMenu, 'btn--quiet'));
+    bindMenuNav(panel, showMultiplayerMenu, '[data-testid="back"]');
+  }
 }
 
 async function ensureServerAwake(
   panel: HTMLElement,
   back: () => void,
   retry: () => void,
+  onCancel: () => void = back,
 ): Promise<boolean> {
   panel.querySelectorAll('.wake-overlay').forEach((node) => node.remove());
-  const ui = { overlay: null as HTMLElement | null, title: null as HTMLElement | null, detail: null as HTMLElement | null };
+  if (warmupIsFresh()) return true;
+  revalidateWarmup();
 
-  const result = await wakeServer({
-    onWaiting(attempt) {
-      if (!ui.overlay) {
-        ui.overlay = element('div', 'wake-overlay');
-        ui.overlay.dataset.testid = 'wake-overlay';
-        ui.title = element('p', 'wake-title', 'Waking server…');
-        ui.detail = element('p', 'wake-detail', `Free server is starting up (up to a minute). Attempt ${attempt}`);
-        ui.overlay.append(ui.title, ui.detail);
-        panel.append(ui.overlay);
-      } else {
-        ui.detail!.textContent = `Free server is starting up (up to a minute). Attempt ${attempt}`;
-      }
+  const controller = new AbortController();
+  const overlay = element('div', 'wake-overlay');
+  overlay.dataset.testid = 'wake-overlay';
+  overlay.setAttribute('role', 'status');
+  overlay.setAttribute('aria-live', 'polite');
+  const spinner = element('div', 'wake-spinner');
+  spinner.setAttribute('aria-hidden', 'true');
+  const title = element('p', 'wake-title', 'Waking server…');
+  title.dataset.testid = 'wake-title';
+  const detail = element('p', 'wake-detail', 'The free server is starting up. ');
+  const seconds = element('span', '', '0');
+  seconds.dataset.testid = 'wake-elapsed';
+  detail.append(seconds, ' s');
+  const cancel = menuButton('Cancel', 'wake-cancel', () => controller.abort(), 'btn--quiet');
+  overlay.append(spinner, title, detail, cancel);
+  // Only show the overlay once the first ping actually failed ('waking'), so a fast answer never flashes it.
+  const result = await waitForServer({
+    signal: controller.signal,
+    onTick(elapsedMs, current) {
+      seconds.textContent = String(Math.floor(elapsedMs / 1_000));
+      if (current !== 'ready' && current !== 'unknown' && !overlay.isConnected) panel.append(overlay);
     },
   });
-
-  if (result) {
-    ui.overlay?.remove();
+  if (!overlay.isConnected) panel.append(overlay);
+  if (result === 'ready') {
+    overlay.remove();
     return true;
   }
-
-  // Failed — show error UI
-  if (!ui.overlay) {
-    ui.overlay = element('div', 'wake-overlay');
-    ui.overlay.dataset.testid = 'wake-overlay';
-    ui.title = element('p', 'wake-title');
-    ui.detail = element('p', 'wake-detail');
-    ui.overlay.append(ui.title, ui.detail);
-    panel.append(ui.overlay);
+  if (result === 'cancelled') {
+    overlay.remove();
+    onCancel();
+    return false;
   }
-  ui.title!.textContent = "Server didn't wake up";
-  ui.detail!.textContent = 'Check your connection and retry.';
-  ui.overlay.append(
-    menuButton('Retry', 'wake-retry', retry),
+
+  spinner.remove();
+  title.textContent = "Server didn't wake up";
+  detail.textContent = 'Check your connection and retry.';
+  cancel.remove();
+  overlay.append(
+    menuButton('Retry', 'wake-retry', () => {
+      retryWarmup();
+      retry();
+    }),
     menuButton('Back', 'back', back),
   );
   return false;
@@ -300,7 +459,7 @@ async function createRoom(): Promise<void> {
   bindMenuNav(panel, showMultiplayerMenu);
   if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void createRoom(); }))) return;
   try {
-    const session = await MultiplayerSession.createRoom(readUrlRunOptions());
+    const session = await (await loadNet()).MultiplayerSession.createRoom({ ...readUrlRunOptions(), bot: new URLSearchParams(location.search).get('bot') === '1' });
     showLobby(session);
   } catch (error) {
     status.textContent = errorMessage(error);
@@ -311,6 +470,7 @@ async function createRoom(): Promise<void> {
 }
 
 function showJoinRoom(prefill?: string, initialError = ''): void {
+  void loadNet().catch(() => {});
   // menuButton passes the click event when used directly as the action; only strings count.
   const initial = typeof prefill === 'string' ? cleanRoomCode(prefill) : '';
   const panel = menuPanel('Join a room', 'Type the four-character code your friend sees.');
@@ -349,21 +509,28 @@ function showJoinRoom(prefill?: string, initialError = ''): void {
   const status = element('p', 'lobby-status');
   const back = menuButton('Back', 'back', showMultiplayerMenu, 'btn--quiet');
   form.append(input, submit);
+  let joinInFlight = false;
 
   async function doJoin(code: string): Promise<void> {
+    if (joinInFlight) return;
+    joinInFlight = true;
+    if (isTouchPlayDevice()) void enterImmersive();
     submit.disabled = true;
     status.textContent = 'Connecting…';
-    if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void doJoin(code); }))) {
-      submit.disabled = false;
-      return;
-    }
+    status.classList.remove('error');
     try {
-      const session = await MultiplayerSession.joinRoom(code, readUrlRunOptions());
+      if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void doJoin(input.value); }, () => {
+        submit.disabled = false;
+        status.textContent = '';
+      }))) return;
+      const session = await (await loadNet()).MultiplayerSession.joinRoom(code, readUrlRunOptions());
       showLobby(session);
     } catch (error: unknown) {
-      status.textContent = classifyJoinError(error, code).message;
+      status.textContent = await loadNet().then((net) => net.classifyJoinError(error, code).message, () => errorMessage(error));
       status.classList.add('error');
       submit.disabled = false;
+    } finally {
+      joinInFlight = false;
     }
   }
 
@@ -453,6 +620,9 @@ function showLobby(session: MultiplayerSession): void {
 }
 
 async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<void> {
+  titleAttract?.dispose();
+  titleAttract = null;
+  if (isTouchPlayDevice() && (mode === 'singleplayer' || mode === 'night-shift' || mode === 'multiplayer')) void enterImmersive();
   titleMenuNav.detach();
   try { sessionStorage.removeItem(MODE_STASH_KEY); } catch { /* private mode */ }
   const canvas = element('canvas');
@@ -649,6 +819,7 @@ async function showHeistReportDemo(): Promise<void> {
 }
 
 async function bootFromInviteLink(): Promise<boolean> {
+  void loadNet().catch(() => {});
   const code = roomCodeFromUrl();
   if (!code) return false;
 
@@ -660,7 +831,7 @@ async function bootFromInviteLink(): Promise<boolean> {
     return true;
   }
 
-  const resumed = await MultiplayerSession.resumeRoom(code, readUrlRunOptions().beat);
+  const resumed = await (await loadNet()).MultiplayerSession.resumeRoom(code, readUrlRunOptions().beat);
   if (resumed) {
     status.textContent = resumed.currentStatus.started
       ? 'Seat restored. Returning to the match…'
@@ -677,27 +848,50 @@ async function bootFromInviteLink(): Promise<boolean> {
   return true;
 }
 
+/** Warm the HTTP cache for the Havok wasm (same URL + credentials as the Havok loader's fetch). */
+function prefetchHavokWasm(): void {
+  void fetch(havokWasmUrl, { credentials: 'same-origin' }).then((response) => response.arrayBuffer()).catch(() => {});
+}
+function preloadNow(): void {
+  setTimeout(() => {
+    void preloadGame().catch(() => { gameModules.promise = null; });
+    prefetchHavokWasm();
+  }, 0);
+}
+/** Title path: let the title paint (fonts, key art) first, then fetch the game in the background. */
+function preloadWhenIdle(): void {
+  const run = () => {
+    const idle = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback;
+    const go = () => {
+      void preloadGame().catch(() => { gameModules.promise = null; })
+        .finally(() => { prefetchHavokWasm(); void loadNet().catch(() => {}); });
+    };
+    if (idle) idle(go, { timeout: 1500 }); else setTimeout(go, 200);
+  };
+  if (document.readyState === 'complete') run(); else window.addEventListener('load', run, { once: true });
+}
+
 const bootParams = new URLSearchParams(window.location.search);
 const urlRun = runOptionsFromSearch(bootParams);
 if (bootParams.has('report')) {
   void showHeistReportDemo();
 } else if (roomCodeFromUrl()) {
   void bootFromInviteLink();
-  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+  preloadNow();
 } else if (urlRun.seed != null) {
   prepareChallengeRun(urlRun.seed, urlRun.beat);
   void startGame('night-shift');
-  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+  preloadNow();
 } else if (bootParams.get('play') === 'solo') {
   void startGame('singleplayer');
-  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+  preloadNow();
 } else if (bootParams.get('play') === 'daily' || urlRun.mode === 'daily') {
   prepareDailyRun(new Date());
   void startGame('night-shift');
-  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+  preloadNow();
 } else {
   showMainMenu();
-  setTimeout(() => { void preloadGame().catch(() => { gameModules.promise = null; }); }, 0);
+  preloadWhenIdle();
 }
 
 if (import.meta.hot) {

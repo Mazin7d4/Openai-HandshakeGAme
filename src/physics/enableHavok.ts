@@ -1,5 +1,7 @@
-import { HavokPlugin, Vector3, type Scene } from '@babylonjs/core';
-import '@babylonjs/core/Physics/physicsEngineComponent';
+import { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+import '@babylonjs/core/Physics/physicsEngineComponent.js';
 import HavokPhysics from '@babylonjs/havok';
 
 export async function enableHavok(scene: Scene): Promise<HavokPlugin> {
