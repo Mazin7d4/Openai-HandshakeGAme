@@ -905,7 +905,10 @@ export class GameApp {
       onGrab: () => live()?.requestGrabDrop(),
       onYank: () => live()?.requestYank(),
       onInteract: () => live()?.requestInteract(),
-      onPause: () => live()?.requestPause(),
+      // Pause is a UI state transition, not movement input. Applying it from the
+      // touch event keeps the edge from being lost between pointer dispatch and
+      // the next gameplay sample (notably on portrait phones with the rotate hint).
+      onPause: () => this.setPaused(true),
       onSwitch: this.mode !== 'multiplayer' ? () => live()?.requestSwitchDrone() : undefined,
       onPing: () => this.pingEmote.ping(),
       onEmote: (id) => this.pingEmote.emote(id),
