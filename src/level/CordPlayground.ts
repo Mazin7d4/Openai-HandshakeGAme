@@ -252,11 +252,10 @@ function closest(point: Vector3, a: Vector3, b: Vector3, out: Vector3): number {
 function label(scene: Scene, title: string, sub: string, at: Vector3, width: number): Mesh {
   const plane = CreatePlane(`label-${title}`, { width, height: width * 0.32 }, scene);
   plane.position.copyFrom(at);
-  // The plane's front faces -z (towards the apron camera); flip U so text isn't mirrored.
+  // The plane's front faces -z (towards the apron camera); draw text unmirrored.
   plane.isPickable = false;
   const tex = new DynamicTexture(`label-${title}-tex`, { width: 512, height: 164 }, scene, true);
   const ctx = tex.getContext() as CanvasRenderingContext2D;
-  ctx.setTransform(-1, 0, 0, 1, 512, 0); // pre-mirror: the plane's UVs read reversed from this side
   ctx.fillStyle = '#F7F3EA'; ctx.fillRect(0, 0, 512, 164);
   ctx.fillStyle = '#1D2226'; ctx.fillRect(0, 150, 512, 14);
   ctx.textAlign = 'center';
