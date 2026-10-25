@@ -17,6 +17,7 @@ export {
 } from './twists.mjs';
 export { validateRunLayout, dist, distXZ } from './validate.mjs';
 export { generateRun } from './generateRun.mjs';
+export { generateFloorPlan, validateFloorPlan } from '../nightshift/plan.mjs';
 export { applyRunLayout } from './applyRunLayout.mjs';
 export { getRunSeed, nextFloorSeed, stashRunSeed, setRunSeedGetter } from './getRunSeed.mjs';
 export { dailySeed } from './dailySeed.mjs';

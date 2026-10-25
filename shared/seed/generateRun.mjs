@@ -15,6 +15,7 @@ import {
 } from './variants.mjs';
 import { TWISTS, cordForTwist, escalateFloor } from './twists.mjs';
 import { validateRunLayout } from './validate.mjs';
+import { generateFloorPlan } from '../nightshift/plan.mjs';
 
 /**
  * @typedef {import('./variants.mjs').RoomVariant} RoomVariant
@@ -50,6 +51,7 @@ import { validateRunLayout } from './validate.mjs';
  *   twist: TwistParams,
  *   escalation: ReturnType<typeof escalateFloor>,
  *   cord: { restLength: number, maxLength: number },
+ *   plan: import('../nightshift/types.d.ts').FloorPlan,
  * }} RunLayout
  */
 
@@ -330,7 +332,7 @@ export function generateRun(seed, floor = 0) {
     }
   }
 
-  return layout;
+  return Object.freeze({ ...layout, plan: generateFloorPlan(seed, floor, layout) });
 }
 
 export { validateRunLayout, LEVEL_SLOTS, TWISTS, VARIANTS_BY_SLOT };

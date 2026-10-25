@@ -96,6 +96,7 @@ export interface RunLayout {
   twist: TwistParams;
   escalation: FloorEscalation;
   cord: { restLength: number; maxLength: number };
+  plan?: import('../nightshift/types').FloorPlan;
 }
 
 export interface RunSeed {
@@ -155,6 +156,8 @@ export declare function dist(a: Vec3, b: Vec3): number;
 export declare function distXZ(a: Vec3, b: Vec3): number;
 
 export declare function generateRun(seed: number, floor?: number): RunLayout;
+export declare function generateFloorPlan(seed: number, floor: number, layout: RunLayout): import('../nightshift/types').FloorPlan;
+export declare function validateFloorPlan(plan: import('../nightshift/types').FloorPlan, layout: RunLayout): { ok: boolean; reason?: string };
 export declare function applyRunLayout(layout: RunLayout, targets?: ApplyRunLayoutTargets): RunLayout;
 export declare function getRunSeed(override?: { seed?: number; floor?: number } | null): RunSeed;
 export declare function nextFloorSeed(current: RunSeed): RunSeed;
