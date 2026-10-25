@@ -10,7 +10,7 @@ import type {
   SecurityNetworkState,
 } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
-import { HeistReport } from '../ui/HeistReport.ts';
+import { HeistReport, type CoopReportState } from '../ui/HeistReport.ts';
 import type { RunStats } from '../ui/heistAwards.ts';
 import type { GrabSystem } from './GrabSystem.ts';
 import type { HackSession } from './HackSession.ts';
@@ -103,6 +103,7 @@ export class MissionDirector {
   private lastNightShiftSummary?: NightShiftSummary;
   private objectiveCollapseTimer: number | null = null;
   private objectiveTextKey = '';
+  private rematchPartnerLeft = false;
 
   constructor(
     scene: Scene,
@@ -154,7 +155,18 @@ export class MissionDirector {
     });
     const offFloorCleared = multiplayer?.onFloorCleared((message) => this.handleFloorCleared(message));
     const offRunEnded = multiplayer?.onRunEnded((message) => this.handleRunEnded(message));
-    this.unsubscribe = () => { offStun?.(); offSpotted?.(); offShove?.(); offLine(); offYank(); offFloorCleared?.(); offRunEnded?.(); };
+    const offRematchStart = multiplayer?.onRematchStart(() => {
+      this.rematchPartnerLeft = false;
+      this.resetLocal();
+    });
+    const offRematchPartnerLeft = multiplayer?.onRematchPartnerLeft(() => {
+      this.rematchPartnerLeft = true;
+      this.updateReportStatus(multiplayer.currentStatus);
+    });
+    this.unsubscribe = () => {
+      offStun?.(); offSpotted?.(); offShove?.(); offLine(); offYank(); offFloorCleared?.(); offRunEnded?.();
+      offRematchStart?.(); offRematchPartnerLeft?.();
+    };
 
     if (uiParent) {
       const objective = document.createElement('aside');
@@ -237,13 +249,13 @@ export class MissionDirector {
         audio,
         onLeave,
         onPlayAgain: () => {
-          if (mode === 'multiplayer') multiplayer?.retryMission();
-          else if (mode === 'night-shift' && this.runLayout) {
+          if (mode === 'night-shift' && this.runLayout) {
             restartNightShift({ seed: this.runLayout.seed, floor: this.runLayout.floor });
           } else {
             this.resetLocal();
           }
         },
+        onRematchVote: mode === 'multiplayer' ? (want) => multiplayer?.sendRematchVote(want) : undefined,
         onNewSeed: mode === 'night-shift' ? () => {
           resetRun();
           clearRunIntent();
@@ -336,6 +348,7 @@ export class MissionDirector {
     }
     if (!previousAlarm && this.state.alarm) this.beginAlarm();
     this.syncCaptureFromRoom(status);
+    this.updateReportStatus(status);
     if (this.isCoopNightShift()) {
       this.updateScoreHud();
       this.restoreCoopReport(status);
@@ -842,7 +855,7 @@ export class MissionDirector {
       // Only the server's floor-cleared / run-ended for THIS floor drives the co-op report (never a stale one).
       const floor = this.multiplayer?.currentStatus.run.floor;
       const summary = this.lastNightShiftSummary;
-      if (summary && summary.floor === floor) this.report.show(stats, summary);
+      if (summary && summary.floor === floor) this.report.show(stats, summary, this.coopReportState());
       return;
     }
     if (this.mode === 'night-shift' && this.runLayout && stats.outcome === 'win') {
@@ -869,10 +882,28 @@ export class MissionDirector {
           },
         };
       }
-      this.report.show(stats, this.lastNightShiftSummary);
+      this.report.show(stats, this.lastNightShiftSummary, this.coopReportState());
     } else {
-      this.report.show(stats, this.lastNightShiftSummary);
+      this.report.show(stats, this.lastNightShiftSummary, this.coopReportState());
     }
+  }
+
+  private coopReportState(): CoopReportState | undefined {
+    if (!this.multiplayer) return undefined;
+    return {
+      localRole: this.multiplayer.currentStatus.localRole,
+      players: this.multiplayer.currentStatus.players,
+      partnerLeft: this.rematchPartnerLeft,
+    };
+  }
+
+  private updateReportStatus(status: RoomStatus): void {
+    if (!this.multiplayer || !this.report) return;
+    this.report.updateCoopStatus({
+      localRole: status.localRole,
+      players: status.players,
+      partnerLeft: this.rematchPartnerLeft,
+    });
   }
 
   private snapshotStats(outcome: RunStats['outcome']): RunStats {

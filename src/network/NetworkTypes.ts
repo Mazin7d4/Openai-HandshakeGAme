@@ -8,6 +8,7 @@ import type { RunMode } from '../../shared/run.ts';
 
 export type DroneRole = 'pix' | 'nee';
 export type EmoteId = 'here' | 'wait' | 'go' | 'yay';
+export interface ObjectEventMessage { objectId: string; event: string; from: DroneRole | ''; to: DroneRole | '' }
 export interface PingPlacedMessage { role: DroneRole; x: number; y: number; z: number; id: number; at: number }
 export interface EmotePlayedMessage { role: DroneRole; id: EmoteId; at: number }
 
@@ -26,6 +27,7 @@ export interface RunNetworkState {
   lastFloorPoints: number;
   floorCleared: boolean;
   ended: boolean;
+  rematches: number;
 }
 
 export interface DroneNetworkState {
@@ -47,6 +49,15 @@ export interface DroneNetworkState {
   carryFor: number;
   /** 0–1 rescue progress from synced struggles. */
   rescueProgress: number;
+  rematchVote: boolean;
+  lootDelivered: number;
+  lootCarrySeconds: number;
+  passes: number;
+  rescues: number;
+  /** Number of times this drone has been captured; `captured` remains the live state. */
+  capturedCount: number;
+  grabs: number;
+  hacks: number;
 }
 
 export type GrabbableMode = 'free' | 'held';
