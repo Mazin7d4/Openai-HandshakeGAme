@@ -15,6 +15,13 @@ import {
 import { applyRunLayout, generateRun } from '../shared/seed/index.mjs';
 import { scoreFloorPure, dropFloorsFrom } from '../shared/nightShiftScore.mjs';
 import { installLifecycleLogging, logListenError } from './lifecycle.mjs';
+import {
+  acquireQuickMatchSeat,
+  checkQuickMatchLimit,
+  clientIp,
+  releaseQuickMatchSeat,
+  sanitizeQmKey,
+} from './quickMatch.mjs';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json');
@@ -279,10 +286,22 @@ class HandshakeRoom extends Room {
   rematchVoteTimes = new Map();
   botEnabled = false;
   botPilot;
+  quickMatch = false;
+  qmKey = '';
+  quickMatchAllowed = true;
+
+  static async onAuth(token, options = {}, context) {
+    if (options.quickMatch !== true) return true;
+    const ip = clientIp(context);
+    checkQuickMatchLimit(ip);
+    return { ip };
+  }
 
   onCreate(options = {}) {
     liveRooms.add(this);
-    this.botEnabled = options.bot === true;
+    this.quickMatch = options.quickMatch === true;
+    this.qmKey = sanitizeQmKey(options.qmKey, options.mode);
+    this.botEnabled = !this.quickMatch && options.bot === true;
     this.botPilot = new BotPilot(this);
     this.seedPinned = typeof options.seed === 'number' && Number.isFinite(options.seed)
       ? options.seed >>> 0
@@ -303,7 +322,9 @@ class HandshakeRoom extends Room {
     }, LONELY_ROOM_SECONDS * 1000);
     this.maxClients = 2;
     this.roomId = roomCode();
-    this.setMetadata({ code: this.roomId, bot: this.botEnabled });
+    this.setMetadata({ code: this.roomId, bot: this.botEnabled, ...(this.quickMatch ? { quickMatch: true, qmKey: this.qmKey } : {}) });
+    if (this.quickMatch) this.setPrivate(false);
+    else this.setPrivate(true);
     console.log(`[handshake] room ${this.roomId} created`);
     this.state.security = createSecurityState();
     this.securitySim = new SecuritySim(this.state.security);
@@ -336,6 +357,14 @@ class HandshakeRoom extends Room {
       }
     });
     this.onMessage('rematch-vote', (client, message) => this.handleRematchVote(client, message));
+    this.onMessage('quickmatch-bot', (client) => {
+      if (!this.quickMatch || !this.state.players.get(client.sessionId)?.connected || this.state.players.size !== 1 || this.state.players.get('bot')) return;
+      const human = this.state.players.get(client.sessionId);
+      this.botEnabled = true;
+      this.setMetadata({ code: this.roomId, bot: true, quickMatch: true, qmKey: this.qmKey });
+      this.addBotSeat(human.role === 'pix' ? 'nee' : 'pix', human.position);
+      console.log(`[quickmatch] room ${this.roomId} key=${this.qmKey} bot`);
+    });
     this.onMessage('run-next-floor', (_client, message) => {
       const run = this.state.run;
       if (run.mode !== 'nightshift' || run.ended || !run.floorCleared || message?.floor !== run.floor) return;
@@ -735,6 +764,11 @@ class HandshakeRoom extends Room {
       this._emptyTimeout.clear();
       this._emptyTimeout = null;
     }
+    if (this.quickMatch) {
+      const ip = client.auth?.ip ?? 'unknown';
+      client.userData = { ...(client.userData ?? {}), quickMatchIp: ip, quickMatchSeat: true };
+      acquireQuickMatchSeat(ip);
+    }
     const bot = this.state.players.get('bot');
     if (bot) {
       const role = bot.role;
@@ -765,6 +799,7 @@ class HandshakeRoom extends Room {
       this.state.players.set(client.sessionId, player);
       this.state.started = true;
       this.broadcast('bot-seat', { role, active: false, handoff: true, by: client.sessionId });
+      if (this.quickMatch) console.log(`[quickmatch] room ${this.roomId} key=${this.qmKey} paired`);
       return;
     }
 
@@ -788,6 +823,7 @@ class HandshakeRoom extends Room {
     if (this.botEnabled && this.state.players.size === 1) {
       this.addBotSeat(role === 'pix' ? 'nee' : 'pix');
     }
+    if (this.quickMatch) console.log(`[quickmatch] room ${this.roomId} key=${this.qmKey} ${this.state.started ? 'paired' : 'waiting'}`);
   }
 
   /** Unexpected drop: hold the seat, freeze the drone, keep match state. */
@@ -797,6 +833,8 @@ class HandshakeRoom extends Room {
       return;
     }
     this.freezePlayer(player);
+    if (this.quickMatch && this.state.players.size === 1 && !this.state.players.get('bot') && !this.state.started) return;
+    if (this.quickMatch && ![...this.state.players.values()].some((candidate) => !candidate.bot && candidate.connected && candidate !== player)) this.lock();
     const humanRemaining = [...this.state.players.values()].some((candidate) => !candidate.bot && candidate !== player && candidate.connected);
     if (!humanRemaining) {
       const bot = this.state.players.get('bot');
@@ -812,6 +850,7 @@ class HandshakeRoom extends Room {
       player.connected = true;
       const bot = this.state.players.get('bot');
       if (bot) bot.connected = true;
+      if (this.quickMatch && this.quickMatchAllowed && [...this.state.players.values()].filter((candidate) => !candidate.bot && candidate.connected).length < 2) this.unlock();
     }
   }
 
@@ -820,6 +859,10 @@ class HandshakeRoom extends Room {
     const player = this.state.players.get(client.sessionId);
     if (!player) {
       return;
+    }
+    if (this.quickMatch && client.userData?.quickMatchSeat) {
+      releaseQuickMatchSeat(client.userData.quickMatchIp ?? 'unknown');
+      client.userData.quickMatchSeat = false;
     }
     if (player.connected) this.freezePlayer(player);
     const leaverPosition = { x: player.position.x, y: player.position.y, z: player.position.z };
@@ -836,9 +879,14 @@ class HandshakeRoom extends Room {
     } else {
       this.state.players.delete('bot');
       this.state.started = false;
+      if (this.quickMatch && partner) {
+        this.quickMatchAllowed = false;
+        this.lock();
+      }
     }
     const partnerClient = partner ? this.clientForRole(partner.role) : undefined;
     if (!this.botEnabled || !partner) partnerClient?.send('rematch-partner-left', { role: player.role });
+    if (this.quickMatch && this.botEnabled && partner) this.unlock();
     this.pingTimes.delete(client.sessionId);
     this.emoteTimes.delete(client.sessionId);
   }
@@ -854,6 +902,14 @@ class HandshakeRoom extends Room {
   }
 
   onDispose() {
+    if (this.quickMatch) {
+      for (const client of this.clients) {
+        if (client.userData?.quickMatchSeat) {
+          releaseQuickMatchSeat(client.userData.quickMatchIp ?? 'unknown');
+          client.userData.quickMatchSeat = false;
+        }
+      }
+    }
     if (this._emptyTimeout) this._emptyTimeout.clear();
     if (this._lonelyTimeout) this._lonelyTimeout.clear();
     liveRooms.delete(this);
@@ -1580,7 +1636,7 @@ const gameServer = new Server({
   transport: new WebSocketTransport(transportOptions),
   greet: false,
 });
-gameServer.define('handshake', HandshakeRoom);
+gameServer.define('handshake', HandshakeRoom).filterBy(['qmKey']);
 // A failed bind is only emitted on the http server (listen() never rejects), which used to leave
 // a zombie process that looked alive to `pgrep` but owned no port. Fail loudly instead.
 const onListenError = (error) => {
@@ -1632,6 +1688,8 @@ httpServer.on('request', (req, res) => {
       uptime: Math.floor(process.uptime()),
       rooms: liveRooms.size,
       clients: totalClients,
+      quickMatchWaiting: [...liveRooms].filter((room) => room.quickMatch && !room.locked &&
+        [...room.state.players.values()].filter((player) => !player.bot && player.connected).length === 1).length,
       version: pkg.version || 'dev',
     });
     res.writeHead(200, {
