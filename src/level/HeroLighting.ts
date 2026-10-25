@@ -26,6 +26,7 @@ const ROOMS: readonly RoomMood[] = [
 ];
 
 export function addHeroLighting(scene: Scene): void {
+  const lights: { key: SpotLight; fill: PointLight; target: [number, number] }[] = [];
   for (const room of ROOMS) {
     const key = new SpotLight(`hero-key-${room.id}`, Vector3.FromArray(room.key), Vector3.FromArray([
       room.target[0] - room.key[0], room.target[1] - room.key[1], room.target[2] - room.key[2],
@@ -44,5 +45,31 @@ export function addHeroLighting(scene: Scene): void {
     fill.intensity = 0.18;
     fill.range = room.range * 0.9;
     fill.metadata = { heroSource: `${room.id} cool bounce`, mood: room.fill };
+    lights.push({ key, fill, target: [room.target[0], room.target[2]] });
   }
+
+  // Keep the presentation lighting effect without compiling every room's lights into every
+  // material. Besides being wasteful, the full 12-light set exceeds reliable simultaneous-light
+  // limits on SwiftShader and some real mobile/integrated GPUs, which can drop opaque draw calls.
+  scene.onBeforeRenderObservable.add(() => {
+    const camera = scene.activeCamera;
+    const highEnough = document.documentElement.dataset.quality !== 'low';
+    if (!camera || !highEnough) {
+      for (const light of lights) { light.key.setEnabled(false); light.fill.setEnabled(false); }
+      return;
+    }
+    const p = camera.globalPosition;
+    let nearest = 0;
+    let nearestDistance = Infinity;
+    for (let i = 0; i < lights.length; i++) {
+      const [x, z] = lights[i].target;
+      const distance = (p.x - x) ** 2 + (p.z - z) ** 2;
+      if (distance < nearestDistance) { nearest = i; nearestDistance = distance; }
+    }
+    for (let i = 0; i < lights.length; i++) {
+      const enabled = i === nearest;
+      lights[i].key.setEnabled(enabled);
+      lights[i].fill.setEnabled(enabled);
+    }
+  });
 }
