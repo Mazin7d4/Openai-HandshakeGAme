@@ -1,7 +1,8 @@
-import { Vector3 } from '@babylonjs/core';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { zeroFlightAxes, type FlightAxes } from '../input/FlightAxes.ts';
 import { zeroInteractionActions } from '../input/InteractionActions.ts';
 import type { DroneControlFrame, DroneControlSource } from './DroneControlSource.ts';
+import { avoidThreats, BOT_TUNING, botGoal } from '../../shared/bot/brain.mjs';
 
 /** What the CPU companion is allowed to perceive. Supplied only in single-player. */
 export interface BotSensors {
@@ -29,12 +30,26 @@ export interface BotSensors {
   zipping?(): boolean;
   /** The leader is held by security: yank them free. */
   leaderCaptured?(): boolean;
+  /** The leader holds any passable object. */
+  leaderHolding?(): boolean;
+  /** The leader's planar facing, normally the camera's planar forward. */
+  leaderForward?(): { x: number; z: number } | null;
+  /** The companion holds the prototype. */
+  selfHoldingLoot?(): boolean;
+  /** The extraction point. */
+  exit?(): Vector3 | null;
+  /** Active patrol positions. */
+  threats?(): Vector3[];
+  /** The object currently held by the companion, if any. */
+  selfHeldObject?(): string | null;
+  /** Release the currently held object. */
+  releaseHeld?(): void;
 }
 
 /** Seconds without closing on the leader (while far) before the companion zips to them. */
 export const BOT_STUCK_SECONDS = 2.5;
 
-export type BotState = 'follow' | 'haul' | 'guard' | 'rescue' | 'idle' | 'zip' | 'objective' | 'work';
+export type BotState = 'follow' | 'haul' | 'guard' | 'rescue' | 'idle' | 'zip' | 'objective' | 'work' | 'carry' | 'pass' | 'avoid';
 
 /**
  * CPU companion: a small steering state machine (follow / haul / guard / rescue), no LLM.
@@ -61,6 +76,8 @@ export class BotControlSource implements DroneControlSource {
   /** Recent leader positions: real free space, so a zip can always end somewhere open. */
   private readonly trail: Vector3[] = [];
   private trailTimer = 0;
+  private heldObject: string | null = null;
+  private heldSeconds = 0;
   /** Total zips so far (tests). */
   zips = 0;
   /** Current behaviour, exposed for the HUD/tests. */
@@ -79,6 +96,18 @@ export class BotControlSource implements DroneControlSource {
     const self = s.self();
     const leader = s.leader();
     if (!self || !leader) { this.state = 'idle'; return this.idle; }
+    const heldObject = s.selfHeldObject?.() ?? null;
+    if (heldObject !== this.heldObject) {
+      this.heldObject = heldObject;
+      this.heldSeconds = 0;
+    } else if (heldObject) {
+      this.heldSeconds += dt;
+    }
+    if (heldObject && heldObject !== 'prototype' && this.heldSeconds > 4) {
+      s.releaseHeld?.();
+      this.heldObject = null;
+      this.heldSeconds = 0;
+    }
     const basis = s.basis();
     if (s.zipping?.()) { this.state = 'zip'; return this.idle; }
     // Rescue: react after a short, human-feeling delay, then yank once (cooldown keeps it from spamming).
@@ -116,6 +145,55 @@ export class BotControlSource implements DroneControlSource {
       return { actions: this.haul(self, leader, s.leaderVelocity?.() ?? null, basis), interactions: this.idle.interactions };
     }
     s.work?.(0);
+    const threats = s.threats?.() ?? [];
+    const goal = botGoal({
+      self: { x: self.x, y: self.y, z: self.z },
+      leader: { x: leader.x, y: leader.y, z: leader.z },
+      leaderForward: s.leaderForward?.() ?? null,
+      leaderHolding: s.leaderHolding?.() ?? false,
+      selfHoldingLoot: s.selfHoldingLoot?.() ?? heldObject === 'prototype',
+      exit: (() => {
+        const point = s.exit?.();
+        return point ? { x: point.x, y: point.y, z: point.z } : null;
+      })(),
+      leaderCaptured: captured,
+      capturedFor: this.troubleTime,
+      threats: threats.map((point) => ({ x: point.x, y: point.y, z: point.z })),
+    });
+    if (goal.mode === 'rescue') {
+      this.state = 'rescue';
+      return this.idle;
+    }
+    if (goal.mode === 'carry' && goal.point) {
+      this.state = 'carry';
+      const exit = s.exit?.();
+      if (exit && Math.hypot(self.x - exit.x, self.z - exit.z) <= BOT_TUNING.exitArrive) {
+        return this.idle;
+      }
+      const target = new Vector3(goal.point.x, goal.point.y, goal.point.z);
+      if (this.recover(dt, self, leader, [target.clone()])) {
+        this.state = 'zip';
+        return this.idle;
+      }
+      return { actions: this.goTo(self, target, basis), interactions: this.idle.interactions };
+    }
+    if (goal.mode === 'pass' && goal.point) {
+      this.state = 'pass';
+      const pass = this.goTo(self, new Vector3(goal.point.x, goal.point.y, goal.point.z), basis);
+      return {
+        actions: { thrust: pass.thrust * 0.6, strafe: pass.strafe * 0.6, lift: pass.lift * 0.6, boost: false },
+        interactions: this.idle.interactions,
+      };
+    }
+    const threatened = threats.some((threat) => Math.hypot(self.x - threat.x, self.z - threat.z) < BOT_TUNING.avoidRadius);
+    if (threatened) {
+      this.state = 'avoid';
+      const safe = avoidThreats(
+        { x: self.x, y: self.y, z: self.z },
+        threats.map((point) => ({ x: point.x, y: point.y, z: point.z })),
+      );
+      return { actions: this.goTo(self, new Vector3(safe.x, safe.y, safe.z), basis), interactions: this.idle.interactions };
+    }
     if (this.recover(dt, self, leader)) {
       this.state = 'zip';
       return this.idle;

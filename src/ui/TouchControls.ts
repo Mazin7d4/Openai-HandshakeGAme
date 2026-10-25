@@ -63,6 +63,7 @@ export class TouchControls {
   private lastTapY = 0;
   private readonly unsubSettings: () => void;
   private readonly radial: HTMLDivElement;
+  private readonly liftHolds = new Set<HTMLButtonElement>();
   private emotePointer: { id: number; started: number; moved: boolean; selected: EmoteId | null } | null = null;
 
   private readonly onStickDown = (event: PointerEvent) => {
@@ -208,6 +209,8 @@ export class TouchControls {
         this.handlers.virtual.setAxes({ lift: down ? 1 : 0, boost: down });
         this.handlers.onJumpBoost?.(down);
       }),
+      this.holdButton('Up', 'updown', 'touch-up', (down) => this.setLiftHold('touch-up', down, 1)),
+      this.holdButton('Down', 'updown', 'touch-down', (down) => this.setLiftHold('touch-down', down, -1)),
       this.tapButton('Grab', 'grab', 'touch-grab', () => this.handlers.onGrab()),
       this.tapButton('Yank', 'yank', 'touch-yank', () => this.handlers.onYank()),
       this.tapButton('Hack', 'hack', 'touch-hack', () => this.handlers.onInteract()),
@@ -238,7 +241,7 @@ export class TouchControls {
     this.rotateHint = document.createElement('div');
     this.rotateHint.className = 'touch-rotate-hint';
     this.rotateHint.dataset.testid = 'touch-rotate-hint';
-    this.rotateHint.innerHTML = '<p>Rotate for best play</p>';
+    this.rotateHint.innerHTML = '<div class="touch-rotate-hint__icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M14 19a15 15 0 1 1-1 13"/><path d="M14 10v9h9"/></svg></div><strong>Rotate your phone</strong><p>PIX &amp; NEE play best sideways</p>';
     const dismiss = document.createElement('button');
     dismiss.type = 'button';
     dismiss.className = 'btn btn--quiet touch-rotate-hint__dismiss';
@@ -258,11 +261,13 @@ export class TouchControls {
       this.radial.append(item);
     }
 
-    this.root.append(this.lookPad, this.stickPad, this.actions, this.pause, this.rotateHint);
-    // Radial lives outside the touch layer's stacking context so it sits above coach cards and toasts.
+    this.root.append(this.lookPad, this.stickPad, this.actions, this.pause);
+    // Radial and rotate hint live outside the touch layer's stacking context: the
+    // radial must remain tappable, while the rotate hint must sit above every HUD card.
     parent.append(this.radial);
     document.addEventListener('pointerdown', this.onOutsidePointer, true);
     parent.append(this.root);
+    parent.append(this.rotateHint);
 
     this.applyLayout(settings.touchHandedness);
     this.applyOpacity(settings.touchOpacity);
@@ -287,6 +292,7 @@ export class TouchControls {
     });
     window.addEventListener('resize', this.onResize);
     window.addEventListener('orientationchange', this.onOrientation);
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
   }
 
   private readonly onResize = () => {
@@ -298,12 +304,17 @@ export class TouchControls {
     this.syncRotateHint();
   };
 
+  private readonly onVisibilityChange = () => {
+    if (document.hidden) this.clearLiftHolds();
+  };
+
   static shouldShow(): boolean {
     return isTouchPlayDevice();
   }
 
   setVisible(visible: boolean): void {
     this.root.classList.toggle('touch-controls--hidden', !visible);
+    this.rotateHint.classList.toggle('touch-rotate-hint--hidden', !visible);
     if (!visible) {
       this.clearStick();
       this.lookFingers.clear();
@@ -325,12 +336,14 @@ export class TouchControls {
   dispose(): void {
     document.removeEventListener('pointerdown', this.onOutsidePointer, true);
     this.radial.remove();
+    this.rotateHint.remove();
     if (this.disposed) return;
     this.disposed = true;
     this.clearStick();
     this.unsubSettings();
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('orientationchange', this.onOrientation);
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
     this.stickPad.removeEventListener('pointerdown', this.onStickDown);
     this.stickPad.removeEventListener('pointermove', this.onStickMove);
     this.stickPad.removeEventListener('pointerup', this.onStickUp);
@@ -391,6 +404,24 @@ export class TouchControls {
     this.stickBase.style.top = '';
     this.stickKnob.style.transform = '';
     this.applyStick(0, 0);
+  }
+
+  private setLiftHold(testId: string, down: boolean, value: number): void {
+    const button = this.root.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`);
+    if (!button) return;
+    button.dataset.lift = value < 0 ? 'down' : 'up';
+    if (down) this.liftHolds.add(button); else this.liftHolds.delete(button);
+    const current = [...this.liftHolds].reduce((sum, item) => sum + (item.dataset.lift === 'down' ? -1 : 1), 0);
+    this.handlers.virtual.setAxes({ lift: Math.max(-1, Math.min(1, current)) });
+  }
+
+  private clearLiftHolds(): void {
+    this.liftHolds.clear();
+    this.root.querySelectorAll<HTMLButtonElement>('[data-testid="touch-up"], [data-testid="touch-down"]').forEach((button) => {
+      button.classList.remove('is-down');
+      delete button.dataset.lift;
+    });
+    this.handlers.virtual.setAxes({ lift: 0 });
   }
 
   private placeStickVisual(originX: number, originY: number, cx: number, cy: number): void {
@@ -500,6 +531,10 @@ export class TouchControls {
     button.addEventListener('pointerdown', down);
     button.addEventListener('pointerup', up);
     button.addEventListener('pointercancel', up);
+    button.addEventListener('lostpointercapture', up);
+    if (testId === 'touch-up' || testId === 'touch-down') {
+      button.dataset.lift = testId === 'touch-down' ? 'down' : 'up';
+    }
     return button;
   }
 }

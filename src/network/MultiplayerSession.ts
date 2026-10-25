@@ -14,6 +14,7 @@ import {
   storeReconnectionToken,
 } from './ReconnectionToken.ts';
 import { serverEndpoint } from './ServerEndpoint.ts';
+import { warmupBudgetMs } from './ServerWarmup.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import type {
   DroneNetworkState,
@@ -21,6 +22,7 @@ import type {
   GrabbableNetworkState,
   HackNetworkState,
   MissionNetworkState,
+  ObjectEventMessage,
   RoomStatus,
   RunNetworkState,
   SecurityNetworkState,
@@ -30,6 +32,86 @@ import type {
 } from './NetworkTypes.ts';
 
 const SEND_INTERVAL_MS = 50;
+const CONNECT_RETRY_BUDGET_MS = 20_000;
+const CONNECT_ATTEMPT_TIMEOUT_MS = 8_000;
+const CONNECT_BACKOFFS_MS = [500, 1_000, 2_000, 3_000];
+export const SERVER_STATE_EVENTS = ['bot-seat', 'drone-captured', 'drone-freed', 'rescued', 'capture-outcome'] as const;
+
+class ConnectTimeoutError extends Error {
+  constructor() {
+    super('Connection timed out');
+    this.name = 'ConnectTimeoutError';
+  }
+}
+
+function errorNumber(error: unknown, ...keys: string[]): number {
+  const value = error as Record<string, unknown> | null;
+  for (const key of keys) {
+    const number = Number(value?.[key]);
+    if (Number.isFinite(number)) return number;
+  }
+  return NaN;
+}
+
+/** True only for failures that can happen while a sleeping host is coming back. */
+export function isTransientConnectError(error: unknown): boolean {
+  const code = errorNumber(error, 'status', 'statusCode', 'httpStatus', 'code');
+  if (code === 522) return false;
+  if (code >= 400 && code < 500) return false;
+
+  const value = error as { message?: unknown; name?: unknown } | null;
+  const message = String(value?.message ?? error ?? '').toLowerCase();
+  if (/already full|\bfull\b|not found|does not exist|expired|disposed|invalid room|\blocked\b/.test(message)) return false;
+  if ((code >= 500 && code < 600) || /\b5\d\d\b/.test(message)) return true;
+  if (code === 1006 || code === 1001) return true;
+  const codeText = String((error as { code?: unknown } | null)?.code ?? '').toLowerCase();
+  return /failed to fetch|fetch failed|load failed|econnrefused|networkerror|network error|connection refused|enotfound|timed out|timeout|unable to connect|websocket.*(?:closed|close|connection)|(?:connection|socket).*(?:closed|reset|aborted|refused|failed)/.test(message)
+    || /econnrefused|etimedout|enetwork|econnreset/.test(codeText)
+    || value?.name === 'ConnectTimeoutError';
+}
+
+function connectRetryBudgetMs(): number {
+  return Math.min(CONNECT_RETRY_BUDGET_MS, warmupBudgetMs());
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function withConnectTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: number | undefined;
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      timer = window.setTimeout(() => {
+        // A slow attempt that still succeeds later would hold a seat (and make the retry "full"): leave it.
+        operation.then((late) => { void (late as { leave?: (consented?: boolean) => unknown })?.leave?.(true); }, () => {});
+        reject(new ConnectTimeoutError());
+      }, timeoutMs);
+      operation.then(resolve, reject);
+    });
+  } finally {
+    if (timer !== undefined) window.clearTimeout(timer);
+  }
+}
+
+async function retryInitialConnect<T>(connect: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  const budget = connectRetryBudgetMs();
+  let retry = 0;
+  while (true) {
+    const remaining = budget - (Date.now() - startedAt);
+    if (remaining <= 0) throw new ConnectTimeoutError();
+    try {
+      return await withConnectTimeout(connect(), Math.min(CONNECT_ATTEMPT_TIMEOUT_MS, remaining));
+    } catch (error) {
+      const left = budget - (Date.now() - startedAt);
+      if (!isTransientConnectError(error) || left <= 0) throw error;
+      const backoff = CONNECT_BACKOFFS_MS[Math.min(retry++, CONNECT_BACKOFFS_MS.length - 1)];
+      if (left <= backoff) throw error;
+      await delay(backoff);
+    }
+  }
+}
 
 export type JoinErrorKind = 'not-found' | 'full' | 'server' | 'malformed' | 'unknown';
 export interface ClassifiedJoinError { kind: JoinErrorKind; message: string }
@@ -75,6 +157,7 @@ type StatusListener = (status: RoomStatus) => void;
 interface SchemaPlayer {
   playerId: string;
   role: DroneRole;
+  bot?: boolean;
   connected: boolean;
   position: { x: number; y: number; z: number };
   velocity: { x: number; y: number; z: number };
@@ -88,6 +171,14 @@ interface SchemaPlayer {
   struggles?: number;
   carryFor?: number;
   rescueProgress?: number;
+  rematchVote?: boolean;
+  lootDelivered?: number;
+  lootCarrySeconds?: number;
+  passes?: number;
+  rescues?: number;
+  capturedCount?: number;
+  grabs?: number;
+  hacks?: number;
 }
 
 interface SchemaRun {
@@ -104,6 +195,7 @@ interface SchemaRun {
   lastFloorPoints: number;
   floorCleared: boolean;
   ended: boolean;
+  rematches: number;
 }
 
 interface SchemaRoomState {
@@ -189,6 +281,7 @@ const EMPTY_RUN: RunNetworkState = {
   lastFloorPoints: 0,
   floorCleared: false,
   ended: false,
+  rematches: 0,
 };
 
 export interface FloorClearedMessage {
@@ -213,17 +306,30 @@ export interface RunEndedMessage {
   streak: number;
 }
 
+export interface RematchStartMessage {
+  seed: number;
+  mode: RunMode;
+  floor: number;
+  rematches: number;
+}
+
 export interface CreateRoomOptions {
   seed?: number;
   mode?: RunMode;
+  bot?: boolean;
   /** Challenge beat target in ms (client-only; not sent to the server). */
   beat?: number;
+}
+
+export interface QuickMatchOptions extends CreateRoomOptions {
+  qmKey: string;
 }
 
 function copyPlayer(player: SchemaPlayer): DroneNetworkState {
   return {
     playerId: player.playerId,
     role: player.role,
+    bot: player.bot === true,
     connected: player.connected,
     position: {
       x: player.position.x,
@@ -249,6 +355,14 @@ function copyPlayer(player: SchemaPlayer): DroneNetworkState {
     struggles: Math.max(0, (player.struggles ?? 0) | 0),
     carryFor: Number.isFinite(player.carryFor) ? Number(player.carryFor) : 0,
     rescueProgress: Math.max(0, Math.min(1, Number(player.rescueProgress) || 0)),
+    rematchVote: player.rematchVote === true,
+    lootDelivered: Math.max(0, (player.lootDelivered ?? 0) | 0),
+    lootCarrySeconds: Number.isFinite(player.lootCarrySeconds) ? Number(player.lootCarrySeconds) : 0,
+    passes: Math.max(0, (player.passes ?? 0) | 0),
+    rescues: Math.max(0, (player.rescues ?? 0) | 0),
+    capturedCount: Math.max(0, (player.capturedCount ?? 0) | 0),
+    grabs: Math.max(0, (player.grabs ?? 0) | 0),
+    hacks: Math.max(0, (player.hacks ?? 0) | 0),
   };
 }
 
@@ -293,8 +407,11 @@ export class MultiplayerSession {
   private readonly floorStartListeners = new Set<(payload: FloorStartPayload) => void>();
   private readonly floorClearedListeners = new Set<(message: FloorClearedMessage) => void>();
   private readonly runEndedListeners = new Set<(message: RunEndedMessage) => void>();
+  private readonly rematchStartListeners = new Set<(message: RematchStartMessage) => void>();
+  private readonly rematchPartnerLeftListeners = new Set<(message: { role: DroneRole }) => void>();
   private readonly pingListeners = new Set<(message: PingPlacedMessage) => void>();
   private readonly emoteListeners = new Set<(message: EmotePlayedMessage) => void>();
+  private readonly objectEventListeners = new Set<(message: ObjectEventMessage) => void>();
   private readonly players = new Map<DroneRole, DroneNetworkState>();
   private readonly objects = new Map<string, GrabbableNetworkState>();
   private status: RoomStatus;
@@ -329,12 +446,27 @@ export class MultiplayerSession {
 
   static async createRoom(options: CreateRoomOptions = {}): Promise<MultiplayerSession> {
     const client = new Client(serverEndpoint());
-    const createOptions: { seed?: number; mode?: RunMode } = {};
+    const createOptions: { seed?: number; mode?: RunMode; bot?: boolean } = {};
     if (typeof options.seed === 'number' && Number.isFinite(options.seed)) {
       createOptions.seed = options.seed >>> 0;
     }
     if (options.mode) createOptions.mode = options.mode;
-    const room = await client.create<SchemaRoomState>('handshake', createOptions);
+    if (options.bot === true) createOptions.bot = true;
+    const room = await retryInitialConnect(() => client.create<SchemaRoomState>('handshake', createOptions));
+    return new MultiplayerSession(room, options.beat);
+  }
+
+  static async quickMatch(options: QuickMatchOptions): Promise<MultiplayerSession> {
+    const client = new Client(serverEndpoint());
+    const joinOptions: { quickMatch: true; qmKey: string; seed?: number; mode?: RunMode } = {
+      quickMatch: true,
+      qmKey: options.qmKey,
+    };
+    if (typeof options.seed === 'number' && Number.isFinite(options.seed)) {
+      joinOptions.seed = options.seed >>> 0;
+    }
+    if (options.mode) joinOptions.mode = options.mode;
+    const room = await retryInitialConnect(() => client.joinOrCreate<SchemaRoomState>('handshake', joinOptions));
     return new MultiplayerSession(room, options.beat);
   }
 
@@ -349,7 +481,7 @@ export class MultiplayerSession {
       }
     }
     const client = new Client(serverEndpoint());
-    const room = await client.joinById<SchemaRoomState>(normalized);
+    const room = await retryInitialConnect(() => client.joinById<SchemaRoomState>(normalized));
     return new MultiplayerSession(room, options.beat);
   }
 
@@ -384,6 +516,10 @@ export class MultiplayerSession {
   get reconnectSecondsLeft(): number | null {
     if (this.reconnectDeadlineMs == null) return null;
     return Math.max(0, Math.ceil((this.reconnectDeadlineMs - Date.now()) / 1000));
+  }
+
+  requestBotPartner(): void {
+    this.room.send('quickmatch-bot');
   }
 
   onStatus(listener: StatusListener): () => void {
@@ -574,6 +710,10 @@ export class MultiplayerSession {
     this.emoteListeners.add(listener); return () => this.emoteListeners.delete(listener);
   }
 
+  onObjectEvent(listener: (message: ObjectEventMessage) => void): () => void {
+    this.objectEventListeners.add(listener); return () => this.objectEventListeners.delete(listener);
+  }
+
   reportTetherSave(): void {
     this.room.send('mission-tether-save');
   }
@@ -590,12 +730,29 @@ export class MultiplayerSession {
     this.room.send('mission-retry');
   }
 
+  sendRematchVote(want: boolean): void {
+    this.room.send('rematch-vote', { want: want === true });
+  }
+
+  onRematchStart(listener: (message: RematchStartMessage) => void): () => void {
+    this.rematchStartListeners.add(listener);
+    return () => this.rematchStartListeners.delete(listener);
+  }
+
+  onRematchPartnerLeft(listener: (message: { role: DroneRole }) => void): () => void {
+    this.rematchPartnerLeftListeners.add(listener);
+    return () => this.rematchPartnerLeftListeners.delete(listener);
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
     this.networkState = 'disposed';
     this.reconnectDeadlineMs = null;
     this.listeners.clear();
+    this.objectEventListeners.clear();
+    this.rematchStartListeners.clear();
+    this.rematchPartnerLeftListeners.clear();
     clearReconnectionToken(this.roomCode);
     this.room.removeAllListeners();
     await this.room.leave(true);
@@ -631,6 +788,11 @@ export class MultiplayerSession {
         for (const listener of this.emoteListeners) listener(message);
       }
     });
+    room.onMessage('object-event', (message: ObjectEventMessage) => {
+      if (message?.objectId && message.event) {
+        for (const listener of this.objectEventListeners) listener(message);
+      }
+    });
     room.onMessage('patrol-stunned', (message: PatrolStunMessage) => {
       for (const listener of this.patrolListeners) listener(message);
     });
@@ -650,6 +812,20 @@ export class MultiplayerSession {
     room.onMessage('run-ended', (message: RunEndedMessage) => {
       for (const listener of this.runEndedListeners) listener(message);
     });
+    room.onMessage('rematch-start', (message: RematchStartMessage) => {
+      if (!message || !Number.isFinite(message.seed) || !Number.isFinite(message.floor)) return;
+      // A pinned Night Shift seed can reuse the same seed/floor key; rematch still needs
+      // the normal floor-start layout reset to run for the new mission.
+      this.lastFloorKey = null;
+      for (const listener of this.rematchStartListeners) listener(message);
+    });
+    room.onMessage('rematch-partner-left', (message: { role?: string }) => {
+      const role = roleOrNull(message?.role ?? '');
+      if (!role) return;
+      for (const listener of this.rematchPartnerLeftListeners) listener({ role });
+    });
+    // The client derives these from synced state; handlers exist so the SDK does not warn about unhandled messages.
+    for (const type of SERVER_STATE_EVENTS) room.onMessage(type, () => {});
     room.onReconnect(() => {
       this.networkState = 'connected';
       this.reconnectDeadlineMs = null;
@@ -836,6 +1012,7 @@ export class MultiplayerSession {
       lastFloorPoints: Number.isFinite(run.lastFloorPoints) ? run.lastFloorPoints : 0,
       floorCleared: run.floorCleared === true,
       ended: run.ended === true,
+      rematches: Math.max(0, run.rematches | 0),
     };
   }
 
