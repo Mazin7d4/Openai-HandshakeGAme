@@ -156,6 +156,7 @@ type StatusListener = (status: RoomStatus) => void;
 interface SchemaPlayer {
   playerId: string;
   role: DroneRole;
+  bot?: boolean;
   connected: boolean;
   position: { x: number; y: number; z: number };
   velocity: { x: number; y: number; z: number };
@@ -314,6 +315,7 @@ export interface RematchStartMessage {
 export interface CreateRoomOptions {
   seed?: number;
   mode?: RunMode;
+  bot?: boolean;
   /** Challenge beat target in ms (client-only; not sent to the server). */
   beat?: number;
 }
@@ -322,6 +324,7 @@ function copyPlayer(player: SchemaPlayer): DroneNetworkState {
   return {
     playerId: player.playerId,
     role: player.role,
+    bot: player.bot === true,
     connected: player.connected,
     position: {
       x: player.position.x,
@@ -438,11 +441,12 @@ export class MultiplayerSession {
 
   static async createRoom(options: CreateRoomOptions = {}): Promise<MultiplayerSession> {
     const client = new Client(serverEndpoint());
-    const createOptions: { seed?: number; mode?: RunMode } = {};
+    const createOptions: { seed?: number; mode?: RunMode; bot?: boolean } = {};
     if (typeof options.seed === 'number' && Number.isFinite(options.seed)) {
       createOptions.seed = options.seed >>> 0;
     }
     if (options.mode) createOptions.mode = options.mode;
+    if (options.bot === true) createOptions.bot = true;
     const room = await retryInitialConnect(() => client.create<SchemaRoomState>('handshake', createOptions));
     return new MultiplayerSession(room, options.beat);
   }

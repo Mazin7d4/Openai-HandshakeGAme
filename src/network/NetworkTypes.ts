@@ -33,6 +33,7 @@ export interface RunNetworkState {
 export interface DroneNetworkState {
   playerId: string;
   role: DroneRole;
+  bot: boolean;
   connected: boolean;
   position: Vec3State;
   velocity: Vec3State;

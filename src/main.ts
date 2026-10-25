@@ -329,7 +329,7 @@ async function createRoom(): Promise<void> {
   bindMenuNav(panel, showMultiplayerMenu);
   if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void createRoom(); }))) return;
   try {
-    const session = await (await loadNet()).MultiplayerSession.createRoom(readUrlRunOptions());
+    const session = await (await loadNet()).MultiplayerSession.createRoom({ ...readUrlRunOptions(), bot: new URLSearchParams(location.search).get('bot') === '1' });
     showLobby(session);
   } catch (error) {
     status.textContent = errorMessage(error);
