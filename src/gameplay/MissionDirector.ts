@@ -40,6 +40,22 @@ const FRESH_STATE: MissionNetworkState = {
 };
 
 /** Drives the complete Prototype Theft loop without owning flight, tether or grab mechanics. */
+/** Night Shift jobs: floor 2+ reads as a new job (kicker + objective titles), floor 1 keeps the classic heist. */
+interface FloorJob { kicker: string; infiltrate: string; hack: string; steal: string; escape: string }
+const CLASSIC_JOB: FloorJob = {
+  kicker: 'Prototype theft', infiltrate: 'Sneak in under reception', hack: 'Crack the office consoles',
+  steal: 'Grab the prototype', escape: 'Get out through the west vent',
+};
+const NIGHT_JOBS: readonly FloorJob[] = [
+  { kicker: 'Night job · Server swap', infiltrate: 'Slip past the night desk', hack: 'Spoof the badge readers', steal: 'Lift the server core', escape: 'Haul it out the west vent' },
+  { kicker: 'Night job · Board-room bug', infiltrate: 'Duck in behind the cleaners', hack: 'Hot-wire the key terminals', steal: 'Snatch the prototype drive', escape: 'Bail through the west vent' },
+  { kicker: 'Night job · Lab breach', infiltrate: 'Ghost through reception', hack: 'Override the lab locks', steal: 'Pinch the robot brain', escape: 'Scram out the west vent' },
+];
+export function floorJob(floor: number | null | undefined): FloorJob {
+  const f = Math.max(1, (floor ?? 1) | 0);
+  return f <= 1 ? CLASSIC_JOB : NIGHT_JOBS[(f - 2) % NIGHT_JOBS.length];
+}
+
 export class MissionDirector {
   private state: MissionNetworkState = { ...FRESH_STATE };
   private readonly multiplayer: MultiplayerSession | null;
@@ -102,6 +118,7 @@ export class MissionDirector {
   private floorScored = false;
   private lastNightShiftSummary?: NightShiftSummary;
   private objectiveCollapseTimer: number | null = null;
+  private objectiveKicker: HTMLElement | null = null;
   private objectiveTextKey = '';
   private rematchPartnerLeft = false;
 
@@ -174,7 +191,8 @@ export class MissionDirector {
       objective.className = 'mission-objective';
       objective.dataset.testid = 'mission-objective';
       const kicker = document.createElement('span');
-      kicker.textContent = 'Prototype theft';
+      kicker.textContent = CLASSIC_JOB.kicker;
+      this.objectiveKicker = kicker;
       this.statusBadge = document.createElement('p');
       this.statusBadge.className = 'mission-status-badge';
       this.statusBadge.dataset.testid = 'mission-status-badge';
@@ -287,6 +305,7 @@ export class MissionDirector {
     } else {
       this.objective = null;
       this.objectiveTitle = null;
+      this.objectiveKicker = null;
       this.objectiveDetail = null;
       this.detectionFill = null;
       this.detectionMeter = null;
@@ -591,13 +610,15 @@ export class MissionDirector {
   private renderObjective(hackCount: number): void {
     if (!this.objectiveTitle || !this.objectiveDetail || !this.detectionFill) return;
     const warm = this.state.stage === 'infiltrate' ? this.warmup() : null;
+    const job = floorJob(this.runLayout?.floor);
+    if (this.objectiveKicker && this.objectiveKicker.textContent !== job.kicker) this.objectiveKicker.textContent = job.kicker;
     const [title, detail] = this.state.stage === 'infiltrate'
-      ? warm ? ['Warm up on the apron', ''] : ['Sneak in under reception', this.routeHint]
+      ? warm ? ['Warm up on the apron', ''] : [job.infiltrate, this.routeHint]
       : this.state.stage === 'hack-security'
-        ? ['Crack the office consoles', `${hackCount} / 3 access keys · ${this.routeHint}`]
+        ? [job.hack, `${hackCount} / 3 access keys · ${this.routeHint}`]
         : this.state.stage === 'steal-prototype'
           ? [
-              'Grab the prototype',
+              job.steal,
               'The vault is open. Rise to the display cradle; ' +
                 byInput({
                   keyboard: '[E] to carry the core.',
@@ -607,7 +628,7 @@ export class MissionDirector {
             ]
           : this.state.stage === 'escape'
             ? [
-                'Get out through the west vent',
+                job.escape,
                 'Main shutter sealed! West relief vent is open. Heavy Lab Crate is jamming the relief vent - haul it clear together. Follow green floor lights; throw loose objects at patrols. Both drones must reach Pickup / 01.',
               ]
             : ['Prototype secured', 'Extraction complete'];
@@ -644,8 +665,9 @@ export class MissionDirector {
     this.renderObjectiveBadge();
   }
 
+  /** Every layout collapses the card to a pill (desktop too) so the scene stays clear. */
   private compactObjective(): boolean {
-    return isTouchPlayDevice() || window.matchMedia('(max-width: 900px), (max-height: 500px)').matches;
+    return true;
   }
 
   private expandObjective(): void {
@@ -657,7 +679,7 @@ export class MissionDirector {
       this.objectiveCollapseTimer = null;
       this.objective?.classList.add('mission-objective--collapsed');
       if (this.objective) this.objective.dataset.collapsed = '1';
-    }, 4000);
+    }, isTouchPlayDevice() ? 4000 : 5000);
   }
 
   /** Colourblind-safe shape + text for alarm / security (amber = security only). */
@@ -715,7 +737,7 @@ export class MissionDirector {
     const kicker = document.createElement('small');
     kicker.className = 'floor-card__kicker';
     kicker.style.display = 'block';
-    kicker.textContent = `Floor ${floor}`;
+    kicker.textContent = floor > 1 ? `Floor ${floor} · ${floorJob(floor).kicker.replace('Night job · ', '')}` : `Floor ${floor}`;
 
     const title = document.createElement('h3');
     title.textContent = twist.label;
@@ -726,7 +748,7 @@ export class MissionDirector {
 
     const score = document.createElement('p');
     score.className = 'floor-card__score';
-    score.textContent = `Score ${total} · streak x${multiplier}`;
+    score.textContent = `Score ${total.toLocaleString('en-US')} · streak x${multiplier}`;
 
     card.append(kicker, title, flavor, score);
 

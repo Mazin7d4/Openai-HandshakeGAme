@@ -15,7 +15,7 @@ import type { RunLayout } from '../../seed/index.ts';
 import { mixSeed, mulberry32 } from '../../seed/index.ts';
 import kitManifest from './kit-manifest.json';
 import { DRESSING } from './dressingTable.ts';
-import { applyTwistMood } from './TwistMood.ts';
+import { applyFloorTint, applyTwistMood } from './TwistMood.ts';
 import { getQuality } from '../../scene/createScene.ts';
 
 export interface KitDressingHandle {
@@ -499,6 +499,7 @@ export async function dressRunLayout(scene: Scene, layout: RunLayout): Promise<K
 
   // Apply twist mood
   const twistMood = applyTwistMood(scene, layout.twist.id);
+  const floorTint = applyFloorTint(scene, layout.floor);
 
   const handle: KitDressingHandle = {
     drawCalls,
@@ -506,6 +507,7 @@ export async function dressRunLayout(scene: Scene, layout: RunLayout): Promise<K
     skipped,
     dispose() {
       twistMood.dispose();
+      floorTint.dispose();
       for (const mesh of activePartMeshes) {
         mesh.thinInstanceSetBuffer('matrix', null);
         mesh.thinInstanceCount = 0;
