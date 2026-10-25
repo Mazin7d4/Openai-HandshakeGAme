@@ -1,6 +1,7 @@
 import { Room, Server, WebSocketTransport, matchMaker } from 'colyseus';
 import { schema, t } from '@colyseus/schema';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import layout from '../src/level/heist-layout.json' with { type: 'json' };
 import { Security, createSecurityState, SecuritySim } from './security.mjs';
 import { canPass, facingYaw } from './passRules.mjs';
@@ -14,6 +15,7 @@ import {
 } from '../shared/run.ts';
 import { applyRunLayout, generateRun } from '../shared/seed/index.mjs';
 import { scoreFloorPure, dropFloorsFrom } from '../shared/nightShiftScore.mjs';
+import { isProfane, LeaderboardStore, RateLimiter, sanitizeName, validateRun } from './leaderboard.mjs';
 import { installLifecycleLogging, logListenError } from './lifecycle.mjs';
 import {
   acquireQuickMatchSeat,
@@ -38,6 +40,18 @@ const EMPTY_ROOM_SECONDS = Number.parseInt(process.env.EMPTY_ROOM_SECONDS ?? '60
 const LONELY_ROOM_SECONDS = Number.parseInt(process.env.LONELY_ROOM_SECONDS ?? '900', 10);
 // Seat hold after an unexpected drop. Tests may shorten via RECONNECT_SECONDS.
 const RECONNECT_SECONDS = Number.parseInt(process.env.RECONNECT_SECONDS ?? '30', 10);
+const LEADERBOARD_FILE = process.env.LEADERBOARD_FILE === 'off'
+  ? ''
+  : (process.env.LEADERBOARD_FILE ?? fileURLToPath(new URL('../data/leaderboard.json', import.meta.url)));
+const LEADERBOARD_IP_LIMIT = Number.parseInt(process.env.LEADERBOARD_IP_LIMIT ?? '12', 10);
+const LEADERBOARD_MIN_DAILY_SECONDS = Number.parseFloat(process.env.LEADERBOARD_MIN_DAILY_SECONDS ?? '30');
+const LEADERBOARD_MIN_FLOOR_SECONDS = Number.parseFloat(process.env.LEADERBOARD_MIN_FLOOR_SECONDS ?? '20');
+const LEADERBOARD_ACCEPT_DEBUG = TEST_HOOKS && process.env.LEADERBOARD_ACCEPT_DEBUG === '1';
+const leaderboardStore = new LeaderboardStore({ file: LEADERBOARD_FILE });
+leaderboardStore.load();
+const leaderboardIpLimiter = new RateLimiter({ limit: Number.isFinite(LEADERBOARD_IP_LIMIT) ? LEADERBOARD_IP_LIMIT : 12, windowMs: 60 * 60 * 1000 });
+const leaderboardHttpLimiter = new RateLimiter({ limit: 120, windowMs: 60 * 1000 });
+process.on('exit', () => leaderboardStore.flushSync());
 
 // --- CORS allow-list -----------------------------------------------------------
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
@@ -289,11 +303,16 @@ class HandshakeRoom extends Room {
   quickMatch = false;
   qmKey = '';
   quickMatchAllowed = true;
+  runSerial = 0;
+  runStartSeed = 0;
+  runTainted = false;
+  leaderboardRecordedSerial = 0;
+  leaderboardEntry = null;
+  leaderboardDecisionSerial = 0;
 
   static async onAuth(token, options = {}, context) {
-    if (options.quickMatch !== true) return true;
     const ip = clientIp(context);
-    checkQuickMatchLimit(ip);
+    if (options.quickMatch === true) checkQuickMatchLimit(ip);
     return { ip };
   }
 
@@ -365,6 +384,9 @@ class HandshakeRoom extends Room {
       this.addBotSeat(human.role === 'pix' ? 'nee' : 'pix', human.position);
       console.log(`[quickmatch] room ${this.roomId} key=${this.qmKey} bot`);
     });
+    this.onMessage('leaderboard-name', (client, message) => this.handleLeaderboardName(client, message));
+    // Scores are server-observed only; a client-posted score is dropped without disconnecting the sender.
+    this.onMessage('leaderboard-submit', () => {});
     this.onMessage('run-next-floor', (_client, message) => {
       const run = this.state.run;
       if (run.mode !== 'nightshift' || run.ended || !run.floorCleared || message?.floor !== run.floor) return;
@@ -383,9 +405,11 @@ class HandshakeRoom extends Room {
       console.log('[handshake] TEST HOOKS enabled');
       this._testPatrolFrozen = false;
       this.onMessage('debug-patrol-freeze', (_client, m) => {
+        this.runTainted = true;
         this._testPatrolFrozen = m?.frozen !== false;
       });
       this.onMessage('debug-clear-stuns', () => {
+        this.runTainted = true;
         for (const p of this.securitySim.patrol) {
           p.stunnedFor = 0;
           p.dazedFor = 0;
@@ -395,6 +419,7 @@ class HandshakeRoom extends Room {
         }
       });
       this.onMessage('debug-stage', (_client, m) => {
+        this.runTainted = true;
         if (m?.stage === 'escape') {
           this.state.mission.stage = 'escape';
           this.state.mission.alarm = true;
@@ -404,12 +429,20 @@ class HandshakeRoom extends Room {
         }
       });
       this.onMessage('debug-run-escape', () => {
+        this.runTainted = true;
         this.clearFloor();
         this.handleEscape();
       });
-      this.onMessage('debug-run-clear', (_client, message) => this.debugRunClear(message));
-      this.onMessage('debug-run-capture', (client) => this.handleCapture(client.sessionId));
+      this.onMessage('debug-run-clear', (_client, message) => {
+        this.runTainted = true;
+        this.debugRunClear(message);
+      });
+      this.onMessage('debug-run-capture', (client) => {
+        this.runTainted = true;
+        this.handleCapture(client.sessionId);
+      });
       this.onMessage('debug-force-capture', (client, m) => {
+        this.runTainted = true;
         for (const p of this.securitySim.patrol) {
           p.stunnedFor = 0;
           p.dazedFor = 0;
@@ -419,8 +452,12 @@ class HandshakeRoom extends Room {
         }
         this.debugForceCapture(client, m);
       });
-      this.onMessage('debug-force-release', (client, m) => this.debugForceRelease(client, m));
+      this.onMessage('debug-force-release', (client, m) => {
+        this.runTainted = true;
+        this.debugForceRelease(client, m);
+      });
       this.onMessage('debug-object-place', (_client, m) => {
+        this.runTainted = true;
         const object = this.state.objects.get(m?.objectId);
         if (!object || object.mode !== 'free') return;
         copyVec3(object.position, m, MAX_WORLD_COORDINATE, 'object.position');
@@ -428,6 +465,7 @@ class HandshakeRoom extends Room {
         object.revision += 1;
       });
       this.onMessage('debug-bot-seat', (_client, message) => {
+        this.runTainted = true;
         this.botEnabled = message?.enable === true;
         this.setMetadata({ code: this.roomId, bot: this.botEnabled });
         const human = [...this.state.players.values()].find((player) => !player.bot && player.connected);
@@ -530,6 +568,12 @@ class HandshakeRoom extends Room {
     run.floorCleared = false;
     run.rematches = 0;
     run.floorTimes.clear();
+    this.runSerial += 1;
+    this.runStartSeed = run.seed;
+    this.runTainted = false;
+    this.leaderboardRecordedSerial = 0;
+    this.leaderboardEntry = null;
+    this.leaderboardDecisionSerial = 0;
     this.nsFloors = {};
     this.nsTwangs.clear();
     this.nsEndedBroadcast = false;
@@ -704,6 +748,7 @@ class HandshakeRoom extends Room {
       run.ended = true;
       this.clearRematchVotes();
       this.state.mission.securityActive = false;
+      this.recordLeaderboard('captures');
       if (!this.nsEndedBroadcast) {
         this.nsEndedBroadcast = true;
         this.broadcast('run-ended', {
@@ -741,6 +786,102 @@ class HandshakeRoom extends Room {
     mission.securityActive = false;
     this.clearRematchVotes();
     this.clearFloor();
+    if (this.state.run.mode === 'daily') this.recordLeaderboard('debug-run-clear');
+  }
+
+  leaderboardBoardsPayload(boards, ranks = {}) {
+    return boards.map((key) => ({ key, rank: ranks[key] ?? null, entries: leaderboardStore.top(key) }));
+  }
+
+  recordLeaderboard(reason = 'run-end') {
+    const run = this.state.run;
+    if (this.leaderboardRecordedSerial === this.runSerial || this.leaderboardDecisionSerial === this.runSerial) return;
+    const now = Date.now();
+    const players = Array.from(this.state.players.values());
+    const humans = players.filter((player) => player.bot !== true);
+    const validation = validateRun({
+      mode: run.mode,
+      seed: this.runStartSeed,
+      missionStartedAt: this.missionStartedAt,
+      runStartedAt: run.startedAt,
+      now,
+      elapsedSeconds: finite(this.state.mission.elapsedSeconds, 0),
+      timesSpotted: finite(this.state.mission.timesSpotted, 0),
+      lootDelivered: players.reduce((sum, player) => sum + (Number(player.lootDelivered) || 0), 0),
+      floorsCleared: Object.keys(this.nsFloors).length,
+      score: Number(run.score),
+      captures: Number(run.captures),
+      maxCaptures: Number(run.maxCaptures),
+      humans: humans.length,
+      bots: players.filter((player) => player.bot === true).length,
+      tainted: this.runTainted,
+    }, {
+      minDailySeconds: LEADERBOARD_MIN_DAILY_SECONDS,
+      minFloorSeconds: LEADERBOARD_MIN_FLOOR_SECONDS,
+      acceptTainted: LEADERBOARD_ACCEPT_DEBUG,
+    });
+    if (!validation.ok) {
+      this.leaderboardDecisionSerial = this.runSerial;
+      this.broadcast('leaderboard-skipped', { reason: validation.reason });
+      if (this.leaderboardDecisionSerial === this.runSerial) {
+        console.log(`[handshake] room ${this.roomId} leaderboard skip ${validation.reason}`);
+      }
+      return;
+    }
+    const ips = [...new Set(humans.map((human) => {
+      const client = this.clients.find((candidate) => candidate.sessionId === human.playerId);
+      return client?.auth?.ip ?? 'unknown';
+    }))];
+    if (ips.some((ip) => !leaderboardIpLimiter.canHit(ip))) {
+      this.leaderboardDecisionSerial = this.runSerial;
+      this.broadcast('leaderboard-skipped', { reason: 'rate-limit' });
+      console.log(`[handshake] room ${this.roomId} leaderboard skip rate-limit`);
+      return;
+    }
+    for (const ip of ips) leaderboardIpLimiter.hit(ip);
+    const entryBase = {
+      names: { pix: 'PIX', nee: 'NEE' },
+      team: '',
+      score: Number(run.score),
+      timeSeconds: finite(this.state.mission.elapsedSeconds, 0),
+      floors: Object.keys(this.nsFloors).length,
+      spotted: finite(this.state.mission.timesSpotted, 0),
+      recordedAt: now,
+      seed: this.runStartSeed,
+    };
+    const added = leaderboardStore.add(validation.boards, entryBase);
+    this.leaderboardRecordedSerial = this.runSerial;
+    this.leaderboardDecisionSerial = this.runSerial;
+    this.leaderboardEntry = { id: added.id, serial: this.runSerial, boards: validation.boards, nameEdits: new Map(), lastEditAt: 0 };
+    this.broadcast('leaderboard-recorded', { id: added.id, boards: this.leaderboardBoardsPayload(validation.boards, added.ranks) });
+  }
+
+  handleLeaderboardName(client, message) {
+    const player = this.state.players.get(client.sessionId);
+    const entry = this.leaderboardEntry;
+    if (!player || player.bot === true || player.connected !== true || !entry || entry.serial !== this.runSerial) return;
+    const name = sanitizeName(message?.name);
+    if (!name) {
+      client.send('leaderboard-name-result', { ok: false, reason: 'empty' });
+      return;
+    }
+    if (isProfane(name)) {
+      client.send('leaderboard-name-result', { ok: false, reason: 'profanity' });
+      return;
+    }
+    const now = Date.now();
+    const edits = entry.nameEdits.get(client.sessionId) ?? 0;
+    if (edits >= 5 || now - entry.lastEditAt < 1000) {
+      client.send('leaderboard-name-result', { ok: false, reason: 'rate-limit' });
+      return;
+    }
+    const team = message?.team === true;
+    if (!leaderboardStore.rename(entry.id, player.role, name, { team })) return;
+    entry.nameEdits.set(client.sessionId, edits + 1);
+    entry.lastEditAt = now;
+    client.send('leaderboard-name-result', { ok: true, name });
+    const ranks = Object.fromEntries(entry.boards.map((board) => [board, leaderboardStore.top(board, 50).findIndex((candidate) => candidate.id === entry.id) + 1 || null]));
+    this.broadcast('leaderboard-recorded', { id: entry.id, boards: this.leaderboardBoardsPayload(entry.boards, ranks) });
   }
 
   addBotSeat(role, position) {
@@ -1182,6 +1323,8 @@ class HandshakeRoom extends Room {
         mission.securityActive = false;
         if (this.state.run.mode === 'nightshift') {
           this.clearFloor();
+        } else if (this.state.run.mode === 'daily') {
+          this.recordLeaderboard('mission-complete');
         }
       }
     }
@@ -1691,12 +1834,45 @@ httpServer.on('request', (req, res) => {
       quickMatchWaiting: [...liveRooms].filter((room) => room.quickMatch && !room.locked &&
         [...room.state.players.values()].filter((player) => !player.bot && player.connected).length === 1).length,
       version: pkg.version || 'dev',
+      leaderboard: true,
     });
     res.writeHead(200, {
       'Content-Type': 'application/json',
       ...corsHeaders(req),
     });
     res.end(body);
+    return;
+  }
+  if (path === '/leaderboard') {
+    const headers = { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, headers);
+      res.end();
+      return;
+    }
+    if (req.method !== 'GET') {
+      res.writeHead(405, { ...headers, Allow: 'GET, OPTIONS' });
+      res.end();
+      return;
+    }
+    const ip = clientIp({ headers: req.headers, req });
+    if (!leaderboardHttpLimiter.hit(ip)) {
+      res.writeHead(429, { ...headers, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'rate-limit' }));
+      return;
+    }
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+    const board = url.searchParams.get('board');
+    if (board !== null && !/^(daily:\d{4}-\d{2}-\d{2}|nightshift:all|nightshift:week:\d{4}-W\d{2})$/.test(board)) {
+      res.writeHead(400, { ...headers, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'invalid-board' }));
+      return;
+    }
+    const body = board === null
+      ? leaderboardStore.boardsSummary()
+      : { key: board, entries: leaderboardStore.top(board) };
+    res.writeHead(200, { ...headers, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(body));
     return;
   }
   for (const listener of originalListeners) {
@@ -1711,4 +1887,5 @@ if (permissive) {
   console.log(`[handshake] CORS allow-list: ${ALLOWED_ORIGINS.join(', ')}`);
 }
 console.log(`[handshake] reconnect grace ${RECONNECT_SECONDS}s`);
+console.log(`[handshake] leaderboard file: ${LEADERBOARD_FILE || 'memory'}`);
 console.log(`[handshake] listening on port ${PORT}`);
