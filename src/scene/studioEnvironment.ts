@@ -1,4 +1,6 @@
-import { Constants, RawCubeTexture, type Scene } from '@babylonjs/core';
+import { Constants } from '@babylonjs/core/Engines/constants.js';
+import { RawCubeTexture } from '@babylonjs/core/Materials/Textures/rawCubeTexture.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 
 const SIZE = 32;
 

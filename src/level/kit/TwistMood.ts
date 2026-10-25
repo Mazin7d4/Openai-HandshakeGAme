@@ -1,11 +1,9 @@
-import {
-  Color3,
-  type GlowLayer,
-  type Light,
-  type Observer,
-  PBRMaterial,
-  type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import type { GlowLayer } from '@babylonjs/core/Layers/glowLayer.js';
+import type { Light } from '@babylonjs/core/Lights/light.js';
+import type { Observer } from '@babylonjs/core/Misc/observable.js';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { TwistId } from '../../seed/index.ts';
 
 export function applyTwistMood(scene: Scene, twist: TwistId | string): { dispose(): void } {
@@ -29,6 +27,14 @@ export function applyTwistMood(scene: Scene, twist: TwistId | string): { dispose
         fill.intensity *= 0.35;
         disposers.push(() => {
           fill.intensity = origFillIntensity;
+        });
+      }
+      const heroLights = scene.lights.filter((light) => light.name.startsWith('hero-'));
+      const originalHeroIntensities = heroLights.map((light) => ({ light, intensity: light.intensity }));
+      for (const item of originalHeroIntensities) item.light.intensity *= 0.35;
+      if (originalHeroIntensities.length > 0) {
+        disposers.push(() => {
+          for (const item of originalHeroIntensities) item.light.intensity = item.intensity;
         });
       }
       if (glow) {
