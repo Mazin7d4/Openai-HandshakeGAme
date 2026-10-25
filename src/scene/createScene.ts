@@ -120,7 +120,19 @@ export function createScene(engine: Engine): Scene {
       for (const mesh of pending.splice(0)) if (isGlowMesh(mesh)) layer.addIncludedOnlyMesh(mesh as Mesh);
     });
   }
-  qualityManagers.set(scene, new QualityManager(scene, { sun, shadows, glow }));
+  const qualityManager = new QualityManager(scene, { sun, shadows, glow });
+  qualityManagers.set(scene, qualityManager);
+  if (params.get('fps') === '1') {
+    let disposed = false;
+    let disposeOverlay = () => {};
+    scene.onDisposeObservable.addOnce(() => {
+      disposed = true;
+      disposeOverlay();
+    });
+    void import('../ui/FpsOverlay.ts').then(({ mountFpsOverlay }) => {
+      if (!disposed) disposeOverlay = mountFpsOverlay(() => qualityManager.status);
+    });
+  }
 
   // Shared soft daylight reflections on painted surfaces, glass, metal and drones.
   scene.environmentTexture = createStudioEnvironment(scene);
