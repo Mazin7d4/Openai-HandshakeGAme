@@ -202,6 +202,7 @@ function showMainMenu(): void {
     play,
     daily,
     menuButton('Play with a friend', 'multiplayer', showMultiplayerMenu),
+    menuButton('Leaderboards', 'leaderboards', showLeaderboards, 'btn--quiet'),
   );
   if (devMenuAllowed) {
     actions.append(menuButton('Dev local', 'dev-local', () => {
@@ -277,6 +278,31 @@ function showMultiplayerMenu(): void {
   );
   panel.append(actions);
   bindMenuNav(panel, showMainMenu, '[data-testid="create-room"]');
+}
+
+function showLeaderboards(): void {
+  let leaderboard: { dispose: () => void } | null = null;
+  const close = () => {
+    leaderboard?.dispose();
+    leaderboard = null;
+    showMainMenu();
+  };
+  const panel = menuPanel('Leaderboards', 'Global runs from the daily heist and Night Shift.');
+  const host = element('div', 'leaderboard-host');
+  const actions = element('div', 'menu-actions');
+  actions.append(menuButton('Back', 'back', close, 'btn--quiet'));
+  panel.append(host, actions);
+  bindMenuNav(panel, close, '[data-testid="back"]');
+  void import('./ui/LeaderboardPanel.ts').then(({ LeaderboardPanel }) => {
+    if (!root.contains(panel)) return;
+    leaderboard = new LeaderboardPanel(host);
+    bindMenuNav(panel, close, '[data-testid="lb-tab-daily"]');
+  }).catch(() => {
+    if (!root.contains(panel)) return;
+    const status = element('p', 'leaderboard-status', 'Leaderboard unavailable right now');
+    status.dataset.testid = 'lb-status';
+    host.append(status);
+  });
 }
 
 function quickMatchKey(): string {
