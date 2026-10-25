@@ -1,4 +1,7 @@
-import { PhysicsMotionType, Ray, Vector3, type Scene } from '@babylonjs/core';
+import { PhysicsMotionType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import { Ray } from '@babylonjs/core/Culling/ray.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { Drone } from '../player/Drone.ts';
 import type { DroneRole, ObjectEventMessage, RoomStatus } from '../network/NetworkTypes.ts';
 import type { MultiplayerSession } from '../network/MultiplayerSession.ts';

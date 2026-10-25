@@ -1,4 +1,7 @@
-import { PhysicsAggregate, PhysicsShapeType, type Mesh, type Scene } from '@babylonjs/core';
+import { PhysicsAggregate } from '@babylonjs/core/Physics/v2/physicsAggregate.js';
+import { PhysicsShapeType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 
 export function addStaticBody(
   mesh: Mesh,

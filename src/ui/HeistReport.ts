@@ -22,6 +22,8 @@ export interface HeistReportHandlers {
   onNextFloor?: () => void;
   /** Night Shift: restart with a fresh random seed. */
   onNewSeed?: () => void;
+  /** Re-watch the slow-mo escape replay (button shown only when footage exists). */
+  onReplay?: () => void;
   audio?: GameAudio | null;
 }
 
@@ -77,6 +79,8 @@ export class HeistReport {
   private readonly playerStatsEl: HTMLElement | null;
   private readonly nav = new MenuNavigator();
   private stats: RunStats | null = null;
+  private replayBtn: HTMLButtonElement | null = null;
+  private lastShow: [RunStats, NightShiftSummary | undefined, CoopReportState | undefined] | null = null;
   private gradeTimers: number[] = [];
   private readonly onKey = (event: KeyboardEvent) => this.handleKey(event);
   private readonly handlers: HeistReportHandlers;
@@ -183,6 +187,12 @@ export class HeistReport {
     save.addEventListener('click', () => void this.saveCard());
 
     if (this.playAgainBtn) actions.append(this.playAgainBtn);
+    if (handlers.onReplay) {
+      this.replayBtn = button('Watch replay', 'btn heist-report__replay', 'report-replay');
+      this.replayBtn.hidden = true;
+      this.replayBtn.addEventListener('click', () => handlers.onReplay?.());
+      actions.append(this.replayBtn);
+    }
     actions.append(challenge, save);
     if (handlers.onNewSeed) {
       const fresh = button('New seed', 'btn', 'new-seed');
@@ -214,7 +224,24 @@ export class HeistReport {
   private currentCoopState: CoopReportState | null = null;
   private statsKey = '';
 
+  /** Show or hide the "Watch replay" button (only when the replay has footage). */
+  setReplayAvailable(available: boolean): void {
+    if (this.replayBtn) this.replayBtn.hidden = !available;
+  }
+
+  /** Hide for the replay; resume() brings the same report back. */
+  suspend(): void {
+    this.hide();
+  }
+
+  resume(): void {
+    if (!this.lastShow) return;
+    const [stats, nightShift, coop] = this.lastShow;
+    this.show(stats, nightShift, this.currentCoopState ?? coop);
+  }
+
   show(stats: RunStats, nightShift?: NightShiftSummary, coop?: CoopReportState): void {
+    this.lastShow = [stats, nightShift, coop];
     this.stats = stats;
     if (coop) this.currentCoopState = coop;
     this.clearGradeTimers();

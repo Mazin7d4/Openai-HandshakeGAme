@@ -1,13 +1,11 @@
-import {
-  Color3,
-  CreateGround,
-  FreeCamera,
-  PBRMaterial,
-  TransformNode,
-  Vector3,
-  type Engine,
-  type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder.js';
+import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera.js';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Engine } from '@babylonjs/core/Engines/engine.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import { AssetLoader } from '../assets/AssetLoader.ts';
 import { createEngine, createScene } from '../scene/createScene.ts';
 import { effectiveReducedMotion, getSettings } from './Settings.ts';

@@ -1,8 +1,11 @@
 import { cordState } from '../gameplay/Tether.ts';
-import { Vector3, type Engine, type Scene } from '@babylonjs/core';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Engine } from '@babylonjs/core/Engines/engine.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import { AssetLoader } from '../assets/AssetLoader.ts';
 import { audio as audioHub } from '../audio/AudioManager.ts';
 import { CinematicCamera } from '../camera/CinematicCamera.ts';
+import { escapeReplay } from '../fx/EscapeReplay.ts';
 import { BotControlSource } from '../control/BotControlSource.ts';
 import type { DroneControlSource } from '../control/DroneControlSource.ts';
 import { HumanControlSource } from '../control/HumanControlSource.ts';
@@ -181,6 +184,15 @@ export class GameApp {
       hudParent.classList.add('touch-play');
       this.bindTouchControls(hudParent);
     }
+    escapeReplay.attach({
+      scene,
+      camera: cameraRig.camera,
+      drones: this.drones,
+      props: gameplay.replayProps,
+      redrawTether: () => this.tether.updateVisual(),
+      onRestored: () => this.cameraRig.snap(this.drones),
+      uiParent: hudParent ?? cameraRig.camera.getEngine().getRenderingCanvas()?.parentElement ?? document.body,
+    });
     this.juice = new Juice(scene);
     const audio = gameplay.sfx;
     if (multiplayer) {
@@ -583,6 +595,9 @@ export class GameApp {
       debugClearStuns: () => this.multiplayer?.debugClearStuns(),
       /** Capture snapshot from synced room state. */
       captures: () => this.gameplay.debugSecurity().captures ?? {},
+      /** Escape replay state for qa (starts, skips, leads to the report). */
+      escapeReplay: () => ({ active: escapeReplay.active, hasFootage: escapeReplay.hasFootage }),
+      skipEscapeReplay: () => escapeReplay.skip(),
     });
     if (this.autopilot) {
       const test = (window as unknown as { __autotest?: Record<string, unknown> }).__autotest ?? {};
@@ -614,6 +629,7 @@ export class GameApp {
   dispose(): void {
     this.disposed = true;
     this.engine.stopRenderLoop();
+    escapeReplay.detach();
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('keydown', this.onKeyDown);
     for (const player of this.players) {
@@ -657,6 +673,13 @@ export class GameApp {
       return;
     }
     const realDt = Math.min(this.engine.getDeltaTime() / 1000, 0.05);
+    if (escapeReplay.active) {
+      // Slow-mo escape replay owns the frame: no simulation, just replayed transforms + render.
+      escapeReplay.update(realDt);
+      this.scene.render();
+      this.updateAudio();
+      return;
+    }
     this.slowMo = Math.max(0, this.slowMo - realDt);
     this.hitStop = Math.max(0, this.hitStop - realDt);
     this.timeScale = this.hitStop > 0 ? 0.05 : (this.slowMo > 0 ? 0.3 : 1);
@@ -736,6 +759,7 @@ export class GameApp {
       drone.postPhysics(dt);
       this.snapshots.push(drone.captureSnapshot());
     }
+    escapeReplay.record();
     if (this.multiplayer) {
       // Server owns captured poses — re-snap after physics so the hold doesn't drift.
       for (const player of this.players) {

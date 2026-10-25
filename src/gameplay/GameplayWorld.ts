@@ -1,5 +1,9 @@
+import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import { CordPlayground } from '../level/CordPlayground.ts';
-import { Color3, Vector3, type HavokPlugin, type Scene } from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import { GameAudio } from '../audio/GameAudio.ts';
 import type { GameMode } from '../app/GameMode.ts';
 import type { InteractionActions } from '../input/InteractionActions.ts';
@@ -263,6 +267,8 @@ export class GameplayWorld {
 
   /** Shared synthesized SFX bank (one AudioContext). */
   get sfx(): GameAudio { return this.audio; }
+  /** Grabbable meshes (loot, crates, desk toys) for the escape replay recorder. */
+  get replayProps(): readonly Mesh[] { return this.objects.map((object) => object.mesh); }
 
   recordTetherSave(): void { this.mission.recordTetherSave(); }
 

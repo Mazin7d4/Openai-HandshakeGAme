@@ -1,4 +1,7 @@
-import { DynamicTexture, Texture, type Color3, type Scene } from '@babylonjs/core';
+import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
+import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
+import type { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 
 export type Expression =
   | 'neutral' | 'happy' | 'focused' | 'strained' | 'shocked' | 'stunned'

@@ -1,15 +1,13 @@
-import {
-  Color3,
-  CreateCylinder,
-  CreateSphere,
-  Mesh,
-  PBRMaterial,
-  TransformNode,
-  Vector3,
-  type AbstractMesh,
-  type Node,
-  type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.js';
+import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import type { Node } from '@babylonjs/core/node.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { LoadedModel } from '../assets/AssetLoader.ts';
 import { DroneFace, type Expression, type EmoteFace } from './DroneFace.ts';
 import { FLIGHT_TUNING } from './FlightTuning.ts';

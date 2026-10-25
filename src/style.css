@@ -254,7 +254,8 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 .mission-objective--collapsed { pointer-events: auto; cursor: pointer; z-index: 12; }
 .mission-objective--collapsed::before { display: none; }
 .mission-objective--collapsed > span, .mission-objective--collapsed .mission-status-badge,
-.mission-objective--collapsed .mission-objective p, .mission-objective--collapsed .detection-meter { display: none; }
+.mission-objective--collapsed > p, .mission-objective--collapsed .detection-meter, .mission-objective--collapsed .warmup-step { display: none !important; }
+.mission-objective--collapsed { width: auto !important; max-width: min(35vw, 380px); height: 36px; min-height: 36px; box-sizing: border-box; padding: 9px 14px; overflow: hidden; }
 .mission-objective--collapsed h2 { overflow: hidden; margin: 0; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; line-height: 1.2; }
 html[data-reduced-motion='1'] .mission-objective { transition: none; }
 /* the objective plaque hangs from the cord */
@@ -1149,3 +1150,54 @@ html[data-reduced-motion='1'] .wake-spinner { display: none; }
 }
 
 .touch-rotate-hint__dismiss { min-height: 48px; }
+
+/* Portrait phones: the collapsed objective pill may use more width for its one-line title. */
+@media (orientation: portrait) and (max-width: 480px) {
+  .mission-objective--collapsed { max-width: 70vw; }
+}
+
+/* Phones: the first-run coach is a small card in the top-left, clear of the drones at screen centre. */
+.touch-play .onboarding-coach {
+  top: calc(max(12px, env(safe-area-inset-top, 0px)) + 46px); bottom: auto !important;
+  left: max(12px, env(safe-area-inset-left, 0px)); right: auto; transform: none;
+  max-width: min(220px, 34vw); gap: 8px; padding: 6px 8px 6px 10px;
+}
+.touch-play .onboarding-coach__prompt { font-size: 14px; }
+.touch-play .onboarding-coach__touch-glyph { width: 22px; height: 22px; }
+.touch-play .onboarding-coach__skip { min-height: 48px; padding: 4px 8px; font-size: 14px; }
+/* Night Shift keeps its floor chips top-left, so the coach takes the top-right slot under the drone chip. */
+.touch-play:has(.run-hud) .onboarding-coach { left: auto; right: max(12px, env(safe-area-inset-right, 0px)); top: calc(max(12px, env(safe-area-inset-top, 0px)) + 60px); }
+@media (orientation: portrait) and (max-width: 480px) {
+  .touch-play .onboarding-coach { top: calc(max(12px, env(safe-area-inset-top, 0px)) + 140px); max-width: min(220px, 60vw); }
+}
+
+/* Night Shift chips stack under the room / seed label instead of on top of it. */
+.run-hud { top: calc(max(16px, env(safe-area-inset-top, 0px)) + 44px) !important; }
+.touch-play:not(:has(.touch-controls--left)) .run-hud { top: calc(max(12px, env(safe-area-inset-top, 0px)) + 44px) !important; }
+@media (max-height: 420px) {
+  .run-hud { gap: 3px; }
+  .run-hud .twist-chip, .run-hud .score-chip, .run-hud .floor-chip { font-size: 14px; padding: 3px 8px; }
+}
+
+/* Slow-mo escape replay: letterbox, REPLAY tag, HEIST COMPLETE stamp. Sits above the HUD, below nothing interactive. */
+.escape-replay { position: absolute; inset: 0; z-index: 60; pointer-events: auto; cursor: pointer; overflow: hidden; }
+.escape-replay__bar { position: absolute; left: 0; right: 0; height: 12%; background: #0b1112; transform: scaleY(0); animation: escape-replay-bar 380ms cubic-bezier(.2,.8,.2,1) forwards; }
+.escape-replay__bar--top { top: 0; transform-origin: top; }
+.escape-replay__bar--bottom { bottom: 0; transform-origin: bottom; }
+@keyframes escape-replay-bar { to { transform: scaleY(1); } }
+.escape-replay__tag { position: absolute; top: calc(12% + 12px); left: max(16px, env(safe-area-inset-left, 0px)); margin: 0; display: flex; align-items: center; gap: 8px; color: var(--paper); font: 700 14px/1 var(--font-title); letter-spacing: 0.18em; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+.escape-replay__rec { width: 10px; height: 10px; border-radius: 50%; background: var(--alarm); animation: escape-replay-rec 1s steps(2, start) infinite; }
+@keyframes escape-replay-rec { to { visibility: hidden; } }
+.escape-replay__skip { position: absolute; bottom: calc(12% + 10px); right: max(16px, env(safe-area-inset-right, 0px)); margin: 0; color: var(--paper); opacity: .8; font: 600 14px/1.2 var(--font-body, inherit); text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+.escape-replay__stamp { position: absolute; left: 50%; top: 72%; display: grid; justify-items: center; gap: 6px; padding: 12px 22px; border: 5px solid var(--exit); border-radius: 10px; background: rgba(11,17,18,.5); color: #9ee6b8; transform: translate(-50%, -50%) rotate(-8deg) scale(2.4); opacity: 0; pointer-events: none; text-shadow: 0 2px 10px rgba(0,0,0,.45); }
+.escape-replay__stamp strong { font: 900 clamp(24px, min(6vw, 9vh), 58px)/1 var(--font-title); font-stretch: 118%; letter-spacing: 0.08em; white-space: nowrap; }
+.escape-replay__stamp span { font: 700 clamp(13px, 2.4vw, 18px)/1 var(--font-title); letter-spacing: 0.2em; text-transform: uppercase; color: var(--paper); }
+.escape-replay--stamp .escape-replay__stamp { animation: escape-replay-stamp 260ms cubic-bezier(.3,1.6,.5,1) forwards; }
+@keyframes escape-replay-stamp { to { opacity: 1; transform: translate(-50%, -50%) rotate(-8deg) scale(1); } }
+.escape-replay--reduced .escape-replay__bar { animation: none; transform: none; }
+.escape-replay--reduced.escape-replay--stamp .escape-replay__stamp { animation: none; opacity: 1; transform: translate(-50%, -50%) rotate(-8deg); }
+.escape-replay--reduced .escape-replay__rec { animation: none; }
+@media (max-height: 420px) { .escape-replay__bar { height: 10%; } .escape-replay__tag { top: calc(10% + 8px); } .escape-replay__skip { bottom: calc(10% + 8px); } }
+.heist-report__replay[hidden] { display: none !important; }
+/* The replay is a clean cinematic: hide the play HUD while it runs. */
+body.escape-replay-on :is(.mission-objective, .onboarding-coach, .interaction-prompt, .active-drone-hud, .controls-card, .juice-toasts, .touch-controls, .network-hud, .run-hud, .floor-card, #dev-readout, #dev-controls) { visibility: hidden !important; }

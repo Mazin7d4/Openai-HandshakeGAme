@@ -1,4 +1,7 @@
-import { Color3, PointLight, Vector3, type Scene } from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { PointLight } from '@babylonjs/core/Lights/pointLight.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { GameMode } from '../app/GameMode.ts';
 import type { FloorClearedMessage, MultiplayerSession, RunEndedMessage } from '../network/MultiplayerSession.ts';
@@ -12,6 +15,7 @@ import type {
 import type { Drone } from '../player/Drone.ts';
 import { noteVaultCrack } from '../player/Cosmetics.ts';
 import { HeistReport, type CoopReportState } from '../ui/HeistReport.ts';
+import { escapeReplay } from '../fx/EscapeReplay.ts';
 import type { RunStats } from '../ui/heistAwards.ts';
 import type { GrabSystem } from './GrabSystem.ts';
 import type { HackSession } from './HackSession.ts';
@@ -41,6 +45,22 @@ const FRESH_STATE: MissionNetworkState = {
 };
 
 /** Drives the complete Prototype Theft loop without owning flight, tether or grab mechanics. */
+/** Night Shift jobs: floor 2+ reads as a new job (kicker + objective titles), floor 1 keeps the classic heist. */
+interface FloorJob { kicker: string; infiltrate: string; hack: string; steal: string; escape: string }
+const CLASSIC_JOB: FloorJob = {
+  kicker: 'Prototype theft', infiltrate: 'Sneak in under reception', hack: 'Crack the office consoles',
+  steal: 'Grab the prototype', escape: 'Get out through the west vent',
+};
+const NIGHT_JOBS: readonly FloorJob[] = [
+  { kicker: 'Night job · Server swap', infiltrate: 'Slip past the night desk', hack: 'Spoof the badge readers', steal: 'Lift the server core', escape: 'Haul it out the west vent' },
+  { kicker: 'Night job · Board-room bug', infiltrate: 'Duck in behind the cleaners', hack: 'Hot-wire the key terminals', steal: 'Snatch the prototype drive', escape: 'Bail through the west vent' },
+  { kicker: 'Night job · Lab breach', infiltrate: 'Ghost through reception', hack: 'Override the lab locks', steal: 'Pinch the robot brain', escape: 'Scram out the west vent' },
+];
+export function floorJob(floor: number | null | undefined): FloorJob {
+  const f = Math.max(1, (floor ?? 1) | 0);
+  return f <= 1 ? CLASSIC_JOB : NIGHT_JOBS[(f - 2) % NIGHT_JOBS.length];
+}
+
 export class MissionDirector {
   private state: MissionNetworkState = { ...FRESH_STATE };
   private readonly multiplayer: MultiplayerSession | null;
@@ -103,6 +123,7 @@ export class MissionDirector {
   private floorScored = false;
   private lastNightShiftSummary?: NightShiftSummary;
   private objectiveCollapseTimer: number | null = null;
+  private objectiveKicker: HTMLElement | null = null;
   private objectiveTextKey = '';
   private rematchPartnerLeft = false;
 
@@ -175,7 +196,8 @@ export class MissionDirector {
       objective.className = 'mission-objective';
       objective.dataset.testid = 'mission-objective';
       const kicker = document.createElement('span');
-      kicker.textContent = 'Prototype theft';
+      kicker.textContent = CLASSIC_JOB.kicker;
+      this.objectiveKicker = kicker;
       this.statusBadge = document.createElement('p');
       this.statusBadge.className = 'mission-status-badge';
       this.statusBadge.dataset.testid = 'mission-status-badge';
@@ -249,6 +271,7 @@ export class MissionDirector {
       this.report = new HeistReport(uiParent, {
         audio,
         onLeave,
+        onReplay: () => this.watchReplay(),
         onPlayAgain: () => {
           if (mode === 'night-shift' && this.runLayout) {
             restartNightShift({ seed: this.runLayout.seed, floor: this.runLayout.floor });
@@ -288,6 +311,7 @@ export class MissionDirector {
     } else {
       this.objective = null;
       this.objectiveTitle = null;
+      this.objectiveKicker = null;
       this.objectiveDetail = null;
       this.detectionFill = null;
       this.detectionMeter = null;
@@ -566,14 +590,20 @@ export class MissionDirector {
       this.audio.stopAlarm();
       this.audio.missionComplete();
       gameEvents.emit('heist', { beat: 'extract', position: this.extraction.clone() });
-      // Let the extraction confetti play before the results panel covers it.
+      escapeReplay.markEnd(400);
+      // Let the extraction confetti play, then the slow-mo escape replay, then the results panel.
       if (this.successTimer !== null) window.clearTimeout(this.successTimer);
       this.successTimer = window.setTimeout(() => {
         this.successTimer = null;
-        if (this.state.stage === 'complete') this.presentReport(this.snapshotStats('win'));
+        if (this.state.stage !== 'complete') return;
+        const stats = this.snapshotStats('win');
+        this.playReplayThen(() => {
+          if (this.state.stage === 'complete') this.presentReport(stats);
+        });
       }, 1200);
     } else if (this.state.stage !== 'complete') {
       this.completedPresented = false;
+      if (escapeReplay.active) escapeReplay.skip();
       this.report?.hide();
     }
   }
@@ -595,13 +625,15 @@ export class MissionDirector {
   private renderObjective(hackCount: number): void {
     if (!this.objectiveTitle || !this.objectiveDetail || !this.detectionFill) return;
     const warm = this.state.stage === 'infiltrate' ? this.warmup() : null;
+    const job = floorJob(this.runLayout?.floor);
+    if (this.objectiveKicker && this.objectiveKicker.textContent !== job.kicker) this.objectiveKicker.textContent = job.kicker;
     const [title, detail] = this.state.stage === 'infiltrate'
-      ? warm ? ['Warm up on the apron', ''] : ['Sneak in under reception', this.routeHint]
+      ? warm ? ['Warm up on the apron', ''] : [job.infiltrate, this.routeHint]
       : this.state.stage === 'hack-security'
-        ? ['Crack the office consoles', `${hackCount} / 3 access keys · ${this.routeHint}`]
+        ? [job.hack, `${hackCount} / 3 access keys · ${this.routeHint}`]
         : this.state.stage === 'steal-prototype'
           ? [
-              'Grab the prototype',
+              job.steal,
               'The vault is open. Rise to the display cradle; ' +
                 byInput({
                   keyboard: '[E] to carry the core.',
@@ -611,7 +643,7 @@ export class MissionDirector {
             ]
           : this.state.stage === 'escape'
             ? [
-                'Get out through the west vent',
+                job.escape,
                 'Main shutter sealed! West relief vent is open. Heavy Lab Crate is jamming the relief vent - haul it clear together. Follow green floor lights; throw loose objects at patrols. Both drones must reach Pickup / 01.',
               ]
             : ['Prototype secured', 'Extraction complete'];
@@ -648,8 +680,9 @@ export class MissionDirector {
     this.renderObjectiveBadge();
   }
 
+  /** Every layout collapses the card to a pill (desktop too) so the scene stays clear. */
   private compactObjective(): boolean {
-    return isTouchPlayDevice() || window.matchMedia('(max-width: 900px), (max-height: 500px)').matches;
+    return true;
   }
 
   private expandObjective(): void {
@@ -661,7 +694,7 @@ export class MissionDirector {
       this.objectiveCollapseTimer = null;
       this.objective?.classList.add('mission-objective--collapsed');
       if (this.objective) this.objective.dataset.collapsed = '1';
-    }, 4000);
+    }, isTouchPlayDevice() ? 4000 : 5000);
   }
 
   /** Colourblind-safe shape + text for alarm / security (amber = security only). */
@@ -719,7 +752,7 @@ export class MissionDirector {
     const kicker = document.createElement('small');
     kicker.className = 'floor-card__kicker';
     kicker.style.display = 'block';
-    kicker.textContent = `Floor ${floor}`;
+    kicker.textContent = floor > 1 ? `Floor ${floor} · ${floorJob(floor).kicker.replace('Night job · ', '')}` : `Floor ${floor}`;
 
     const title = document.createElement('h3');
     title.textContent = twist.label;
@@ -730,7 +763,7 @@ export class MissionDirector {
 
     const score = document.createElement('p');
     score.className = 'floor-card__score';
-    score.textContent = `Score ${total} · streak x${multiplier}`;
+    score.textContent = `Score ${total.toLocaleString('en-US')} · streak x${multiplier}`;
 
     card.append(kicker, title, flavor, score);
 
@@ -772,6 +805,7 @@ export class MissionDirector {
       this.audio.stopAlarm();
       this.audio.missionComplete();
       gameEvents.emit('heist', { beat: 'extract', position: this.extraction.clone() });
+      escapeReplay.markEnd(0);
     }
     const best = recordBest(message.floor, message.total);
     this.lastNightShiftSummary = {
@@ -783,7 +817,32 @@ export class MissionDirector {
       nextTwist: { label: nextTwist.label, flavor: twistFlavor(nextTwist.id) },
     };
     this.updateScoreHud();
-    this.presentReport(this.snapshotStats('win'), true);
+    const stats = this.snapshotStats('win');
+    this.playReplayThen(() => this.presentReport(stats, true));
+  }
+
+  /** Slow-mo escape replay before the report; falls straight through when there is no footage or reduced motion. */
+  private playReplayThen(show: () => void): void {
+    const reveal = () => {
+      this.report?.setReplayAvailable(escapeReplay.hasFootage);
+      show();
+    };
+    if (!escapeReplay.play({ onDone: reveal, subline: this.replaySubline() })) reveal();
+  }
+
+  /** Report "Watch replay": hide the report, replay, bring the same report back. */
+  private watchReplay(): void {
+    if (!this.report || escapeReplay.active) return;
+    this.report.suspend();
+    const played = escapeReplay.play({ manual: true, subline: this.replaySubline(), onDone: () => this.report?.resume() });
+    if (!played) this.report.resume();
+  }
+
+  private replaySubline(): string | undefined {
+    const nightShift = this.mode === 'night-shift' || this.isCoopNightShift();
+    if (!nightShift || !this.runLayout) return undefined;
+    const floor = this.multiplayer?.currentStatus.run.floor ?? this.runLayout.floor;
+    return `Floor ${Math.max(1, floor | 0)} cleared`;
   }
 
   /** Late join / reconnect: rebuild the shared report from server run state if the broadcast was missed. */
@@ -962,6 +1021,7 @@ export class MissionDirector {
   }
 
   private resetRunCounters(): void {
+    escapeReplay.reset();
     this.clotheslines = 0;
     this.cordTwangs = 0;
     this.nearMisses = 0;
