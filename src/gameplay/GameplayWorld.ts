@@ -258,6 +258,18 @@ export class GameplayWorld {
     return this.grab.heldObjectId(role);
   }
 
+  extractionPoint(): Vector3 {
+    return vec(this.runLayout?.extraction ?? layout.extraction);
+  }
+
+  patrolPositions(): Vector3[] {
+    return this.mission.activePatrolPositions().map((point) => vec(point));
+  }
+
+  releaseHeldFor(role: DroneRole): void {
+    this.grab.releaseHeld(role);
+  }
+
   describe(): string {
     return `${this.grab.describe()}\n${this.hack.describe()}\n${this.mission.describe()}`;
   }

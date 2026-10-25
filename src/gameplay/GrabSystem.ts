@@ -289,6 +289,10 @@ export class GrabSystem {
     return this.objects.find((object) => object.heldBy === role)?.id ?? null;
   }
 
+  releaseHeld(role: DroneRole): void {
+    this.drop(role, this.drones.get(role) ?? null);
+  }
+
   objectPosition(id: string): Vector3 | null {
     return this.objects.find((object) => object.id === id)?.position ?? null;
   }
@@ -401,10 +405,14 @@ export class GrabSystem {
     for (const object of this.objects) object.dispose();
   }
 
-  private drop(role: DroneRole, drone: Drone): void {
-    this.throwVelocity.copyFrom(drone.velocity);
+  private drop(role: DroneRole, drone: Drone | null): void {
     const held = this.objects.find((object) => object.heldBy === role);
     if (!held) return;
+    if (!drone) {
+      this.release(role, held, held.position.clone(), Vector3.Zero(), false);
+      return;
+    }
+    this.throwVelocity.copyFrom(drone.velocity);
     drone.getThrowDirection(this.aimDirection);
     this.placeForRelease(held, drone, this.aimDirection, false);
     this.release(role, held, this.releasePosition, this.throwVelocity, false);

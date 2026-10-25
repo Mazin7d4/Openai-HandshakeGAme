@@ -456,6 +456,11 @@ export class MissionDirector {
   }
 
   /** TEST-ONLY snapshot for two-client agreement checks. */
+  /** Switched-on patrol positions, for the solo AI partner's avoidance. */
+  activePatrolPositions(): { x: number; y: number; z: number }[] {
+    return this.security.activePatrolPositions();
+  }
+
   debugSecurity() {
     const captures: Record<string, {
       captured: boolean;
