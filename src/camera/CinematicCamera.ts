@@ -1,4 +1,8 @@
-import { FreeCamera, Ray, Vector3, type AbstractMesh, type Scene } from '@babylonjs/core';
+import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera.js';
+import { Ray } from '@babylonjs/core/Culling/ray.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import {
   getCameraTouchSettings,
   subscribeCameraTouchSettings,
@@ -351,7 +355,8 @@ export class CinematicCamera {
           const delta = point.subtract(this.camera.position);
           const length = delta.length();
           const ray = new Ray(this.camera.position, delta.normalize(), Math.max(0, length - 0.5));
-          if (ray.intersectsMesh(mesh, false).hit) { obscures = true; break; }
+          // fastCheck: any triangle hit is enough to fade the occluder (no closest-hit sort).
+          if (ray.intersectsMesh(mesh, true).hit) { obscures = true; break; }
         }
       }
       mesh.visibility = smooth(mesh.visibility, obscures ? 0.10 : 1, obscures ? 12 : 5, dt);

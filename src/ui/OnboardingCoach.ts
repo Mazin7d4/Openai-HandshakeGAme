@@ -4,6 +4,8 @@ import { controlIcon, keycaps } from './ControlGlyphs.ts';
 import { isTouchPlayDevice } from './touchDetect.ts';
 
 const STORAGE_KEY = 'handshake.onboardingDone';
+/** A hint the player has not acted on moves on by itself so the coach never sticks. */
+const STEP_TIMEOUT_MS = 9000;
 
 export type OnboardingMode = 'singleplayer' | 'dev-local' | 'multiplayer';
 
@@ -108,6 +110,8 @@ export class OnboardingCoach {
   private active = false;
   private finishing = false;
   private finishTimer = 0;
+  /** When the current step appeared; a step the player ignores moves on after STEP_TIMEOUT_MS. */
+  private stepShownAt = 0;
   private readonly onSkipClick = () => this.skip();
 
   constructor(parent: HTMLElement, mode: OnboardingMode) {
@@ -167,7 +171,7 @@ export class OnboardingCoach {
       this.complete();
       return;
     }
-    if (step.done(axes, actions)) this.advance();
+    if (step.done(axes, actions) || performance.now() - this.stepShownAt > STEP_TIMEOUT_MS) this.advance();
   }
 
   dispose(): void {
@@ -206,6 +210,7 @@ export class OnboardingCoach {
   private renderStep(): void {
     const step = this.steps[this.index];
     if (!step) return;
+    this.stepShownAt = performance.now();
     this.promptEl.textContent = step.prompt;
     this.glyphSlot.replaceChildren();
     if (this.touch) {
