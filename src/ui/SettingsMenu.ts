@@ -17,8 +17,9 @@ import {
   type UiScale,
 } from './Settings.ts';
 import { isTouchPlayDevice } from './touchDetect.ts';
+import { COSMETICS, cosmeticRoleHint, getCosmetics, getSelectedCosmetics, selectCosmetic, type CosmeticDefinition } from '../player/Cosmetics.ts';
 
-export type SettingsTab = 'audio' | 'visuals' | 'accessibility' | 'controls';
+export type SettingsTab = 'audio' | 'visuals' | 'accessibility' | 'controls' | 'cosmetics';
 
 export interface SettingsMenuOptions {
   /** Called when the user closes the menu (Back / Escape). */
@@ -38,6 +39,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'visuals', label: 'View' },
   { id: 'accessibility', label: 'Assist' },
   { id: 'controls', label: 'Keys' },
+  { id: 'cosmetics', label: 'Looks' },
 ];
 
 const CONTROL_ROWS: readonly (readonly [string, string])[] = [
@@ -220,6 +222,9 @@ export class SettingsMenu {
         break;
       case 'controls':
         this.renderControls();
+        break;
+      case 'cosmetics':
+        this.renderCosmetics();
         break;
     }
   }
@@ -427,6 +432,54 @@ export class SettingsMenu {
     note.className = 'panel__body settings-hint';
     note.textContent = 'Keymap is read-only in this build.';
     this.body.append(note);
+  }
+
+  private renderCosmetics(): void {
+    const state = getCosmetics();
+    const selected = getSelectedCosmetics();
+    const intro = document.createElement('p');
+    intro.className = 'panel__body settings-hint';
+    intro.textContent = `${cosmeticRoleHint('pix')} · selections save on this device. Pick one face and one topper.`;
+    this.body.append(intro);
+    for (const kind of ['expression', 'hat'] as const) {
+      const heading = document.createElement('h3');
+      heading.className = 'settings-cosmetics-heading';
+      heading.textContent = kind === 'expression' ? 'Face-screen expressions' : 'Beveled toppers';
+      this.body.append(heading);
+      const grid = document.createElement('div');
+      grid.className = 'settings-cosmetics-grid';
+      const noneId = kind === 'expression' ? selected.expression : selected.hat;
+      grid.append(this.cosmeticButton('none', kind, 'None', 'Default face / no topper', true, noneId === 'none'));
+      for (const item of COSMETICS.filter((cosmetic) => cosmetic.kind === kind)) {
+        grid.append(this.cosmeticButton(item.id, kind, item.label, item.unlock, state.unlocked.includes(item.id), noneId === item.id));
+      }
+      this.body.append(grid);
+    }
+    const note = document.createElement('p');
+    note.className = 'panel__body settings-hint';
+    note.textContent = 'Multiplayer note: the current schema has no cosmetic field, so your choice is local and is not sent to your partner.';
+    this.body.append(note);
+  }
+
+  private cosmeticButton(
+    id: 'none' | CosmeticDefinition['id'], kind: CosmeticDefinition['kind'], label: string, hint: string, unlocked: boolean, selected: boolean,
+  ): HTMLElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `btn settings-cosmetic${selected ? ' is-selected' : ''}`;
+    button.dataset.testid = `cosmetic-${id}`;
+    button.disabled = !unlocked;
+    button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    button.setAttribute('aria-label', `${label}${unlocked ? '' : `, locked: ${hint}`}`);
+    const title = document.createElement('strong'); title.textContent = label;
+    const detail = document.createElement('span'); detail.textContent = unlocked ? (selected ? 'Equipped' : 'Unlocked') : `Locked · ${hint}`;
+    button.append(title, detail);
+    button.addEventListener('click', () => {
+      selectCosmetic(id, kind);
+      this.renderBody();
+      this.body.querySelector<HTMLElement>(`[data-testid="cosmetic-${id}"]`)?.focus({ preventScroll: true });
+    });
+    return button;
   }
 
   private rangeRow(

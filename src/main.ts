@@ -97,6 +97,7 @@ const root: HTMLElement = rootNode;
 
 let game: GameApp | null = null;
 let titleAttract: TitleAttract | null = null;
+let quickMatchInFlight = false;
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -182,6 +183,7 @@ function showMainMenu(): void {
   shell.classList.add('menu-shell--title');
   const attractCanvas = element('canvas', 'title-attract-canvas');
   attractCanvas.setAttribute('aria-hidden', 'true');
+  attractCanvas.dataset.titleFallback = 'key-art';
   const panel = element('section', 'panel menu-panel title-panel');
   panel.append(wordmark(), element('h2', 'title-tagline', 'Two drones. One cord.'));
   panel.append(element('p', 'panel__body menu-subtitle', blurb));
@@ -214,7 +216,10 @@ function showMainMenu(): void {
   bindMenuNav(panel, undefined, play);
   void import('./ui/TitleAttract.ts').then(({ TitleAttract }) => TitleAttract.mount(attractCanvas, play)).then((mounted) => {
     if (mounted && root.contains(attractCanvas)) titleAttract = mounted;
-    else mounted?.dispose();
+    else {
+      mounted?.dispose();
+      shell.classList.add('title-scene-fallback');
+    }
   });
   startWarmup();
 }
@@ -260,17 +265,135 @@ function showSinglePlayer(): void {
 
 function showMultiplayerMenu(): void {
   void loadNet().catch(() => {});
-  const panel = menuPanel('Play with a friend', 'Make a private room and share its code, or join a friend\'s room.');
+  const panel = menuPanel('Play with a friend', 'Make a private room and share its code, join a friend\'s room, or quick-match with another player.');
   const actions = element('div', 'menu-actions');
   actions.append(
     menuButton('Create a room', 'create-room', () => {
       void createRoom();
     }, 'btn--primary'),
     menuButton('Join with a code', 'join-room', () => showJoinRoom()),
+    menuButton('Quick match', 'quick-match', () => { void quickMatch(); }),
     menuButton('Back', 'back', showMainMenu, 'btn--quiet'),
   );
   panel.append(actions);
   bindMenuNav(panel, showMainMenu, '[data-testid="create-room"]');
+}
+
+function quickMatchKey(): string {
+  const options = readUrlRunOptions();
+  const mode = options.mode ?? 'standard';
+  const seed = options.seed ?? (mode === 'daily' ? dailySeed(new Date()) : undefined);
+  let key = seed == null ? mode : `${mode}:${seed}`;
+  const pool = new URLSearchParams(window.location.search).get('qmPool');
+  const cleanPool = pool?.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 16) ?? '';
+  if (cleanPool) key += `:${cleanPool}`;
+  return key;
+}
+
+function quickMatchTimeout(): number {
+  const raw = Number.parseInt(new URLSearchParams(window.location.search).get('qmTimeout') ?? '', 10);
+  return Number.isFinite(raw) ? Math.max(2_000, Math.min(120_000, raw)) : 45_000;
+}
+
+async function quickMatch(): Promise<void> {
+  if (quickMatchInFlight) return;
+  quickMatchInFlight = true;
+  const panel = menuPanel('Quick match', 'Find another player, or invite an AI partner while you wait.');
+  panel.dataset.testid = 'qm-panel';
+  const status = element('p', 'lobby-status', 'Looking for a partner…');
+  status.dataset.testid = 'qm-status';
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  const elapsed = element('span', '', 'Searching · 0 s');
+  elapsed.dataset.testid = 'qm-elapsed';
+  const cancel = menuButton('Cancel', 'qm-cancel', () => { void leave(); }, 'btn--quiet');
+  const actions = element('div', 'menu-actions');
+  actions.append(cancel);
+  panel.append(status, elapsed, actions);
+  bindMenuNav(panel, () => { void leave(); }, cancel);
+
+  let session: MultiplayerSession | null = null;
+  let pendingJoin: Promise<MultiplayerSession> | null = null;
+  let removeStatus: (() => void) | null = null;
+  let elapsedTimer: number | undefined;
+  let timeoutTimer: number | undefined;
+  let startTimer: number | undefined;
+  let active = true;
+  let botShown = false;
+  const startedAt = Date.now();
+  let timeoutNote: HTMLElement | null = null;
+  const clearTimers = () => {
+    if (elapsedTimer !== undefined) window.clearInterval(elapsedTimer);
+    if (timeoutTimer !== undefined) window.clearTimeout(timeoutTimer);
+    if (startTimer !== undefined) window.clearTimeout(startTimer);
+  };
+  const cleanup = () => {
+    active = false;
+    quickMatchInFlight = false;
+    clearTimers();
+    removeStatus?.();
+    removeStatus = null;
+  };
+  async function leave(): Promise<void> {
+    if (!active) return;
+    cleanup();
+    const joining = pendingJoin;
+    if (session) await session.dispose();
+    if (joining) void joining.then((late) => late.dispose()).catch(() => {});
+    showMultiplayerMenu();
+  }
+  function startWhenReady(): void {
+    if (!session || !active) return;
+    cleanup();
+    void startGame('multiplayer', session);
+  }
+  elapsedTimer = window.setInterval(() => {
+    elapsed.textContent = `Searching · ${Math.floor((Date.now() - startedAt) / 1_000)} s`;
+  }, 1_000);
+  timeoutTimer = window.setTimeout(() => {
+    if (!active || botShown) return;
+    botShown = true;
+    timeoutNote = element('p', 'menu-subtitle', 'No one yet. Keep waiting or play with the AI partner — a player who joins later takes its seat.');
+    actions.prepend(menuButton('Play with AI partner', 'qm-play-bot', () => session?.requestBotPartner(), 'btn--primary'));
+    panel.append(timeoutNote);
+  }, quickMatchTimeout());
+
+  if (!(await ensureServerAwake(panel, () => { void leave(); }, () => {
+    cleanup();
+    void quickMatch();
+  }, () => { void leave(); }))) return;
+  if (!active) return; // cancelled while the server was waking
+  try {
+    pendingJoin = (await loadNet()).MultiplayerSession.quickMatch({ ...readUrlRunOptions(), qmKey: quickMatchKey() });
+    session = await pendingJoin;
+    if (!active) {
+      await session.dispose();
+      return;
+    }
+    removeStatus = session.onStatus((next) => {
+      if (!active || !next.started || !next.localRole) return;
+      const partnerRole = next.localRole === 'pix' ? 'nee' : 'pix';
+      const partner = next.players.get(partnerRole);
+      if (partner?.bot !== true) {
+        status.textContent = `Partner found! You fly ${next.localRole.toUpperCase()} · they fly ${partnerRole.toUpperCase()}`;
+        status.dataset.testid = 'qm-found';
+        cancel.hidden = true;
+        elapsed.hidden = true;
+        actions.querySelector('[data-testid="qm-play-bot"]')?.remove();
+        timeoutNote?.remove();
+        startTimer = window.setTimeout(startWhenReady, 800);
+      } else {
+        startWhenReady();
+      }
+    });
+  } catch (error) {
+    if (!active) return;
+    cleanup();
+    status.textContent = errorMessage(error);
+    status.classList.add('error');
+    panel.append(menuButton('Back', 'back', showMultiplayerMenu, 'btn--quiet'));
+    bindMenuNav(panel, showMultiplayerMenu, '[data-testid="back"]');
+  }
 }
 
 async function ensureServerAwake(

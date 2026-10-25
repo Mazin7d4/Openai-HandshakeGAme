@@ -12,6 +12,7 @@ import {
 import { createFaceGlyph, drawFaceGlyph, type FaceMood } from './FaceGlyph.ts';
 import { MenuNavigator } from './MenuNavigator.ts';
 import { effectiveReducedMotion, getSettings } from './Settings.ts';
+import { cosmeticDefinition, recordRunUnlocks } from '../player/Cosmetics.ts';
 
 export interface HeistReportHandlers {
   onPlayAgain: () => void;
@@ -250,6 +251,22 @@ export class HeistReport {
     this.stampEl.classList.toggle('heist-report__stamp--fail', stats.outcome !== 'win');
     this.challengeHint.hidden = true;
     this.challengeHint.textContent = '';
+
+    this.panel.querySelector('.heist-report__unlock-toast')?.remove();
+    const unlocked = recordRunUnlocks({
+      outcome: stats.outcome,
+      timesSpotted: stats.timesSpotted,
+      nightShiftScore: nightShift?.total,
+      nightShiftFloor: nightShift?.floor,
+      cooperative: Boolean(coop && coop.players.size > 1),
+    });
+    if (unlocked.length) {
+      const toast = document.createElement('p');
+      toast.className = 'heist-report__unlock-toast';
+      toast.setAttribute('role', 'status');
+      toast.textContent = `New unlock${unlocked.length > 1 ? 's' : ''}: ${unlocked.map((id) => cosmeticDefinition(id)?.label ?? id).join(', ')}`;
+      this.panel.append(toast);
+    }
 
     if (stats.seed != null) {
       this.seedEl.hidden = false;
