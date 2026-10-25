@@ -1,19 +1,14 @@
-import {
-  Color3,
-  CreateBox,
-  CreateCylinder,
-  CreateSphere,
-  HavokPlugin,
-  PhysicsActivationControl,
-  PhysicsAggregate,
-  PhysicsMotionType,
-  PhysicsPrestepType,
-  PhysicsShapeType,
-  Quaternion,
-  Vector3,
-  type Mesh,
-  type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
+import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.js';
+import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
+import type { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin.js';
+import { PhysicsActivationControl, PhysicsMotionType, PhysicsPrestepType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import { PhysicsAggregate } from '@babylonjs/core/Physics/v2/physicsAggregate.js';
+import { PhysicsShapeType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { DroneRole, GrabbableNetworkState } from '../network/NetworkTypes.ts';
 import { reportStabilityIssue } from '../dev/StabilityDiagnostics.ts';
 import { COLLISION_GROUP } from '../physics/CollisionGroups.ts';
@@ -78,6 +73,7 @@ export class Grabbable implements Interactable {
   private lastEvent = '';
   private cradled = false;
   private readonly cradlePosition = new Vector3();
+  private handoffArc: { from: Vector3; to: Vector3; elapsed: number } | null = null;
 
   constructor(scene: Scene, plugin: HavokPlugin, spec: GrabbableSpec) {
     this.id = spec.id;
@@ -229,6 +225,14 @@ export class Grabbable implements Interactable {
     }
   }
 
+  /** Presentation-only handoff arc; ownership and the animated physics body already moved. */
+  startHandoffArc(from: Vector3, to: Vector3, reducedMotion: boolean): void {
+    this.handoffArc = null;
+    this.mesh.position.copyFrom(reducedMotion ? to : from);
+    if (!reducedMotion) this.handoffArc = { from: from.clone(), to: to.clone(), elapsed: 0 };
+    this.teleportBody();
+  }
+
   update(dt: number, holdTarget?: Vector3, holderVelocity?: Vector3): void {
     if (this.holder && holdTarget && holderVelocity) {
       this.updateHeld(dt, holdTarget, holderVelocity);
@@ -308,13 +312,25 @@ export class Grabbable implements Interactable {
     const oldX = this.mesh.position.x;
     const oldY = this.mesh.position.y;
     const oldZ = this.mesh.position.z;
-    const weight = 1 - Math.exp(-HOLD_RESPONSE * Math.max(dt, 0));
-    this.controlledVelocity.copyFrom(holdTarget).subtractInPlace(this.mesh.position);
-    const distance = this.controlledVelocity.length();
-    const maxStep = MAX_HOLD_SPEED * Math.max(dt, 1 / 240);
-    const step = Math.min(distance * weight, maxStep);
-    if (distance > 1e-5) {
-      this.mesh.position.addInPlace(this.controlledVelocity.scaleInPlace(step / distance));
+    if (this.handoffArc) {
+      this.handoffArc.elapsed = Math.min(0.25, this.handoffArc.elapsed + Math.max(dt, 0));
+      const progress = this.handoffArc.elapsed / 0.25;
+      const eased = 1 - (1 - progress) ** 3;
+      this.mesh.position.set(
+        this.handoffArc.from.x + (this.handoffArc.to.x - this.handoffArc.from.x) * eased,
+        this.handoffArc.from.y + (this.handoffArc.to.y - this.handoffArc.from.y) * eased,
+        this.handoffArc.from.z + (this.handoffArc.to.z - this.handoffArc.from.z) * eased,
+      );
+      if (progress >= 1) this.handoffArc = null;
+    } else {
+      const weight = 1 - Math.exp(-HOLD_RESPONSE * Math.max(dt, 0));
+      this.controlledVelocity.copyFrom(holdTarget).subtractInPlace(this.mesh.position);
+      const distance = this.controlledVelocity.length();
+      const maxStep = MAX_HOLD_SPEED * Math.max(dt, 1 / 240);
+      const step = Math.min(distance * weight, maxStep);
+      if (distance > 1e-5) {
+        this.mesh.position.addInPlace(this.controlledVelocity.scaleInPlace(step / distance));
+      }
     }
     const safeDt = Math.max(dt, 1 / 240);
     this.controlledVelocity.set(
