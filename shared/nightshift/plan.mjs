@@ -42,6 +42,7 @@ export const JOB_NAMES = Object.freeze([
 const SLOTS = ['arrival', 'office', 'server', 'vault', 'escape'];
 const TERMINALS = ['terminal-a', 'terminal-b', 'terminal-c'];
 const PLAN_SEED = 0x5eed9a11;
+const JOB_ORDER_SEED = 0x4a6f6253;
 const EPSILON = 1e-6;
 
 function r3(value) {
@@ -74,6 +75,30 @@ function distance3(a, b) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function jobCycleSuffix(cycle) {
+  if (cycle === 0) return '';
+  const numerals = ['', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+  return ` ${numerals[cycle] ?? cycle + 1}`;
+}
+
+/**
+ * Choose the job order once per run seed, rather than once per floor. This
+ * keeps the floor cards varied without coupling a floor's plan generation to
+ * any other floor's random stream.
+ */
+function jobNameFor(seed, floor) {
+  if (floor === 1) return 'The Night Shift Tryout';
+  const names = JOB_NAMES.slice();
+  const rand = mulberry32(mixSeed(seed, JOB_ORDER_SEED));
+  for (let index = names.length - 1; index > 0; index--) {
+    const other = intRange(rand, 0, index + 1);
+    [names[index], names[other]] = [names[other], names[index]];
+  }
+  const offset = floor - 2;
+  const cycle = Math.floor(offset / names.length);
+  return `${names[offset % names.length]}${jobCycleSuffix(cycle)}`;
 }
 
 function randomBetween(rand, min, max) {
@@ -856,7 +881,7 @@ function buildPlan(seed, floor, layout, rand, options = {}) {
     pieces: roomPieces(slot, archetypes[index], rand, layout, objective),
   }));
   const hazards = options.noHazards ? [] : buildHazards(rand, floor, layout, objective, rooms);
-  const name = floor === 1 ? 'The Night Shift Tryout' : `${boss ? 'VAULT: ' : ''}${pick(rand, JOB_NAMES)}`;
+  const name = floor === 1 ? 'The Night Shift Tryout' : `${boss ? 'VAULT: ' : ''}${jobNameFor(seed, floor)}`;
   const objectiveText = objective.kind === 'grab' ? 'grab the prototype' : objective.kind.replace('-', ' ');
   const blurb = floor === 1
     ? 'Warm up: the cord is your tool. Grab the prototype together.'
