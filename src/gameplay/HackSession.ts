@@ -15,6 +15,7 @@ import { PacketRoutingView } from './PacketRoutingView.ts';
 import { SignalMatchView } from './SignalMatchView.ts';
 import layout from '../level/heist-layout.json';
 import type { RunLayout } from '../seed/index.ts';
+import { BOT_TUNING } from '../../shared/bot/brain.mjs';
 
 interface ActiveHack {
   station: HackStation;
@@ -32,8 +33,6 @@ function terminalPos(
 
 /** Owns station proximity, minigame lifetime, completion state and the shared door target. */
 /** Seconds the CPU partner needs on its own console. */
-const BOT_HACK_SECONDS = 3.5;
-
 export class HackSession {
   readonly stations: readonly HackStation[];
   readonly door: Door;
@@ -154,7 +153,7 @@ export class HackSession {
       return false;
     }
     this.setOwner(station.id, role);
-    this.botProgress += dt / BOT_HACK_SECONDS;
+    this.botProgress += dt / BOT_TUNING.hackSeconds;
     if (this.botProgress >= 1) {
       this.botProgress = 0;
       this.setComplete(station.id, true);

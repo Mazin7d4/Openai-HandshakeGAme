@@ -21,6 +21,8 @@ export declare const BOT_TUNING: {
   readonly avoidRadius: 4;
   readonly rescueDelay: 0.8;
   readonly exitArrive: 3;
+  readonly hackSeconds: 3.5;
+  readonly objectiveRange: 15;
 };
 export declare function planarDistance(a: BotVec3, b: BotVec3): number;
 export declare function shouldRescue(capturedFor: number): boolean;

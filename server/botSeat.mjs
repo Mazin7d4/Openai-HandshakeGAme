@@ -1,4 +1,4 @@
-import { botGoal, BOT_TUNING, planarDistance } from '../shared/bot/brain.mjs';
+import { avoidThreats, botGoal, BOT_TUNING, planarDistance } from '../shared/bot/brain.mjs';
 import { facingYaw } from './passRules.mjs';
 
 const MAX_TETHER = 12;
@@ -45,6 +45,15 @@ export class BotPilot {
     this.lastYankAt = 0;
     this.carryCrumbIndex = -1;
     this.wasHoldingLoot = false;
+    this.hackProgress = 0;
+    this.hackStationId = null;
+  }
+
+  reset() {
+    const bot = this.room.state.players.get(this.sessionId);
+    if (bot) this.clearHackOwners(bot);
+    this.hackProgress = 0;
+    this.hackStationId = null;
   }
 
   freeze(bot) {
@@ -91,9 +100,18 @@ export class BotPilot {
   tick(dt) {
     dt = Math.max(0, Math.min(0.1, dt));
     const bot = this.room.state.players.get(this.sessionId);
-    if (!bot || bot.captured) return;
+    if (!bot) {
+      this.hackProgress = 0;
+      this.hackStationId = null;
+      return;
+    }
+    if (bot.captured) {
+      this.resetHackState(bot);
+      return;
+    }
     const leader = [...this.room.state.players.values()].find((player) => player.playerId !== this.sessionId);
     if (!leader || !leader.connected) {
+      this.resetHackState(bot);
       this.freeze(bot);
       return;
     }
@@ -145,9 +163,62 @@ export class BotPilot {
       }
       return;
     }
+
+    const objective = this.room.state.mission.stage === 'hack-security'
+      ? this.room.botHackStation(bot.role)
+      : null;
+    if (objective && planarDistance(leader.position, objective.position) <= BOT_TUNING.objectiveRange) {
+      this.hackStationId = objective.stationId;
+      const fields = this.room.stationFields(objective.stationId);
+      const stationDistance = Math.hypot(
+        bot.position.x - objective.position.x,
+        bot.position.y - objective.position.y,
+        bot.position.z - objective.position.z,
+      );
+      if (stationDistance <= this.room.terminalRange - 0.5) {
+        this.decelerate(bot, dt);
+        if (fields && (!this.room.state.hack[fields.owner] || this.room.state.hack[fields.owner] === bot.role)) {
+          this.room.state.hack[fields.owner] = bot.role;
+          this.hackProgress += dt / BOT_TUNING.hackSeconds;
+          if (this.hackProgress >= 1) {
+            this.room.completeHackForRole(bot, objective.stationId);
+            this.hackProgress = 0;
+            this.hackStationId = null;
+          }
+        } else {
+          this.hackProgress = 0;
+        }
+      } else {
+        this.hackProgress = 0;
+        this.clearHackOwner(bot, objective.stationId);
+        this.move(bot, { ...objective.position, y: objective.position.y + 0.4 }, dt);
+        this.clampTether(bot, leader);
+      }
+      return;
+    }
+    this.resetHackState(bot);
+
+    const leaderOwnsHack = ['terminal-a', 'terminal-b', 'terminal-c']
+      .map((stationId) => this.room.stationFields(stationId))
+      .some((fields) => fields && this.room.state.hack[fields.owner] === leader.role);
+    if (leaderOwnsHack) {
+      this.decelerate(bot, dt);
+      return;
+    }
+
     if (goal.mode === 'hold') {
       this.decelerate(bot, dt);
       return;
+    }
+
+    if (this.room.state.mission.securityActive && (goal.mode === 'follow' || goal.mode === 'pass')) {
+      const threat = threats.some((patrol) => planarDistance(bot.position, patrol) < BOT_TUNING.avoidRadius);
+      if (threat) {
+        const safe = avoidThreats(vec(bot), threats);
+        this.move(bot, safe, dt);
+        this.clampTether(bot, leader);
+        return;
+      }
     }
 
     let target = goal.point;
@@ -206,5 +277,20 @@ export class BotPilot {
     if (distance <= MAX_TETHER) return;
     bot.position.x = leader.position.x + dx / distance * MAX_TETHER;
     bot.position.z = leader.position.z + dz / distance * MAX_TETHER;
+  }
+
+  clearHackOwner(bot, stationId) {
+    const fields = stationId ? this.room.stationFields(stationId) : null;
+    if (fields && this.room.state.hack[fields.owner] === bot.role) this.room.state.hack[fields.owner] = '';
+  }
+
+  clearHackOwners(bot) {
+    for (const stationId of ['terminal-a', 'terminal-b', 'terminal-c']) this.clearHackOwner(bot, stationId);
+  }
+
+  resetHackState(bot) {
+    this.clearHackOwner(bot, this.hackStationId);
+    this.hackProgress = 0;
+    this.hackStationId = null;
   }
 }

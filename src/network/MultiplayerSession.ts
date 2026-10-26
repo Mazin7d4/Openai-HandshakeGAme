@@ -15,6 +15,10 @@ import {
 } from './ReconnectionToken.ts';
 import { serverEndpoint } from './ServerEndpoint.ts';
 import { warmupBudgetMs } from './ServerWarmup.ts';
+import type {
+  LeaderboardNameResult,
+  LeaderboardRecordedPayload,
+} from './LeaderboardApi.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import type {
   DroneNetworkState,
@@ -414,6 +418,9 @@ export class MultiplayerSession {
   private readonly runEndedListeners = new Set<(message: RunEndedMessage) => void>();
   private readonly rematchStartListeners = new Set<(message: RematchStartMessage) => void>();
   private readonly rematchPartnerLeftListeners = new Set<(message: { role: DroneRole }) => void>();
+  private readonly leaderboardListeners = new Set<(message: LeaderboardRecordedPayload) => void>();
+  private readonly leaderboardSkippedListeners = new Set<(message: { reason: string }) => void>();
+  private readonly leaderboardNameResultListeners = new Set<(message: LeaderboardNameResult) => void>();
   private readonly pingListeners = new Set<(message: PingPlacedMessage) => void>();
   private readonly emoteListeners = new Set<(message: EmotePlayedMessage) => void>();
   private readonly objectEventListeners = new Set<(message: ObjectEventMessage) => void>();
@@ -431,6 +438,7 @@ export class MultiplayerSession {
   private manualReconnectInFlight = false;
   /** Last applied floor key so reconnect / first sync still fires the layout hook once. */
   private lastFloorKey: string | null = null;
+  lastLeaderboard: LeaderboardRecordedPayload | null = null;
 
   private constructor(room: Room<unknown, SchemaRoomState>, beat?: number) {
     this.room = room;
@@ -462,6 +470,17 @@ export class MultiplayerSession {
     if (options.bot === true) createOptions.bot = true;
     const room = await retryInitialConnect(() => client.create<SchemaRoomState>('handshake', createOptions));
     return new MultiplayerSession(room, options.beat);
+  }
+
+  static async createBotRoom(options: { mode: RunMode; seed?: number }, timeoutMs: number): Promise<MultiplayerSession> {
+    const client = new Client(serverEndpoint());
+    const createOptions: { seed?: number; mode: RunMode; bot: true } = { mode: options.mode, bot: true };
+    if (typeof options.seed === 'number' && Number.isFinite(options.seed)) createOptions.seed = options.seed >>> 0;
+    const room = await withConnectTimeout(
+      client.create<SchemaRoomState>('handshake', createOptions),
+      Math.max(1, timeoutMs),
+    );
+    return new MultiplayerSession(room);
   }
 
   static async quickMatch(options: QuickMatchOptions): Promise<MultiplayerSession> {
@@ -767,6 +786,25 @@ export class MultiplayerSession {
     return () => this.rematchPartnerLeftListeners.delete(listener);
   }
 
+  onLeaderboard(listener: (message: LeaderboardRecordedPayload) => void): () => void {
+    this.leaderboardListeners.add(listener);
+    return () => this.leaderboardListeners.delete(listener);
+  }
+
+  onLeaderboardSkipped(listener: (message: { reason: string }) => void): () => void {
+    this.leaderboardSkippedListeners.add(listener);
+    return () => this.leaderboardSkippedListeners.delete(listener);
+  }
+
+  onLeaderboardNameResult(listener: (message: LeaderboardNameResult) => void): () => void {
+    this.leaderboardNameResultListeners.add(listener);
+    return () => this.leaderboardNameResultListeners.delete(listener);
+  }
+
+  sendLeaderboardName(name: string, team = false): void {
+    this.room.send('leaderboard-name', { name: name.slice(0, 16), team: team === true });
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
@@ -779,6 +817,9 @@ export class MultiplayerSession {
     this.objectiveEventListeners.clear();
     this.rematchStartListeners.clear();
     this.rematchPartnerLeftListeners.clear();
+    this.leaderboardListeners.clear();
+    this.leaderboardSkippedListeners.clear();
+    this.leaderboardNameResultListeners.clear();
     clearReconnectionToken(this.roomCode);
     this.room.removeAllListeners();
     await this.room.leave(true);
@@ -851,11 +892,25 @@ export class MultiplayerSession {
     room.onMessage('run-ended', (message: RunEndedMessage) => {
       for (const listener of this.runEndedListeners) listener(message);
     });
+    room.onMessage('leaderboard-recorded', (message: LeaderboardRecordedPayload) => {
+      if (!message || typeof message.id !== 'string' || !Array.isArray(message.boards)) return;
+      this.lastLeaderboard = message;
+      for (const listener of this.leaderboardListeners) listener(message);
+    });
+    room.onMessage('leaderboard-skipped', (message: { reason?: unknown }) => {
+      if (typeof message?.reason !== 'string') return;
+      for (const listener of this.leaderboardSkippedListeners) listener({ reason: message.reason });
+    });
+    room.onMessage('leaderboard-name-result', (message: LeaderboardNameResult) => {
+      if (!message || typeof message.ok !== 'boolean') return;
+      for (const listener of this.leaderboardNameResultListeners) listener(message);
+    });
     room.onMessage('rematch-start', (message: RematchStartMessage) => {
       if (!message || !Number.isFinite(message.seed) || !Number.isFinite(message.floor)) return;
       // A pinned Night Shift seed can reuse the same seed/floor key; rematch still needs
       // the normal floor-start layout reset to run for the new mission.
       this.lastFloorKey = null;
+      this.lastLeaderboard = null;
       for (const listener of this.rematchStartListeners) listener(message);
     });
     room.onMessage('rematch-partner-left', (message: { role?: string }) => {

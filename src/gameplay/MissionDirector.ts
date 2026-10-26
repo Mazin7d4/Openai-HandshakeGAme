@@ -5,6 +5,7 @@ import type { Scene } from '@babylonjs/core/scene.js';
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { GameMode } from '../app/GameMode.ts';
 import type { FloorClearedMessage, MultiplayerSession, RunEndedMessage } from '../network/MultiplayerSession.ts';
+import type { LeaderboardNameResult, LeaderboardRecordedPayload } from '../network/LeaderboardApi.ts';
 import type {
   DroneNetworkState,
   DroneRole,
@@ -131,6 +132,8 @@ export class MissionDirector {
   private rematchPartnerLeft = false;
   private objectivePlan: ObjectivePlan | null = null;
   private objectiveState: ObjectiveState | null = null;
+  private leaderboardPayload: LeaderboardRecordedPayload | null = null;
+  private leaderboardSkipReason: string | undefined;
 
   constructor(
     scene: Scene,
@@ -146,6 +149,7 @@ export class MissionDirector {
     this.mode = mode;
     this.uiParent = uiParent;
     this.multiplayer = multiplayer;
+    this.leaderboardPayload = multiplayer?.lastLeaderboard ?? null;
     this.audio = audio;
     this.alarmLight = new PointLight('alarm-light', new Vector3(0, 5.5, 8), scene);
     this.alarmLight.diffuse = new Color3(1, 0.05, 0.03);
@@ -182,8 +186,24 @@ export class MissionDirector {
     });
     const offFloorCleared = multiplayer?.onFloorCleared((message) => this.handleFloorCleared(message));
     const offRunEnded = multiplayer?.onRunEnded((message) => this.handleRunEnded(message));
+    const offLeaderboard = multiplayer?.onLeaderboard((payload) => {
+      this.leaderboardPayload = payload;
+      this.leaderboardSkipReason = undefined;
+      this.report?.setLeaderboard(payload);
+    });
+    const offLeaderboardSkipped = multiplayer?.onLeaderboardSkipped(({ reason }) => {
+      this.leaderboardPayload = null;
+      this.leaderboardSkipReason = reason;
+      this.report?.setLeaderboard(null, reason);
+    });
+    const offLeaderboardNameResult = multiplayer?.onLeaderboardNameResult((result: LeaderboardNameResult) => {
+      this.report?.setLeaderboardNameResult(result);
+    });
     const offRematchStart = multiplayer?.onRematchStart(() => {
       this.rematchPartnerLeft = false;
+      this.leaderboardPayload = null;
+      this.leaderboardSkipReason = undefined;
+      this.report?.setLeaderboard(null);
       this.resetLocal();
     });
     const offRematchPartnerLeft = multiplayer?.onRematchPartnerLeft(() => {
@@ -192,7 +212,7 @@ export class MissionDirector {
     });
     this.unsubscribe = () => {
       offStun?.(); offSpotted?.(); offShove?.(); offLine(); offYank(); offFloorCleared?.(); offRunEnded?.();
-      offRematchStart?.(); offRematchPartnerLeft?.();
+      offRematchStart?.(); offRematchPartnerLeft?.(); offLeaderboard?.(); offLeaderboardSkipped?.(); offLeaderboardNameResult?.();
     };
 
     if (uiParent) {
@@ -285,6 +305,9 @@ export class MissionDirector {
           }
         },
         onRematchVote: mode === 'multiplayer' ? (want) => multiplayer?.sendRematchVote(want) : undefined,
+        onLeaderboardName: mode === 'multiplayer'
+          ? (name, team) => multiplayer?.sendLeaderboardName(name, team)
+          : undefined,
         onNewSeed: mode === 'night-shift' ? () => {
           resetRun();
           clearRunIntent();
@@ -979,7 +1002,10 @@ export class MissionDirector {
       // Only the server's floor-cleared / run-ended for THIS floor drives the co-op report (never a stale one).
       const floor = this.multiplayer?.currentStatus.run.floor;
       const summary = this.lastNightShiftSummary;
-      if (summary && summary.floor === floor) this.report.show(stats, summary, this.coopReportState());
+      if (summary && summary.floor === floor) {
+        this.report.setLeaderboard(this.leaderboardPayload, this.leaderboardSkipReason);
+        this.report.show(stats, summary, this.coopReportState());
+      }
       return;
     }
     if (this.mode === 'night-shift' && this.runLayout && stats.outcome === 'win') {
@@ -1006,8 +1032,13 @@ export class MissionDirector {
           },
         };
       }
+      this.report.setLeaderboard(null, this.mode === 'night-shift' ? 'offline' : undefined);
       this.report.show(stats, this.lastNightShiftSummary, this.coopReportState());
     } else {
+      this.report.setLeaderboard(
+        this.multiplayer ? this.leaderboardPayload : null,
+        this.multiplayer ? this.leaderboardSkipReason : this.mode === 'night-shift' ? 'offline' : undefined,
+      );
       this.report.show(stats, this.lastNightShiftSummary, this.coopReportState());
     }
   }
@@ -1100,6 +1131,8 @@ export class MissionDirector {
     this.completedPresented = false;
     this.floorScored = false;
     this.lastNightShiftSummary = undefined;
+    this.leaderboardPayload = null;
+    this.leaderboardSkipReason = undefined;
     this.lastStage = 'infiltrate';
     this.audio.stopAlarm();
     this.report?.hide();
