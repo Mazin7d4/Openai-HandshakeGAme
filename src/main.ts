@@ -19,6 +19,7 @@ import {
   startWarmup,
   waitForServer,
   warmupReadyWithin,
+  warmupBudgetMs,
   warmupIsFresh,
 } from './network/ServerWarmup.ts';
 import {
@@ -41,6 +42,7 @@ import {
 import './style.css';
 import { audio } from './audio/AudioManager.ts';
 import { titleMenuNav } from './ui/MenuNavigator.ts';
+import { createWakeOverlay } from './ui/WakeOverlay.ts';
 import { enterImmersive } from './ui/fullscreen.ts';
 import { isTouchPlayDevice } from './ui/touchDetect.ts';
 import type { TitleAttract } from './ui/TitleAttract.ts';
@@ -58,8 +60,11 @@ function bindMenuNav(panel: HTMLElement, onBack?: () => void, initialFocus?: str
 }
 
 function roomInviteUrl(code: string): string {
-  const url = new URL(window.location.href);
+  const current = new URL(window.location.href);
+  const url = new URL(window.location.origin + window.location.pathname);
   url.searchParams.set('room', code.trim().toUpperCase());
+  const server = current.searchParams.get('server');
+  if (server !== null) url.searchParams.set('server', server);
   return url.toString();
 }
 
@@ -466,50 +471,42 @@ async function ensureServerAwake(
   revalidateWarmup();
 
   const controller = new AbortController();
-  const overlay = element('div', 'wake-overlay');
-  overlay.dataset.testid = 'wake-overlay';
-  overlay.setAttribute('role', 'status');
-  overlay.setAttribute('aria-live', 'polite');
-  const spinner = element('div', 'wake-spinner');
-  spinner.setAttribute('aria-hidden', 'true');
-  const title = element('p', 'wake-title', 'Waking server…');
-  title.dataset.testid = 'wake-title';
-  const detail = element('p', 'wake-detail', 'The free server is starting up. ');
-  const seconds = element('span', '', '0');
-  seconds.dataset.testid = 'wake-elapsed';
-  detail.append(seconds, ' s');
-  const cancel = menuButton('Cancel', 'wake-cancel', () => controller.abort(), 'btn--quiet');
-  overlay.append(spinner, title, detail, cancel);
+  const budgetMs = warmupBudgetMs();
+  let choseSolo = false;
+  const wake = createWakeOverlay(menuButton, budgetMs, {
+    cancel: () => controller.abort(),
+    playSolo: () => {
+      choseSolo = true;
+      controller.abort();
+      showSinglePlayer();
+    },
+    retry: () => {
+      retryWarmup();
+      retry();
+    },
+    back,
+  });
   // Only show the overlay once the first ping actually failed ('waking'), so a fast answer never flashes it.
   const result = await waitForServer({
     signal: controller.signal,
     onTick(elapsedMs, current) {
-      seconds.textContent = String(Math.floor(elapsedMs / 1_000));
-      if (current !== 'ready' && current !== 'unknown' && !overlay.isConnected) panel.append(overlay);
+      wake.update(elapsedMs);
+      if (current !== 'ready' && current !== 'unknown' && !wake.overlay.isConnected) panel.append(wake.overlay);
     },
   });
-  if (!overlay.isConnected) panel.append(overlay);
+  if (!wake.overlay.isConnected) panel.append(wake.overlay);
   if (result === 'ready') {
-    overlay.remove();
+    wake.markReady();
+    wake.overlay.remove();
     return true;
   }
   if (result === 'cancelled') {
-    overlay.remove();
-    onCancel();
+    wake.overlay.remove();
+    if (!choseSolo) onCancel();
     return false;
   }
 
-  spinner.remove();
-  title.textContent = "Server didn't wake up";
-  detail.textContent = 'Check your connection and retry.';
-  cancel.remove();
-  overlay.append(
-    menuButton('Retry', 'wake-retry', () => {
-      retryWarmup();
-      retry();
-    }),
-    menuButton('Back', 'back', back),
-  );
+  wake.showFailure();
   return false;
 }
 
@@ -628,6 +625,7 @@ function showLobby(session: MultiplayerSession): void {
   const label = element('p', 'panel__kicker room-label', 'Room code');
   const code = element('p', 'room-code', session.roomCode);
   code.dataset.testid = 'room-code';
+  const qrHost = element('div');
   const copy = element('button', 'btn btn--primary menu-button', 'Copy invite link');
   copy.dataset.testid = 'copy-code';
   copy.type = 'button';
@@ -660,7 +658,8 @@ function showLobby(session: MultiplayerSession): void {
   reconnecting.dataset.testid = 'lobby-reconnecting';
   reconnecting.setAttribute('aria-live', 'polite');
   reconnecting.hidden = true;
-  panel.append(label, code, invite, copy, share, role, status, reconnecting);
+  panel.append(label, code, qrHost, invite, copy, share, role, status, reconnecting);
+  void import('./ui/InviteQr.ts').then(({ renderInviteQr }) => renderInviteQr(qrHost, invite.value));
   bindMenuNav(panel, () => {
     void session.dispose();
     showMultiplayerMenu();
