@@ -249,6 +249,7 @@ export class HackSession {
 
   private openPuzzle(station: HackStation, role: DroneRole): void {
     if (!this.uiParent || this.active) return;
+    document.body.classList.add('hack-session-open');
     const done = () => this.completeCurrent();
     const cancel = () => this.cancelCurrent();
     const view = station.minigameType === 'packet-routing'
@@ -284,6 +285,7 @@ export class HackSession {
     this.active?.view.dispose();
     this.active = null;
     this.debugView = false;
+    document.body.classList.remove('hack-session-open');
   }
 
   private ownerFor(id: HackStationId): DroneRole | null {

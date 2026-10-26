@@ -255,6 +255,11 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 .interaction-prompt.visible { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
 /* Task ring = the drone meant to do it (hacking is PIX's job). */
 .interaction-prompt button { display: inline-flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 14px 6px 8px; background: var(--paper); border-color: var(--pix-ink); box-shadow: 0 3px 0 var(--pix-ink); }
+/* Desktop carry hints stay in a compact bottom corner, clear of the play space. */
+@media (pointer: fine) {
+  .interaction-prompt { left: auto; right: 16px; bottom: 16px; width: min(45vw, 520px); max-width: 45vw; transform: translateY(8px); }
+  .interaction-prompt.visible { transform: translateY(0); }
+}
 
 .mission-objective {
   position: absolute; top: 64px; left: 50%; z-index: 5; width: min(380px, calc(100% - 300px));
@@ -322,6 +327,10 @@ html[data-reduced-motion='1'] .mission-objective { transition: none; }
 .juice-toast.pix { border-color: var(--pix); color: var(--pix-ink); }
 .juice-toast.nee { border-color: var(--nee); color: var(--nee-ink); }
 .juice-toast.good { border-color: var(--oak); color: var(--oak-ink); }
+/* The hack sheet owns the screen while a terminal session is active. */
+body.hack-session-open :is(.mission-objective, .juice-toasts, .interaction-prompt) {
+  display: none !important;
+}
 @keyframes juice-pop {
   0% { transform: scale(0.4) rotate(-4deg); opacity: 0; }
   14% { transform: scale(1.12) rotate(2deg); opacity: 1; }
@@ -339,7 +348,7 @@ html[data-reduced-motion='1'] .mission-objective { transition: none; }
   }
   .mission-objective--collapsed h2 { display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; font-size: 13px; }
   .juice-toasts { left: auto; right: max(8px, env(safe-area-inset-right, 0px)); transform: none; top: calc(max(8px, env(safe-area-inset-top, 0px)) + 88px); width: min(24vw, 240px); max-width: 24vw; z-index: 70; gap: 4px; align-items: flex-end; }
-  .juice-toast { width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 10px; font: 800 15px/1.1 var(--font-title); animation-duration: 1.5s; }
+  .juice-toast { width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 10px; font: 800 15px/1.1 var(--font-title); animation: none; }
   .touch-play .interaction-prompt { left: 50%; bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + 8px); width: min(40vw, 360px); max-width: 40vw; padding: 4px; z-index: 18; }
   .touch-play .interaction-prompt button { min-height: 40px; padding: 4px 8px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
@@ -1206,12 +1215,13 @@ html[data-reduced-motion='1'] .wake-progress span { transition: none; }
 
 /* Landscape phones: Up/Down sit just outside the stick pad, clear of the centre third. */
 @media (orientation: landscape) and (max-height: 500px) {
-  .touch-controls { --stick-w: clamp(140px, 22vw, 200px); }
+  /* Keep the lift column to the left of the 25%-75% audit rect at every phone width. */
+  .touch-controls { --stick-w: clamp(120px, calc(25vw - var(--touch-btn) - 2px), 200px); }
   .touch-controls .touch-stick { width: var(--stick-w); }
   .touch-controls--right .touch-actions > :nth-child(2),
-  .touch-controls--right .touch-actions > :nth-child(3) { left: calc(var(--stick-w) + 6px); right: auto; }
+  .touch-controls--right .touch-actions > :nth-child(3) { left: var(--stick-w); right: auto; }
   .touch-controls--left .touch-actions > :nth-child(2),
-  .touch-controls--left .touch-actions > :nth-child(3) { right: calc(var(--stick-w) + 6px); left: auto; }
+  .touch-controls--left .touch-actions > :nth-child(3) { right: var(--stick-w); left: auto; }
 }
 
 @media (orientation: landscape) and (max-height: 420px) {
