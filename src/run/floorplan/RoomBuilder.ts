@@ -4,9 +4,7 @@ import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.
 import { CreateTorus } from '@babylonjs/core/Meshes/Builders/torusBuilder.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
-import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { SpotLight } from '@babylonjs/core/Lights/spotLight.js';
-import { PointLight } from '@babylonjs/core/Lights/pointLight.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { RoomPiece, RoomPlan } from '../../../shared/nightshift/types.d.ts';
 import { addStaticBody } from '../../physics/staticBody.ts';
@@ -35,47 +33,52 @@ function themeMat(scene: Scene, room: RoomPlan, mat: RoomPiece['mat'], low: bool
   return themed ? materials[themed] : pieceMaterial(scene, mat, low);
 }
 
-function bossVaultDressing(scene: Scene, low: boolean, owned: AbstractMesh[], lights: (SpotLight | PointLight)[]): void {
+function bossVaultDressing(scene: Scene, low: boolean, owned: AbstractMesh[], lights: SpotLight[]): void {
   const materials = floorMaterials(scene);
   const gold: Mesh[] = [];
   const steel: Mesh[] = [];
   const marks: Mesh[] = [];
   const door = CreateCylinder('boss-vault-door', { diameter: 10.5, height: 0.42, tessellation: low ? 24 : 40 }, scene);
-  door.rotation.x = Math.PI / 2; door.position.set(0, 7, 26.45); door.material = materials.vaultGold; gold.push(door);
+  // Keep the hero door just inside the rear wall so it is in the gameplay
+  // camera's visible side of the wall rather than clipped outside the room.
+  door.rotation.x = Math.PI / 2; door.position.set(0, 7, 24.22); door.material = materials.vaultGold; gold.push(door);
   const trim = CreateTorus('boss-vault-door-trim', { diameter: 10.7, thickness: 0.32, tessellation: low ? 24 : 40 }, scene);
-  trim.rotation.x = Math.PI / 2; trim.position.set(0, 7, 26.18); trim.material = materials.vaultGoldBright; gold.push(trim);
+  trim.rotation.x = Math.PI / 2; trim.position.set(0, 7, 24.04); trim.material = materials.vaultGoldBright; gold.push(trim);
   const dial = CreateTorus('boss-vault-dial', { diameter: 2.15, thickness: 0.16, tessellation: 24 }, scene);
-  dial.rotation.x = Math.PI / 2; dial.position.set(0, 7, 26.0); dial.material = materials.vaultGoldBright; gold.push(dial);
+  dial.rotation.x = Math.PI / 2; dial.position.set(0, 7, 23.94); dial.material = materials.vaultGoldBright; gold.push(dial);
   for (let i = 0; i < 8; i++) {
     const a = i * Math.PI / 4;
     const bolt = CreateCylinder('boss-vault-bolt', { diameter: 0.42, height: 0.12, tessellation: 10 }, scene);
     bolt.rotation.x = Math.PI / 2;
-    bolt.position.set(Math.cos(a) * 4.45, 7 + Math.sin(a) * 4.45, 25.98);
+    bolt.position.set(Math.cos(a) * 4.45, 7 + Math.sin(a) * 4.45, 23.92);
     bolt.material = materials.vaultGoldBright; gold.push(bolt);
   }
   for (const x of [-13.5, 13.5]) {
     const panel = createRoundedBox('boss-vault-wall-panel', { width: 1.4, height: 12, depth: 0.18, radius: 0.08, segments: 1 }, scene);
-    panel.position.set(x, 7, 25.9); panel.material = materials.vaultPanel; steel.push(panel);
+    panel.position.set(x, 7, 23.8); panel.material = materials.vaultPanel; steel.push(panel);
   }
   for (const z of [5, 12, 19]) {
     const stripe = createRoundedBox('boss-vault-floor-mark', { width: 0.16, height: 0.025, depth: 8, radius: 0.02, segments: 1 }, scene);
     stripe.position.set(-9, 0.035, z); stripe.material = materials.vaultGold; marks.push(stripe);
     const stripe2 = stripe.clone('boss-vault-floor-mark'); stripe2.position.x = 9; marks.push(stripe2);
   }
-  const merge = (parts: Mesh[], name: string, material: AbstractMesh['material']) => {
-    if (!parts.length) return;
+  const merge = (parts: Mesh[], name: string, material: AbstractMesh['material']): Mesh | null => {
+    if (!parts.length) return null;
     const mesh = parts.length === 1 ? parts[0] : Mesh.MergeMeshes(parts, true, true, undefined, false, false);
-    if (!mesh) return;
+    if (!mesh) return null;
     mesh.name = name; mesh.material = material; finishStatic(mesh, false); owned.push(mesh);
+    return mesh;
   };
-  merge(gold, 'boss-vault-gold', materials.vaultGoldBright);
-  merge(steel, 'boss-vault-panels', materials.vaultPanel);
-  merge(marks, 'boss-vault-floor-marks', materials.vaultGold);
+  const goldMesh = merge(gold, 'boss-vault-gold', materials.vaultGoldBright);
+  const steelMesh = merge(steel, 'boss-vault-panels', materials.vaultPanel);
+  const marksMesh = merge(marks, 'boss-vault-floor-marks', materials.vaultGold);
   if (!low) {
+    // Scope the single vault light to vault dressing only. Everything else keeps
+    // the hemi + sun + nearest hero key/fill four-light budget.
     const key = new SpotLight('vault-spot', new Vector3(0, 12, 14), new Vector3(0, -5, 12), Math.PI * 0.52, 2, scene);
-    key.diffuse = Color3.FromHexString('#FFD09A'); key.intensity = 1.35; key.range = 28; lights.push(key);
-    const rim = new PointLight('vault-rim', new Vector3(0, 7, 24), scene);
-    rim.diffuse = Color3.FromHexString('#83B9FF'); rim.intensity = 0.42; rim.range = 16; lights.push(rim);
+    key.diffuse.set(1, 0.82, 0.55); key.intensity = 1.1; key.range = 28;
+    key.includedOnlyMeshes = [goldMesh, steelMesh, marksMesh].filter((mesh): mesh is Mesh => !!mesh);
+    lights.push(key);
   }
 }
 
@@ -113,7 +116,7 @@ export async function buildRooms(scene: Scene, rooms: RoomPlan[], boss = false):
   const ownedMeshes: AbstractMesh[] = [];
   const bodies: TrackedBody[] = [];
   const kitSources = new Set<Mesh>();
-  const accentLights: (SpotLight | PointLight)[] = [];
+  const accentLights: SpotLight[] = [];
   let kitPlacements = 0;
 
   if (useKits) {
@@ -145,7 +148,7 @@ export async function buildRooms(scene: Scene, rooms: RoomPlan[], boss = false):
       }, scene);
     mesh.position.set(piece.x, piece.y - (piece.sy - visualSy) * 0.5, piece.z);
     mesh.rotation.y = piece.rotY;
-    addVisual(mesh, piece.mat, piece.sy > 2.2, themeMat(scene, room, piece.mat, low));
+    addVisual(mesh, piece.mat, piece.sy > 2.2 && piece.mat !== 'pylon', themeMat(scene, room, piece.mat, low));
   };
 
   for (const room of rooms ?? []) {

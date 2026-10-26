@@ -55,6 +55,7 @@ export class ObjectiveVisuals {
   private readonly door?: AbstractMesh;
   private readonly pillar?: AbstractMesh;
   private readonly pylonCore?: AbstractMesh;
+  private readonly pylonBody?: AbstractMesh;
   private readonly pylonBeacon?: AbstractMesh;
   private readonly stretch?: AbstractMesh;
   private readonly cage?: AbstractMesh;
@@ -191,6 +192,12 @@ export class ObjectiveVisuals {
 
     if (plan.pylon) {
       const pylon = point(plan.pylon);
+      const body = CreateCylinder('objective-pylon-body', { diameter: 0.72, height: 2.15, tessellation: 12 }, scene);
+      body.position.set(pylon.x, pylon.y + 1.075, pylon.z);
+      body.material = this.materials.pylon;
+      body.isPickable = false;
+      this.pylonBody = body;
+      this.nodes.push(body);
       const core = CreateSphere('objective-pylon-core', { diameter: 0.38, segments: 12 }, scene);
       core.position.set(pylon.x, pylon.y + 1.7, pylon.z);
       core.material = this.materials.objectiveMint;
@@ -371,6 +378,9 @@ export class ObjectiveVisuals {
       this.pylonCore.material = state.done ? this.materials.done : state.progress > 0 ? this.materials.objectiveMint : this.materials.goalDim;
       const pulse = state.done ? 1 : 1 + Math.sin(this.pulseTime * 4) * 0.08;
       this.pylonCore.scaling.setAll(pulse);
+    }
+    if (this.pylonBody) {
+      this.pylonBody.material = state.done ? this.materials.done : this.materials.pylon;
     }
     if (this.pylonBeacon) {
       this.pylonBeacon.material = state.done ? this.materials.done : this.materials.warn;
