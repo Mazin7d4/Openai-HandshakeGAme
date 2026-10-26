@@ -802,8 +802,8 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
       } else if (partnerReconnecting) {
         const left = Math.max(0, RECONNECT_GRACE_SECONDS - Math.floor((Date.now() - (partnerLostAt ?? Date.now())) / 1000));
         const name = status.localRole === 'pix' ? 'NEE' : 'PIX';
-        overlayTitle.textContent = `${name} disconnected`;
-        overlayDetail.textContent = `Waiting for them to reconnect… ${left}s`;
+        overlayTitle.textContent = 'Waiting for partner';
+        overlayDetail.textContent = `${name} disconnected. Timer paused. ${left}s to rejoin`;
       } else if (partnerLeft) {
         overlayTitle.textContent = 'Partner left';
         overlayDetail.textContent = 'They did not come back. You can return to the menu.';

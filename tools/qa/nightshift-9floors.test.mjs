@@ -243,11 +243,14 @@ async function phaseB(endpoint) {
   guest.reconnection.enabled = false;
   guest.connection.close(4999, 'qa-drop');
   await waitFor(() => playerFor(host, roleB)?.connected === false, 'guest disconnected seat');
+  const t0 = Number(host.state.mission.elapsedSeconds);
   const frozenAt = Date.now();
   while (Date.now() - frozenAt < 3_000) {
     sendSnapshot(host, roleA === 'pix' ? levers?.[0] ?? choice.plan.objective.pads[0] : levers?.[1] ?? choice.plan.objective.pads[0]);
     await sleep(100);
   }
+  const t1 = Number(host.state.mission.elapsedSeconds);
+  assert(Math.abs(t1 - t0) < 0.3, 'mission timer advanced during drop');
   const afterDrop = objectiveState(host, messagesA);
   assert(afterDrop?.progress >= partialProgress && afterDrop?.step >= partialStep, `objective regressed during drop: ${partialProgress}/${partialStep} -> ${afterDrop?.progress}/${afterDrop?.step}`);
   assert(afterDrop?.seq === partialSeq, `objective sequence changed while frozen: ${partialSeq} -> ${afterDrop?.seq}`);
@@ -257,6 +260,12 @@ async function phaseB(endpoint) {
   const messagesBReconnect = { objectives: [], cleared: [], starts: [] };
   listen(reconnected, messagesBReconnect);
   await waitFor(() => playerFor(host, roleB)?.connected === true, 'guest reconnected seat', 5_000);
+  let resumed = false;
+  await waitFor(() => {
+    resumed = Number(host.state.mission.elapsedSeconds) > t1 + 0.5;
+    return resumed && Math.abs(Number(reconnected.state.mission.elapsedSeconds) - Number(host.state.mission.elapsedSeconds)) <= 0.5;
+  }, 'mission timer resumed after reconnect', 3_000);
+  assert(resumed, 'mission timer did not resume');
   await waitFor(() => floorObjective(messagesBReconnect, 2, choice.seed), 'objective snapshot resent on reconnect', 2_000);
   const resent = floorObjective(messagesBReconnect, 2, choice.seed);
   assert(resent.state.progress >= partialProgress && resent.state.step >= partialStep, `reconnect objective state regressed: ${JSON.stringify(resent.state)}`);
@@ -275,7 +284,7 @@ async function phaseB(endpoint) {
   host.send('run-next-floor', { floor: 2 });
   await waitForFloor([host, reconnected], 3);
   assert(!host.state.run.ended && !reconnected.state.run.ended, 'phase B run ended after reconnect floor');
-  result.notes.phaseB = { seed: choice.seed, objective: choice.plan.objective.kind, partialProgress, partialStep, reconnectSeq: resent.state.seq };
+  result.notes.phaseB = { seed: choice.seed, objective: choice.plan.objective.kind, partialProgress, partialStep, reconnectSeq: resent.state.seq, timer: { t0, t1, resumed } };
 }
 
 async function main() {
