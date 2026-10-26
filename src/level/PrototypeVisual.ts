@@ -44,7 +44,7 @@ export function dressPrototype(body: Mesh, scene: Scene): void {
     const dot = pick(CreateSphere('p01-led', { diameter: 0.07, segments: 8 }, scene));
     dot.position.set(0.41, y * 0.85, 0); dot.material = led;
   }
-  // Two spine rails keep it reading as an engineered instrument, not a bubble.
+  // Two structural rails keep it reading as an engineered instrument, not a bubble.
   for (const a of [0, Math.PI]) {
     const rail = pick(CreateCylinder('p01-rail', { height: 0.9, diameter: 0.05, tessellation: 8 }, scene));
     rail.position.set(Math.cos(a) * 0.39, 0, Math.sin(a) * 0.39); rail.material = alu;

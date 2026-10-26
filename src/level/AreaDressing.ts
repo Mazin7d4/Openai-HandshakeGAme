@@ -71,7 +71,7 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
 
   // ---------- 00 DELIVERY APRON ----------
   // Base trims: oak skirting board (0.5 tall, 0.12 deep) and brushed-alu chair rail at y≈4.2
-  // on all apron wall faces, skipping the doorway gap and the spine opening.
+  // on all apron wall faces, skipping the doorway gap.
   // South wall (inner face z=-66.7):
   box(0, 0.25, -66.62, 37.4, 0.5, 0.12, p.wood);
   box(0, 4.2, -66.62, 37.4, 0.12, 0.12, p.metal);
@@ -82,10 +82,10 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   // East of doorway gap x[-6..3]:
   box(10.85, 0.25, -55.33, 15.7, 0.5, 0.12, p.wood);
   box(10.85, 4.2, -55.33, 15.7, 0.12, 0.12, p.metal);
-  // West of doorway gap up to spine opening at x=-12:
+  // West of doorway gap:
   box(-9.0, 0.25, -55.33, 6.0, 0.5, 0.12, p.wood);
   box(-9.0, 4.2, -55.33, 6.0, 0.12, 0.12, p.metal);
-  // West wall (inner face x=-18.7) south of existing spine trim at z=-60:
+  // West wall south of the entry partition:
   box(-18.62, 0.25, -63.35, 0.12, 0.5, 6.7, p.wood);
   box(-18.62, 4.2, -63.35, 0.12, 0.12, 6.7, p.metal);
 
@@ -248,16 +248,17 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
     for (let i = 0; i < 4; i++) cyl(x - 0.6 + i * 0.4, 8.47, -14, 22, 0.24, 0.24, i % 2 ? p.blue : cable, 6).rotation.x = Math.PI / 2;
   }
   // Glowing LED bars on the rack faces (cold aisle) and amber backs, all one merged mesh per colour.
-  for (const [z, x, width] of [[-21, -4, 16], [-13, 7, 22]] as const) {
-    for (let dx = -width / 2 + 1.2; dx < width / 2; dx += 2.4) {
-      box(x + dx, 7.55, z - 1.38, 1.4, 0.08, 0.03, cyanLed);
-      box(x + dx, 7.55, z + 1.38, 1.4, 0.08, 0.03, amberLed);
+  for (const x of [-8.5, 8.5] as const) {
+    for (let z = -22.5; z <= -9.5; z += 2.4) {
+      box(x, 5.55, z - 1.38, 1.4, 0.08, 0.03, cyanLed);
+      box(x, 5.55, z + 1.38, 1.4, 0.08, 0.03, amberLed);
     }
-    box(x, 7.85, z, width, 0.12, 2.8, p.metal);
+    box(x, 5.85, -16, 3, 0.12, 14, p.metal);
   }
-  // Perforated cold-aisle tiles and a yellow keep-clear floor line.
+  // Perforated cold-aisle tiles and subtle north-south architectural LED strips.
   for (let x = -11; x <= 17; x += 2.4) box(x, 0.02, -17, 2.2, 0.025, 2.2, x % 4.8 ? p.blue : p.metal);
-  box(3, 0.04, -24.5, 30, 0.02, 0.25, yellow); box(3, 0.04, -9, 30, 0.02, 0.25, yellow);
+  const coldAisle = make('cold-aisle-led', '#4A5D91', 0.55, 0, '#536DD1');
+  box(-2, 0.045, -16, 0.12, 0.03, 14, coldAisle); box(2, 0.045, -16, 0.12, 0.03, 14, coldAisle);
   // Precision cooling units and copper refrigerant runs on the east wall.
   for (const z of [-22, -9]) {
     kit.place({ prop: 'Cooling', x: 17.4, z });
@@ -265,6 +266,18 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   }
   for (const y of [7.8, 8.3]) cyl(18.3, y, -15.5, 20, 0.3, 0.3, copper, 8).rotation.x = Math.PI / 2;
   pendant(-4, -17, 8); pendant(8, -9, 8);
+
+  // ---------- 06 LOADING DOCK ----------
+  const kraft = make('dock-kraft', '#B98D61', 0.9);
+  const concrete = make('dock-concrete', '#8A8178', 0.9);
+  const dockMark = make('dock-marking', '#D7B46A', 0.65, 0, '#5A4325');
+  box(-14, 0.08, 29, 7, 0.05, 0.18, dockMark);
+  box(-14, 0.08, 30, 7, 0.05, 0.18, dockMark);
+  for (const [x, z, w, d] of [[-12, 38.5, 2.4, 1.6], [-8, 43, 2.8, 2], [5, 30, 2.2, 1.6]] as const) {
+    box(x, 1.15, z, w, 2.2, d, kraft);
+    box(x, 2.28, z, w + 0.08, 0.08, d + 0.08, concrete);
+  }
+  for (const z of [37, 39, 41, 43, 45]) box(-17.9, 1.7, z, 0.08, 3.2, 0.1, concrete);
 
   const merged: Mesh[] = [];
   for (const [material, meshes] of groups) {
@@ -275,7 +288,7 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
     merged.push(m);
   }
   // Freeze static dressing materials whose properties do not change at runtime.
-  for (const mat of [mustard, teal, pink, yellow, white, cyanLed, amberLed, copper, cable, apronWainscot, cork]) mat.freeze();
+  for (const mat of [mustard, teal, pink, yellow, white, cyanLed, amberLed, copper, cable, apronWainscot, cork, kraft, concrete, dockMark, coldAisle]) mat.freeze();
   return merged;
 }
 
