@@ -40,7 +40,8 @@ await runTest('campaign-solo', async (browser, notes) => {
   assert.equal(await page.getByTestId('level-card-l2-twin-levers').getAttribute('data-locked'), '1');
 
   const completed = [];
-  for (const level of CAMPAIGN_LEVELS) {
+  const levels = process.env.CAMPAIGN_LEVEL ? CAMPAIGN_LEVELS.filter((candidate) => candidate.id === process.env.CAMPAIGN_LEVEL) : CAMPAIGN_LEVELS;
+  for (const level of levels) {
     const layout = campaignLayout(level.id);
     await stageShowcase(page, level, layout);
     const completion = await completeLevel(page, level, layout);
@@ -162,6 +163,8 @@ async function carryPrototype(page, layout, alreadyHolding = false) {
     await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
     await page.waitForFunction(() => window.__autotest.heldObject?.('pix') === 'prototype', null, { timeout: 12_000 });
   }
+  // Let the real NEE bot settle alongside the carrier before the first narrow doorway.
+  await page.waitForTimeout(4000);
   for (const waypoint of extractionRoute(layout.loot, layout.extraction)) await gotoPoint(page, 'pix', waypoint, 1.7, true);
   await gotoPoint(page, 'pix', layout.extraction, 1.4, true);
 }
@@ -191,14 +194,14 @@ function extractionRoute(loot, extraction) {
   const reception = doorwayCenter(-43, -1.2);
   const candidates = [
     { x: vault.x, y: 2.2, z: vault.z },
-    { x: 0, y: 2.2, z: -8 },
+    { x: 0, y: 2.2, z: -3 },
     { x: 0, y: 9, z: -8 },
     { x: 0, y: 9, z: -20 },
     { x: office.x, y: 5.2, z: office.z },
     { x: 5, y: 5.2, z: reception.z },
     { x: 5, y: 7, z: -46 },
     { x: reception.x, y: 7, z: reception.z },
-    { x: reception.x, y: 6.2, z: reception.z },
+    { x: -5, y: 7, z: -40 },
     { x: -15.5, y: 7, z: -34 },
     { x: -15.5, y: 3, z: -9 },
     { x: extraction.x, y: extraction.y + 1.2, z: extraction.z },
