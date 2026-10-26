@@ -893,7 +893,7 @@ export class MultiplayerSession {
       const run = this.status.run;
       const key = Number.isFinite(message?.floor) && Number.isFinite(message?.seed)
         ? `${message.seed >>> 0}:${message.floor}:nightshift` : null;
-      const runMatches = run.mode === 'nightshift' && message?.floor === run.floor && (message?.seed >>> 0) === run.seed;
+      const runMatches = ['nightshift', 'campaign'].includes(run.mode) && message?.floor === run.floor && (message?.seed >>> 0) === run.seed;
       if (message?.state && key && (runMatches || this.lastFloorKey === key)) {
         for (const listener of this.objectiveStateListeners) listener(message);
       }
@@ -1149,13 +1149,13 @@ export class MultiplayerSession {
     if (!message || !Number.isFinite(message.seed) || !Number.isFinite(message.floor)) return;
     const mode = message.mode ?? this.status.run?.mode ?? 'standard';
     const seed = message.seed >>> 0;
-    if (mode === 'nightshift' && this.lastAppliedFloor !== null
+    if (['nightshift', 'campaign'].includes(mode) && this.lastAppliedFloor !== null
       && (message.floor < this.lastAppliedFloor
         || (message.floor === this.lastAppliedFloor && seed !== this.lastAppliedSeed))) return;
     const key = `${seed}:${message.floor}:${mode}`;
     if (this.lastFloorKey === key) return;
     this.lastFloorKey = key;
-    if (mode === 'nightshift') {
+    if (['nightshift', 'campaign'].includes(mode)) {
       this.lastAppliedFloor = message.floor;
       this.lastAppliedSeed = seed;
     }

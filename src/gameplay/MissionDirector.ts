@@ -90,6 +90,7 @@ export class MissionDirector {
   private spotCooldown = 0;
   private tetherSaveCooldown = 0;
   private completedPresented = false;
+  private campaignVaultOpen = false;
   private cameraDisabledFor = 0;
   private hacksWereComplete = false;
   private clotheslines = 0;
@@ -387,6 +388,11 @@ export class MissionDirector {
     this.runLayout = run;
     this.floorScored = false;
     this.completedPresented = false;
+    this.campaignVaultOpen = false;
+    if (run.plan?.campaign && !this.multiplayer) {
+      this.state = { ...this.state, stage: 'steal-prototype', alarm: false, securityActive: false, extracted: false };
+      this.lastStage = 'infiltrate';
+    }
     this.vault.set(run.loot.x, run.loot.y, run.loot.z);
     this.extraction.set(run.extraction.x, run.extraction.y, run.extraction.z);
     this.security.applyRunLayout(run);
@@ -434,7 +440,7 @@ export class MissionDirector {
   }
 
   notifyGrab(objectId: string, role: DroneRole): void {
-    if (this.multiplayer || objectId !== 'prototype' || !this.state.stage.startsWith('steal')) return;
+    if (this.multiplayer || objectId !== 'prototype' || (!this.state.stage.startsWith('steal') && !this.runLayout?.plan?.campaign)) return;
     this.state = { ...this.state, stage: 'escape', alarm: true, securityActive: true, prototypeHeldBy: role };
     this.beginAlarm();
   }
@@ -472,7 +478,7 @@ export class MissionDirector {
         this.state = { ...this.state, stage: 'steal-prototype' };
       }
       const holder = grab.objectHeldBy('prototype');
-      if (holder && !this.state.alarm && hack.allComplete()) this.notifyGrab('prototype', holder);
+      if (holder && !this.state.alarm && (hack.allComplete() || this.runLayout?.plan?.campaign)) this.notifyGrab('prototype', holder);
       this.state = { ...this.state, prototypeHeldBy: holder };
       if (this.state.stage === 'escape' && holder) {
         const bothInside = [...drones.values()].every((drone) => Vector3.Distance(drone.position, this.extraction) <= 5.5);
@@ -490,7 +496,7 @@ export class MissionDirector {
       alarm: this.state.alarm,
       complete: this.state.extracted,
       officeOpen: hack.isComplete('terminal-a') && hack.isComplete('terminal-b'),
-      vaultOpen: hack.allComplete(),
+      vaultOpen: hack.allComplete() || this.campaignVaultOpen,
       stage: this.state.stage,
       hacked: { 'terminal-a': hack.isComplete('terminal-a'), 'terminal-b': hack.isComplete('terminal-b'), 'terminal-c': hack.isComplete('terminal-c') },
       prototypeHeld: this.state.prototypeHeldBy !== null,
@@ -581,7 +587,14 @@ export class MissionDirector {
   }
 
   get cameraContext() {
-    return { alarm: this.state.alarm, vaultOpen: this.hacksWereComplete, complete: this.state.extracted };
+    return { alarm: this.state.alarm, vaultOpen: this.hacksWereComplete || this.campaignVaultOpen, complete: this.state.extracted };
+  }
+
+  /** Presentation-only payoff for the final authored campaign phase. */
+  campaignFinale(): void {
+    if (this.campaignVaultOpen || this.runLayout?.plan?.campaign?.index !== 5) return;
+    this.campaignVaultOpen = true;
+    gameEvents.emit('heist', { beat: 'vault', position: this.vault.clone() });
   }
 
   /** A rescue yank. Multiplayer: the server counts it when it relays the yank. */
@@ -690,7 +703,7 @@ export class MissionDirector {
     const planJobName = plan?.job.name.replace(/^VAULT:\s*/i, '') ?? '';
     const kicker = plan
       ? plan.campaign
-        ? `Campaign ${plan.campaign.index}/5 · ${planJobName}`
+        ? plan.campaign.index === 5 ? 'BOSS VAULT' : planJobName
         : `${plan.job.boss ? 'BOSS VAULT' : 'Night job'} · ${planJobName}`
       : job.kicker;
     if (this.objectiveKicker && this.objectiveKicker.textContent !== kicker) this.objectiveKicker.textContent = kicker;
@@ -709,7 +722,7 @@ export class MissionDirector {
           ? objectiveActive
             ? [syncedObjective.label, syncedObjective.detail]
             : [
-                job.steal,
+                plan?.campaign ? 'Carry prototype home' : job.steal,
                 'The vault is open. Rise to the display cradle; ' +
                   byInput({
                     keyboard: '[E] to carry the core.',
@@ -1023,11 +1036,14 @@ export class MissionDirector {
     const boss = this.runLayout.plan?.job.boss === true;
     const campaign = this.runLayout.plan?.campaign;
     this.floorChip.textContent = campaign
-      ? `Campaign ${campaign.index}/5${boss ? ' · Boss' : ''}`
+      ? campaign.index === 5 ? 'BOSS VAULT' : `Campaign ${campaign.index}/5 · ${this.runLayout.plan?.job.name ?? ''}`
       : boss ? `Floor ${floor} · Boss` : `Floor ${floor}`;
     this.floorChip.classList.toggle('floor-chip--boss', boss);
     if (this.twistChip && this.runLayout.twist) {
-      this.twistChip.textContent = this.runLayout.twist.label;
+      this.twistChip.textContent = campaign
+        ? ['Warm vault', 'Glass lock', 'Warm metal', 'Lights out', 'Alarm red'][campaign.index - 1] ?? ''
+        : this.runLayout.twist.label;
+      this.twistChip.hidden = !this.twistChip.textContent;
     }
     this.updateScoreHud();
   }
@@ -1088,7 +1104,7 @@ export class MissionDirector {
       const scored = scoreCampaignLevel({
         seconds: stats.elapsedSeconds,
         parSeconds,
-        lootIntact: true,
+        lootIntact: this.objectiveState?.shatters === 0,
         timesSpotted: stats.timesSpotted,
       });
       this.presentCampaignReport(stats, scored.stars);

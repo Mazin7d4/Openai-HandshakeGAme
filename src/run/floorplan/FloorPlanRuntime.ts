@@ -2,6 +2,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import {
   applyObjectiveSnapshot,
+  completeFragileCarry,
   createObjectiveState,
   lootLocked,
   objectiveBotAvoidYank,
@@ -63,6 +64,7 @@ export class FloorPlanRuntime {
   private readonly yankCounts = { pix: 0, nee: 0 };
   private elapsed = 0;
   private generation = 0;
+  private campaignFinaleShown = false;
   private removeNetworkListeners: (() => void)[] = [];
 
   constructor(
@@ -87,6 +89,8 @@ export class FloorPlanRuntime {
           }
           applyObjectiveSnapshot(this.objectiveState, message.state);
           this.advanceCampaignPhaseIfReady();
+          this.presentCampaignPhase();
+          this.maybePresentCampaignFinale();
           this.mission.setObjectiveState(this.activeObjectivePlan, this.objectiveState);
         }),
         session.onHazardTrip((message) => this.hazardVisuals?.flash(message.id)),
@@ -107,6 +111,7 @@ export class FloorPlanRuntime {
       return;
     }
     this.phaseIndex = 0;
+    this.campaignFinaleShown = false;
     this.activeObjectivePlan = plan.phases?.[0] ?? plan.objective;
     this.objectiveState = createObjectiveState(this.activeObjectivePlan);
     this.yankCounts.pix = 0;
@@ -163,6 +168,8 @@ export class FloorPlanRuntime {
           }
         }
         this.advanceCampaignPhaseIfReady();
+        this.presentCampaignPhase();
+        this.maybePresentCampaignFinale();
       }
       const trips = this.objectiveGate.filter(
         checkHazardTrips(plan.hazards, this.elapsed, this.playerInputs, cordState.path as readonly Vec3[]),
@@ -243,6 +250,13 @@ export class FloorPlanRuntime {
   get phase(): number { return this.phaseIndex; }
   get plan() { return this.layout?.plan ?? null; }
 
+  /** Mark an authored fragile carry complete once the mission extraction check passes. */
+  completeAtExtraction(): void {
+    const plan = this.activeObjectivePlan ?? this.layout?.plan?.objective;
+    if (!plan || !this.objectiveState) return;
+    if (completeFragileCarry(this.objectiveState, plan)) this.maybePresentCampaignFinale();
+  }
+
   dispose(): void {
     this.disposeFloor();
     for (const remove of this.removeNetworkListeners) remove();
@@ -274,6 +288,7 @@ export class FloorPlanRuntime {
     this.objectiveState = null;
     this.activeObjectivePlan = null;
     this.phaseIndex = 0;
+    this.campaignFinaleShown = false;
     this.previousVelocity.clear();
   }
 
@@ -340,5 +355,20 @@ export class FloorPlanRuntime {
     });
     this.mission.setObjectiveState(this.activeObjectivePlan, this.objectiveState);
     this.publishDebugHook();
+  }
+
+  private presentCampaignPhase(): void {
+    const campaign = this.layout?.plan?.campaign;
+    if (!campaign || campaign.index !== 5 || !this.layout?.plan?.phases?.length) return;
+    if (this.phaseIndex !== this.layout.plan.phases.length - 1) return;
+    this.mission.campaignFinale();
+  }
+
+  private maybePresentCampaignFinale(): void {
+    const plan = this.layout?.plan;
+    if (!plan?.campaign || !plan.phases?.length || this.phaseIndex !== plan.phases.length - 1 || !this.objectiveState?.done) return;
+    if (this.campaignFinaleShown) return;
+    this.campaignFinaleShown = true;
+    this.mission.campaignFinale();
   }
 }

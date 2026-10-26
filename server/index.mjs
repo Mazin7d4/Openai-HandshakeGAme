@@ -380,7 +380,7 @@ class HandshakeRoom extends Room {
     this.onMessage('mission-tether-save', (client) => this.reportTetherSave(client.sessionId));
     this.onMessage('mission-retry', () => {
       this.resetPlayerStats();
-      if (this.state.run.mode === 'nightshift') {
+      if (['nightshift', 'campaign'].includes(this.state.run.mode)) {
         this.state.run.floorCleared = false;
         this.nightshiftEscapedFloor = 0;
         this.nsFloors = dropFloorsFrom(this.nsFloors, this.state.run.floor);
@@ -760,7 +760,7 @@ class HandshakeRoom extends Room {
       const scoredCampaign = scoreCampaignLevel({
         seconds: this.state.mission.elapsedSeconds,
         parSeconds,
-        lootIntact: true,
+        lootIntact: this.objectiveSim.state.shatters === 0,
         timesSpotted: this.state.mission.timesSpotted,
       });
       this.broadcast('campaign-complete', {
@@ -789,7 +789,7 @@ class HandshakeRoom extends Room {
   handleCapture(sessionId) {
     if (!this.state.players.has(sessionId)) return;
     const run = this.state.run;
-    if (run.mode !== 'nightshift' || run.ended) return;
+    if (!['nightshift', 'campaign'].includes(run.mode) || run.ended) return;
     const result = recordCapture({
       mode: run.mode,
       seed: run.seed,
@@ -817,7 +817,7 @@ class HandshakeRoom extends Room {
 
   reportTwang(sessionId) {
     const run = this.state.run;
-    if (run.mode !== 'nightshift' || run.ended || run.floorCleared || !this.state.players.has(sessionId)) return;
+    if (!['nightshift', 'campaign'].includes(run.mode) || run.ended || run.floorCleared || !this.state.players.has(sessionId)) return;
     const now = Date.now();
     const entry = this.nsTwangs.get(sessionId) ?? { floor: run.floor, count: 0, at: 0 };
     if (entry.floor !== run.floor) {
@@ -1173,7 +1173,7 @@ class HandshakeRoom extends Room {
     if (!player?.connected || player.captured || !object || distance(player.position, object.position) > object.grabRadius) {
       return;
     }
-    if (object.id === 'prototype' && (!this.state.hack.doorOpen || this.objectiveSim.locked)) return;
+    if (object.id === 'prototype' && ((this.state.run.mode !== 'campaign' && !this.state.hack.doorOpen) || this.objectiveSim.locked)) return;
     const now = Date.now();
     if (now - (this.lastGrabMs.get(sessionId) ?? 0) < GRAB_COOLDOWN_MS) return;
     this.lastGrabMs.set(sessionId, now);
@@ -1414,6 +1414,8 @@ class HandshakeRoom extends Room {
         mission.stage = 'complete';
         mission.securityActive = false;
         if (this.state.run.mode === 'nightshift' || this.state.run.mode === 'campaign') {
+          this.objectiveSim.completeAtExtraction();
+          this.broadcastObjectiveState(true);
           this.clearFloor();
         } else if (this.state.run.mode === 'daily') {
           this.recordLeaderboard('mission-complete');
@@ -1620,7 +1622,7 @@ class HandshakeRoom extends Room {
 
   /** Night Shift: rescue window expired or both drones grabbed → recordCapture. */
   onCaptureOutcome(kind) {
-    if (this.state.run.mode !== 'nightshift' || this.state.run.ended) return;
+    if (!['nightshift', 'campaign'].includes(this.state.run.mode) || this.state.run.ended) return;
     // Pick any connected session so handleCapture's seat check passes.
     const sessionId = Array.from(this.state.players.keys())[0];
     if (!sessionId) return;
@@ -1893,7 +1895,7 @@ class HandshakeRoom extends Room {
       }
     }
     const mission = this.state.mission;
-    mission.stage = 'infiltrate';
+    mission.stage = this.state.run.mode === 'campaign' ? 'steal-prototype' : 'infiltrate';
     mission.alarm = false;
     mission.securityActive = false;
     mission.prototypeHeldBy = '';
@@ -1903,7 +1905,7 @@ class HandshakeRoom extends Room {
     mission.objectsThrown = 0;
     mission.tetherSaves = 0;
     this.missionStartedAt = Date.now();
-    this.objectiveSim.reset(this.floorPlan?.objective ?? null);
+    this.objectiveSim.reset(this.floorPlan?.phases?.[0] ?? this.floorPlan?.objective ?? null);
     this.hazardGate = new HazardTripGate();
     this.objectiveBroadcastSeq = -1;
     this.objectiveBroadcastElapsed = 0;

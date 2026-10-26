@@ -243,6 +243,7 @@ function showMainMenu(): void {
 
 function showCampaignSelect(): void {
   const panel = menuPanel('Campaign', 'Five handmade levels. Each one adds a new tether trick.');
+  panel.classList.add('campaign-select-panel');
   panel.dataset.testid = 'level-select';
   const progress = loadCampaignProgress();
   const grid = element('div', 'campaign-level-grid');
@@ -251,13 +252,17 @@ function showCampaignSelect(): void {
     card.dataset.testid = `level-card-${id}`;
     const unlocked = campaignIsUnlocked(index + 1, progress);
     card.dataset.locked = unlocked ? '0' : '1';
-    const title = element('h2', '', `${index + 1}. ${name}`);
-    const detail = element('p', '', unlocked ? teaches : `Finish ${CAMPAIGN_META[index - 1]?.[1] ?? 'the previous level'} to unlock`);
+    const header = element('div', 'campaign-level-card__header');
+    const number = element('span', 'campaign-level-card__number', String(index + 1).padStart(2, '0'));
+    const title = element('h2', '', name);
+    header.append(number, title);
+    const detail = element('p', 'campaign-level-card__teaches', unlocked ? teaches : `Finish ${CAMPAIGN_META[index - 1]?.[1] ?? 'the previous level'} to unlock`);
     const stars = element('div', 'campaign-stars');
     const earned = progress.levels[id]?.stars ?? [false, false, false];
     for (const [starIndex, label] of ['Time star', 'Loot star', 'No-alarm star'].entries()) {
       const star = element('span', earned[starIndex] ? 'campaign-star campaign-star--earned' : 'campaign-star', '★');
       star.setAttribute('aria-label', label);
+      star.title = label;
       stars.append(star);
     }
     const start = menuButton(unlocked ? 'Play' : 'Locked', `campaign-play-${id}`, () => {
@@ -268,9 +273,11 @@ function showCampaignSelect(): void {
       void startGame('campaign');
     });
     if (!unlocked) start.disabled = true;
-    const friend = menuButton('Play with a friend', `campaign-friend-${id}`, () => { if (unlocked) void createRoom({ mode: 'campaign', levelId: id }); });
+    const actions = element('div', 'campaign-level-card__actions');
+    const friend = menuButton('Co-op', `campaign-friend-${id}`, () => { if (unlocked) void createRoom({ mode: 'campaign', levelId: id }); });
     if (!unlocked) friend.disabled = true;
-    card.append(title, detail, stars, start, friend);
+    actions.append(start, friend);
+    card.append(header, detail, stars, actions);
     grid.append(card);
   }
   const unlock = element('button', 'campaign-unlock', 'Unlock all');

@@ -54,6 +54,7 @@ let ended = false;
 const floorListeners = new Set<FloorStartListener>();
 let layoutSinkProvider: LayoutSinkProvider | null = null;
 let nightShiftLayoutGenerator: (seed: number, floor: number) => RunLayout = generateRun;
+let campaignLayoutGenerator: ((levelId: string) => RunLayout) | null = null;
 let campaignLevelId: string | null = null;
 
 function toSnapshot(state: RunState): ClientRunSnapshot {
@@ -95,6 +96,11 @@ export function setNightShiftLayoutGenerator(
   nightShiftLayoutGenerator = generator ?? generateRun;
 }
 
+/** Installed by the lazy game chunk so campaign rooms share their authored plan. */
+export function setCampaignLayoutGenerator(generator: ((levelId: string) => RunLayout) | null): void {
+  campaignLayoutGenerator = generator;
+}
+
 export function onFloorStart(listener: FloorStartListener): () => void {
   floorListeners.add(listener);
   return () => {
@@ -112,6 +118,10 @@ export function applyFloorStart(payload: FloorStartPayload): RunLayout | null {
   let layout: RunLayout | null = null;
   if (mode === 'nightshift') {
     layout = nightShiftLayoutGenerator(payload.seed, payload.floor);
+    const sinks = layoutSinkProvider?.() ?? undefined;
+    applyRunLayout(layout, sinks ?? undefined);
+  } else if (mode === 'campaign' && campaignLayoutGenerator && (payload.levelId ?? campaignLevelId)) {
+    layout = campaignLayoutGenerator(payload.levelId ?? campaignLevelId!);
     const sinks = layoutSinkProvider?.() ?? undefined;
     applyRunLayout(layout, sinks ?? undefined);
   }

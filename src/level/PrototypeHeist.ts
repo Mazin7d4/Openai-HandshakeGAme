@@ -47,6 +47,25 @@ export function updateHeistPresentation(scene: Scene, dt: number, state: HeistPr
   levels.get(scene)?.update(dt, state);
 }
 
+/** Cheap authored campaign mood pass: existing lights/materials only, no extra draw work. */
+export function applyCampaignPalette(scene: Scene, index: number): void {
+  const palettes = [
+    { clear: '#9a806d', ambient: '#46372f', light: '#ffd49a' },
+    { clear: '#718b9a', ambient: '#2c3e49', light: '#b9e8ff' },
+    { clear: '#9b7659', ambient: '#493126', light: '#ffc47d' },
+    { clear: '#253647', ambient: '#101821', light: '#8bb9ff' },
+    { clear: '#6e2b34', ambient: '#291116', light: '#ff8b68' },
+  ][Math.max(0, Math.min(4, index - 1))];
+  if (!palettes) return;
+  scene.clearColor = Color4.FromHexString(`${palettes.clear}FF`);
+  scene.ambientColor = Color3.FromHexString(palettes.ambient);
+  const sun = scene.getLightByName('sun');
+  if (sun) sun.diffuse = Color3.FromHexString(palettes.light);
+  const fill = scene.getLightByName('fill');
+  if (fill) fill.diffuse = Color3.FromHexString(palettes.light);
+  scene.metadata = { ...(scene.metadata ?? {}), campaignPalette: index };
+}
+
 /** Hand-authored first mission. Geometry owns no mission or network state. */
 export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   const p = createLabPalette(scene);

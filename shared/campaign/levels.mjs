@@ -26,8 +26,14 @@ function campaignJob(level) {
 function authoredPlan(level, layout) {
   if (level.index === 1) {
     const source = generateFloorPlan(level.seed, 1, { ...layout, floor: 1 });
+    const objective = {
+      ...source.objective,
+      label: 'Carry prototype home',
+      hint: 'Fly together with the cord, grab the prototype, and bring it to extraction.',
+    };
     return {
       ...source,
+      objective,
       job: campaignJob(level),
       hazards: [],
       campaign: { levelId: level.id, index: level.index },
@@ -43,12 +49,30 @@ function authoredPlan(level, layout) {
   }
   if (level.index === 4) {
     const source = phaseFor(level.seed, 4, layout, 'relay');
+    const fragile = {
+      kind: 'fragile',
+      label: 'Carry fragile core',
+      hint: 'The relay unlocked the core. Carry it home without yanking the cord.',
+      cracksToShatter: 3,
+      fragileLoot: { cracksToShatter: 3 },
+    };
     const objective = { ...source.objective, fragileLoot: { cracksToShatter: 3 } };
-    return { ...source, objective, job: campaignJob(level), campaign: { levelId: level.id, index: level.index } };
+    return {
+      ...source,
+      objective,
+      phases: [objective, fragile],
+      job: campaignJob(level),
+      campaign: { levelId: level.id, index: level.index },
+    };
   }
   const twin = phaseFor(level.seed, 5, layout, 'twin-levers').objective;
   const pylon = phaseFor(level.seed + 0x1111, 5, layout, 'pylon-safe').objective;
-  const fragile = { ...phaseFor(level.seed + 0x2222, 4, layout, 'fragile').objective, fragileLoot: { cracksToShatter: 3 } };
+  const fragile = {
+    ...phaseFor(level.seed + 0x2222, 4, layout, 'fragile').objective,
+    label: 'Carry fragile core',
+    hint: 'The big vault is open. Carry the fragile core home without a yank.',
+    fragileLoot: { cracksToShatter: 3 },
+  };
   const source = phaseFor(level.seed, 5, layout, 'twin-levers');
   return {
     ...source,

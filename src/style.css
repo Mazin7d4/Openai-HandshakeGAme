@@ -1271,19 +1271,29 @@ html[data-reduced-motion='1'] .wake-spinner { display: none; }
 @media (max-height: 420px) { .escape-replay__stamp { top: 83%; padding: 8px 16px; border-width: 4px; } .escape-replay__bar { height: 10%; } .escape-replay__tag { top: calc(10% + 8px); } .escape-replay__skip { bottom: calc(10% + 8px); } }
 .heist-report__replay[hidden] { display: none !important; }
 
-.campaign-level-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; max-height: min(58vh, 500px); overflow: auto; padding: 2px; }
-.campaign-level-card { display: grid; gap: 6px; padding: 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; background: rgba(15,25,27,.72); }
-.campaign-level-card h2 { margin: 0; font: 700 18px/1.1 var(--font-title); }
-.campaign-level-card p { margin: 0; min-height: 34px; color: var(--muted); font-size: 13px; }
+.campaign-select-panel { max-height: calc(100dvh - 24px); overflow: auto; }
+.campaign-level-grid { display: grid; gap: 8px; padding: 2px; }
+.campaign-level-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(100px, 160px) auto auto; grid-template-areas: 'main teaches stars actions'; align-items: center; gap: 8px 10px; padding: 9px 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; background: rgba(15,25,27,.72); }
+.campaign-level-card__header { grid-area: main; display: flex; min-width: 0; align-items: baseline; gap: 8px; }
+.campaign-level-card__number { color: var(--pix); font: 800 13px/1 var(--font-screen); }
+.campaign-level-card h2 { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 18px/1.1 var(--font-title); }
+.campaign-level-card p { grid-area: teaches; min-width: 112px; max-width: 160px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.15; }
 .campaign-level-card[data-locked="1"] { opacity: .62; }
-.campaign-stars { display: flex; gap: 7px; color: #6b7775; }
+.campaign-stars { display: flex; gap: 2px; color: #6b7775; }
 .heist-report__campaign { margin: 8px auto 14px; text-align: center; }
 .heist-report__campaign p { margin: 4px 0; }
 .heist-report__campaign-stars { color: #d99a2b; font-size: 1.8rem; letter-spacing: .12em; }
-.campaign-star { font-size: 20px; line-height: 1; }
+.campaign-star { font-size: 18px; line-height: 1; }
 .campaign-star--earned { color: #ffd23f; }
-.campaign-level-card .menu-button { min-height: 44px; }
+.campaign-level-card__actions { grid-area: actions; display: flex; gap: 6px; }
+.campaign-level-card .menu-button { min-height: 40px; padding: 7px 10px; white-space: nowrap; }
 .campaign-unlock { min-height: 44px; border: 0; background: none; color: var(--muted); text-decoration: underline; cursor: pointer; }
-@media (max-width: 520px) { .campaign-level-grid { grid-template-columns: 1fr; max-height: 55vh; } }
+@media (max-width: 600px) {
+  .campaign-select-panel { width: min(440px, 100%); }
+  .campaign-level-card { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'main stars' 'teaches teaches' 'actions actions'; }
+  .campaign-level-card p { max-width: none; min-width: 0; }
+  .campaign-level-card__actions { justify-content: stretch; }
+  .campaign-level-card__actions .menu-button { flex: 1; }
+}
 /* The replay is a clean cinematic: hide the play HUD while it runs. */
 body.escape-replay-on :is(.mission-objective, .onboarding-coach, .interaction-prompt, .active-drone-hud, .controls-card, .juice-toasts, .touch-controls, .network-hud, .run-hud, .floor-card, #dev-readout, #dev-controls) { visibility: hidden !important; }

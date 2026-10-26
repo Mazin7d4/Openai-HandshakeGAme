@@ -14,6 +14,7 @@ import type { RunLayout } from '../seed/index.ts';
 import { BOT_TUNING } from '../../shared/bot/brain.mjs';
 import { applyRunLayout } from '../seed/index.ts';
 import { generateNightShiftRun } from '../seed/nightShiftRun.ts';
+import { generateCampaignRun } from '../seed/campaignRun.ts';
 import { getRunState, onFloorStart, setLayoutSinkProvider } from '../run/ClientRun.ts';
 import { GrabSystem } from './GrabSystem.ts';
 import { Grabbable } from './Grabbable.ts';
@@ -141,7 +142,7 @@ export class GameplayWorld {
         },
         onThrow: () => this.mission.notifyThrow(),
         canGrab: (objectId) => objectId !== 'prototype' || (
-          this.hack.allComplete() && (this.floorPlanRuntime?.canGrabPrototype() ?? true)
+          (this.runLayout?.plan?.campaign || this.hack.allComplete()) && (this.floorPlanRuntime?.canGrabPrototype() ?? true)
         ),
       },
     );
@@ -173,6 +174,8 @@ export class GameplayWorld {
       const run = session.currentStatus.run ?? getRunState();
       if (run?.mode === 'nightshift' && !runLayout) {
         this.applySoloLayout(generateNightShiftRun(run.seed, run.floor));
+      } else if (run?.mode === 'campaign' && !runLayout && run.levelId) {
+        this.applySoloLayout(generateCampaignRun(run.levelId));
       }
     } else if (runLayout) {
       this.applySoloLayout(runLayout);
@@ -239,6 +242,7 @@ export class GameplayWorld {
     this.hack.update(dt, drones);
     this.floorPlanRuntime.update(dt, drones);
     this.mission.update(dt, drones, this.hack, this.grab, tetherStrain);
+    if (this.mission.stage === 'complete') this.floorPlanRuntime.completeAtExtraction();
   }
 
   applyHazardPhysics(dt: number, drones: ReadonlyMap<DroneRole, Drone>): void {

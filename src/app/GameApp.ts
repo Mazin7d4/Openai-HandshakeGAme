@@ -17,6 +17,7 @@ import { reportStabilityIssue, StabilityDiagnostics } from '../dev/StabilityDiag
 import { TETHER_TUNING, Tether } from '../gameplay/Tether.ts';
 import { GameplayWorld } from '../gameplay/GameplayWorld.ts';
 import { addContactShadows } from '../level/ContactShadows.ts';
+import { applyCampaignPalette } from '../level/PrototypeHeist.ts';
 import { gameEvents } from '../gameplay/GameEvents.ts';
 import { Juice } from '../gameplay/Juice.ts';
 import { TetherMoves, type YankKind } from '../gameplay/TetherMoves.ts';
@@ -25,7 +26,7 @@ import { zeroFlightAxes } from '../input/FlightAxes.ts';
 import { PLAYER_ONE_KEYS } from '../input/KeyboardInput.ts';
 import { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole, EmoteId } from '../network/NetworkTypes.ts';
-import { getRunState, setNightShiftLayoutGenerator } from '../run/ClientRun.ts';
+import { getRunState, setCampaignLayoutGenerator, setNightShiftLayoutGenerator } from '../run/ClientRun.ts';
 import { Drone, DRONE_PALETTES } from '../player/Drone.ts';
 import { BotTag } from '../player/BotTag.ts';
 import { DRONE_MODEL_URL } from '../player/DroneVisual.ts';
@@ -336,7 +337,7 @@ export class GameApp {
             if (!reducedMotion) this.cameraRig.beat(pos, 2.4);
             if (!reducedMotion) this.cameraRig.addShake(0.12);
             for (const drone of this.drones) drone.react('happy', 2);
-            this.hud?.toast('Vault open. Meet P01', 'good');
+            this.hud?.toast(this.runLayout?.plan?.campaign?.index === 5 ? 'BIG VAULT CRACKED · x2' : 'Vault open. Meet P01', 'good');
             break;
           case 'pickup':
             if (!reducedMotion) {
@@ -459,9 +460,14 @@ export class GameApp {
     const runSeed = mode === 'night-shift' || mode === 'campaign' ? options.runSeed ?? getRunInfo() : null;
     setNightShiftLayoutGenerator(generateNightShiftRun);
     const campaignId = mode === 'campaign' ? new URLSearchParams(window.location.search).get('level') ?? runSeed?.levelId ?? 'l1-tethered' : null;
+    if (campaignId) {
+      const { generateCampaignRun } = await import('../seed/campaignRun.ts');
+      setCampaignLayoutGenerator(generateCampaignRun);
+    }
     const runLayout = mode === 'campaign' && campaignId
       ? (await import('../seed/campaignRun.ts')).generateCampaignRun(campaignId)
       : runSeed ? generateNightShiftRun(runSeed.seed, runSeed.floor) : null;
+    if (runLayout?.plan?.campaign) applyCampaignPalette(scene, runLayout.plan.campaign.index);
     // TEST-ONLY: ?autotest&stage=escape starts local modes in the alarm escape, beside the heavy crate.
     const escapeStage = Autopilot.enabled && mode !== 'multiplayer'
       && new URLSearchParams(window.location.search).get('stage') === 'escape';
@@ -622,9 +628,14 @@ export class GameApp {
       },
       /** Photo/test hook: pin the camera at eye looking at target (null restores the rig). */
       photo: (eye: { x: number; y: number; z: number } | null, target?: { x: number; y: number; z: number }) => {
+        this.cameraRig.setShowcaseMode(Boolean(eye));
         this.cameraRig.debugPose = eye && target
           ? { eye: new Vector3(eye.x, eye.y, eye.z), target: new Vector3(target.x, target.y, target.z) }
           : null;
+        if (eye) {
+          this.engine.setHardwareScalingLevel(1);
+          this.engine.resize();
+        }
       },
       /** Ask the server for a test stage (needs HANDSHAKE_TEST_HOOKS=1 on the server). */
       debugStage: (stage: 'hack-security' | 'steal-prototype' | 'escape') => {
