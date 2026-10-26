@@ -176,7 +176,10 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
   font: 800 30px/1 var(--font-title); letter-spacing: 0.2em; text-align: center; text-transform: uppercase;
 }
 .room-code-hint { margin-top: 8px; color: var(--pencil); font-size: 14px; }
-.invite-link { width: 100%; min-height: 48px; margin: 4px 0 10px; padding: 8px 10px; border: var(--rim); border-radius: var(--r-control); background: var(--warm-screen); font-size: 13px; }
+.invite-qr { display: grid; justify-items: center; width: min(184px, 60vw); max-width: 100%; margin: 0 auto 16px; padding: 8px; border-radius: var(--r-panel); background: #fff; }
+.invite-qr svg { display: block; width: 100%; height: auto; }
+.invite-qr figcaption { margin-top: 6px; color: var(--pencil); font-size: 12px; line-height: 1.2; text-align: center; }
+.invite-link { width: 100%; max-width: 100%; min-width: 0; min-height: 48px; margin: 4px 0 10px; padding: 8px 10px; border: var(--rim); border-radius: var(--r-control); background: var(--warm-screen); font-size: 13px; }
 .lobby-panel [data-testid='share-invite'] { margin-left: 8px; }
 .lobby-reconnecting { margin-top: 8px; color: var(--security-ink); font-weight: 700; }
 

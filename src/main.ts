@@ -58,8 +58,11 @@ function bindMenuNav(panel: HTMLElement, onBack?: () => void, initialFocus?: str
 }
 
 function roomInviteUrl(code: string): string {
-  const url = new URL(window.location.href);
+  const current = new URL(window.location.href);
+  const url = new URL(window.location.origin + window.location.pathname);
   url.searchParams.set('room', code.trim().toUpperCase());
+  const server = current.searchParams.get('server');
+  if (server !== null) url.searchParams.set('server', server);
   return url.toString();
 }
 
@@ -628,6 +631,7 @@ function showLobby(session: MultiplayerSession): void {
   const label = element('p', 'panel__kicker room-label', 'Room code');
   const code = element('p', 'room-code', session.roomCode);
   code.dataset.testid = 'room-code';
+  const qrHost = element('div');
   const copy = element('button', 'btn btn--primary menu-button', 'Copy invite link');
   copy.dataset.testid = 'copy-code';
   copy.type = 'button';
@@ -660,7 +664,8 @@ function showLobby(session: MultiplayerSession): void {
   reconnecting.dataset.testid = 'lobby-reconnecting';
   reconnecting.setAttribute('aria-live', 'polite');
   reconnecting.hidden = true;
-  panel.append(label, code, invite, copy, share, role, status, reconnecting);
+  panel.append(label, code, qrHost, invite, copy, share, role, status, reconnecting);
+  void import('./ui/InviteQr.ts').then(({ renderInviteQr }) => renderInviteQr(qrHost, invite.value));
   bindMenuNav(panel, () => {
     void session.dispose();
     showMultiplayerMenu();
