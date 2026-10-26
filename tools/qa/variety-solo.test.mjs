@@ -22,16 +22,16 @@ function routePoint(point) {
 }
 
 function fragileRoute(loot, extraction, toExtraction) {
-  const office = doorwayAt(-26, -1.2);
+  const office = doorwayAt(-26, 1.2);
   const vault = doorwayAt(2, 1.2);
-  const reception = doorwayAt(-43, -1.2);
+  const reception = doorwayAt(-43, 1.2);
   const spine = doorwayAt(-34, -1.2);
   const escape = doorwayAt(-9, -1.2);
   const route = toExtraction
     ? [
-        { x: vault.x, y: 3.2, z: vault.z },
-        { x: office.x, y: 3.2, z: office.z },
-        { x: reception.x, y: 6.2, z: reception.z },
+        { x: doorwayAt(2, -1.2).x, y: 3.2, z: doorwayAt(2, -1.2).z },
+        { x: doorwayAt(-26, -1.2).x, y: 3.2, z: doorwayAt(-26, -1.2).z },
+        { x: doorwayAt(-43, -1.2).x, y: 6.2, z: doorwayAt(-43, -1.2).z },
         { x: spine.x, y: 7, z: spine.z },
         { x: escape.x, y: 3, z: escape.z },
       ]
@@ -48,7 +48,7 @@ async function gotoPoint(page, role, point, tolerance = 1.5, hold = false) {
   await page.evaluate(({ role, point, tolerance, hold }) => window.__autotest.goto(role, point.x, point.y, point.z, tolerance, hold), { role, point, tolerance, hold });
   await page.waitForFunction(({ role, point, tolerance }) => {
     const current = window.__autotest.position(role);
-    return current && Math.hypot(current.x - point.x, current.y - point.y, current.z - point.z) <= Math.max(2.8, tolerance + 0.8);
+    return current && Math.hypot(current.x - point.x, current.y - point.y, current.z - point.z) <= Math.max(1.5, tolerance + 0.3);
   }, { role, point, tolerance }, { timeout: 45_000 });
 }
 

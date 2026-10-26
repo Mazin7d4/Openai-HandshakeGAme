@@ -168,26 +168,37 @@ async function carryPrototype(page, layout, alreadyHolding = false) {
 
 async function routeTo(page, from, target, options = {}) {
   const y = options.y ?? 7;
-  const reception = doorwayCenter(-43, -1.2);
-  const office = doorwayCenter(-26, -1.2);
+  const reception = doorwayCenter(-43, 1.2);
+  const office = doorwayCenter(-26, 1.2);
   const vault = doorwayCenter(2, 1.2);
   const route = [
     { x: reception.x, y: reception.y, z: reception.z },
+    { x: -3, y: 7, z: -31 },
+    { x: -3, y: 5.2, z: office.z },
     { x: office.x, y: 5.2, z: office.z },
-    { x: vault.x, y: 3.3, z: vault.z },
+    { x: -1, y: 9, z: -20 },
+    { x: 0, y: 9, z: -8 },
+    { x: 0, y: 3.3, z: vault.z },
     { x: target.x, y: Math.max(2.2, target.y), z: target.z },
   ];
   assert(route.every((point) => isRoutePointClear(point)), `route point intersects authored blocker: ${JSON.stringify(route)}`);
-  for (const point of route) await gotoPoint(page, 'pix', point, 2, true);
+  for (const point of route) await gotoPoint(page, 'pix', point, 0.9, true);
 }
 
 function extractionRoute(loot, extraction) {
+  const vault = doorwayCenter(2, -1.2);
+  const office = doorwayCenter(-26, -1.2);
+  const reception = doorwayCenter(-43, -1.2);
   const candidates = [
-    { x: loot.x, y: 3.3, z: 2 },
-    { x: 1, y: 3.3, z: -10 },
-    { x: 1, y: 5.2, z: -26 },
-    { x: 5, y: 5.2, z: -43 },
-    { x: -5, y: 6.2, z: -43 },
+    { x: vault.x, y: 2.2, z: vault.z },
+    { x: 0, y: 2.2, z: -8 },
+    { x: 0, y: 9, z: -8 },
+    { x: 0, y: 9, z: -20 },
+    { x: office.x, y: 5.2, z: office.z },
+    { x: 5, y: 5.2, z: reception.z },
+    { x: 5, y: 7, z: -46 },
+    { x: reception.x, y: 7, z: reception.z },
+    { x: reception.x, y: 6.2, z: reception.z },
     { x: -15.5, y: 7, z: -34 },
     { x: -15.5, y: 3, z: -9 },
     { x: extraction.x, y: extraction.y + 1.2, z: extraction.z },
@@ -212,7 +223,7 @@ async function gotoPoint(page, role, point, tolerance = 1.5, hold = false) {
   try {
     await page.waitForFunction(({ role, point, tolerance }) => {
       const current = window.__autotest.position(role);
-      return current && Math.hypot(current.x - point.x, current.y - point.y, current.z - point.z) <= Math.max(2.8, tolerance + 0.8);
+    return current && Math.hypot(current.x - point.x, current.y - point.y, current.z - point.z) <= Math.max(1.5, tolerance + 0.3);
     }, { role, point, tolerance }, { timeout: 45_000 });
   } catch (error) {
     const diagnostic = await page.evaluate((role) => ({ position: window.__autotest.position(role), objective: window.__floorPlan?.objective(), mission: window.__autotest.security?.()?.stage }), role).catch(() => null);
