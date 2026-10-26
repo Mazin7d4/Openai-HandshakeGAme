@@ -1,6 +1,7 @@
 // (c) Reconnect: (1) guest WebSocket drops abnormally -> auto-reconnect, overlay clears, state agrees.
 //                (2) guest reloads the page -> seat resumes (overlay and/or auto-rejoin).
-import { runTest, url, assert, collectErrors, tryShot, until, waitForGame, createAndJoin, joinRoom, worldState, compareWorld } from './lib.mjs';
+import { Client } from '@colyseus/sdk';
+import { runTest, url, assert, collectErrors, tryShot, until, waitForGame, createAndJoin, joinRoom, worldState, compareWorld, SERVER_URL } from './lib.mjs';
 
 const TRACK_WS = () => {
   const Native = window.WebSocket; window.__qaSockets = [];
@@ -134,6 +135,62 @@ await runTest('reconnect', async (browser, notes) => {
   fixme.status = fixme.ok ? (REJOIN_EXPECTED ? 'pass' : 'XPASS') : (REJOIN_EXPECTED ? 'FAIL' : 'xfail');
   notes.fixme = fixme;
   assert(!(REJOIN_EXPECTED && !fixme.ok), `rejoin expected but failed: ${JSON.stringify(fixme)}`);
+
+  // --- 4. partner drop banner (independent room and browser context) ---
+  const bannerHostCtx = await browser.newContext({ viewport: { width: 960, height: 540 } });
+  const bannerHost = await bannerHostCtx.newPage();
+  collectErrors(bannerHost, 'banner-host', errors);
+  await bannerHost.goto(url({ server: SERVER_URL }));
+  await bannerHost.getByTestId('multiplayer').click();
+  await bannerHost.getByTestId('create-room').click();
+  const bannerCode = (await bannerHost.getByTestId('room-code').innerText({ timeout: 20_000 })).trim();
+  const rawGuest = await new Client(SERVER_URL).joinById(bannerCode);
+  let snapshotTimer;
+  const sendRawSnapshot = (room) => {
+    const players = room.state?.players;
+    if (!players?.values) return;
+    const player = [...players.values()].find((candidate) => candidate.playerId === room.sessionId);
+    const position = player?.position;
+    if (!position) return;
+    room.send('snapshot', {
+      position: { x: position.x, y: position.y, z: position.z },
+      velocity: { x: 0, y: 0, z: 0 },
+      orientation: { pitch: 0, yaw: 0, roll: 0 },
+      boost: 'off', movement: 'idle', selfPowered: false, tetherPull: 0.9,
+    });
+  };
+  const startSnapshots = (room) => {
+    sendRawSnapshot(room);
+    snapshotTimer = setInterval(() => sendRawSnapshot(room), 100);
+  };
+  const stopSnapshots = () => { if (snapshotTimer) clearInterval(snapshotTimer); snapshotTimer = undefined; };
+  await Promise.all([
+    waitForGame(bannerHost),
+    new Promise((resolve) => {
+      const check = () => rawGuest.state?.players?.size === 2 ? resolve() : setTimeout(check, 25);
+      check();
+    }),
+  ]);
+  startSnapshots(rawGuest);
+  if (rawGuest.reconnection?.enabled !== undefined) rawGuest.reconnection.enabled = false;
+  const token = rawGuest.reconnectionToken;
+  assert(typeof token === 'string' && token.length > 0, 'raw guest has no reconnection token');
+  stopSnapshots();
+  rawGuest.connection.close(4999, 'qa-drop');
+  const banner = bannerHost.getByTestId('partner-overlay').and(bannerHost.locator('.visible'));
+  await banner.waitFor({ timeout: 8_000 });
+  const shownText = await bannerHost.getByTestId('partner-overlay').innerText();
+  assert(shownText.includes('Waiting for partner'), 'partner drop banner title missing');
+  assert(shownText.includes('Timer paused'), 'partner drop banner timer text missing');
+  await tryShot(bannerHost, 'reconnect-partner-banner');
+  const back = await new Client(SERVER_URL).reconnect(token);
+  startSnapshots(back);
+  await bannerHost.waitForFunction(() => !document.querySelector('[data-testid=partner-overlay]')?.classList.contains('visible'), null, { timeout: 8_000 });
+  stopSnapshots();
+  notes.partnerBanner = { shownText, hiddenAfterRejoin: true };
+  await back.leave(true).catch(() => {});
+  await bannerHostCtx.close().catch(() => {});
+
   notes.errors = errors;
   await guestCtx.close().catch(() => {});
   await hostCtx.close().catch(() => {});
