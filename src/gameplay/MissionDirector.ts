@@ -5,6 +5,7 @@ import type { Scene } from '@babylonjs/core/scene.js';
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { GameMode } from '../app/GameMode.ts';
 import type { FloorClearedMessage, MultiplayerSession, RunEndedMessage } from '../network/MultiplayerSession.ts';
+import type { LeaderboardNameResult, LeaderboardRecordedPayload } from '../network/LeaderboardApi.ts';
 import type {
   DroneNetworkState,
   DroneRole,
@@ -33,6 +34,9 @@ import { twistFlavor } from '../run/twistFlavor.ts';
 import type { NightShiftSummary } from '../ui/HeistReport.ts';
 import { getSettings, subscribeSettings } from '../ui/Settings.ts';
 import { isTouchPlayDevice } from '../ui/touchDetect.ts';
+import { hazardSummary } from '../../shared/nightshift/hazards.mjs';
+import { objectiveHud } from '../../shared/nightshift/objectives.mjs';
+import type { ObjectivePlan, ObjectiveState } from '../../shared/nightshift/types.d.ts';
 
 export interface WarmupStep {
   label: string;
@@ -126,6 +130,10 @@ export class MissionDirector {
   private objectiveKicker: HTMLElement | null = null;
   private objectiveTextKey = '';
   private rematchPartnerLeft = false;
+  private objectivePlan: ObjectivePlan | null = null;
+  private objectiveState: ObjectiveState | null = null;
+  private leaderboardPayload: LeaderboardRecordedPayload | null = null;
+  private leaderboardSkipReason: string | undefined;
 
   constructor(
     scene: Scene,
@@ -141,6 +149,7 @@ export class MissionDirector {
     this.mode = mode;
     this.uiParent = uiParent;
     this.multiplayer = multiplayer;
+    this.leaderboardPayload = multiplayer?.lastLeaderboard ?? null;
     this.audio = audio;
     this.alarmLight = new PointLight('alarm-light', new Vector3(0, 5.5, 8), scene);
     this.alarmLight.diffuse = new Color3(1, 0.05, 0.03);
@@ -177,8 +186,24 @@ export class MissionDirector {
     });
     const offFloorCleared = multiplayer?.onFloorCleared((message) => this.handleFloorCleared(message));
     const offRunEnded = multiplayer?.onRunEnded((message) => this.handleRunEnded(message));
+    const offLeaderboard = multiplayer?.onLeaderboard((payload) => {
+      this.leaderboardPayload = payload;
+      this.leaderboardSkipReason = undefined;
+      this.report?.setLeaderboard(payload);
+    });
+    const offLeaderboardSkipped = multiplayer?.onLeaderboardSkipped(({ reason }) => {
+      this.leaderboardPayload = null;
+      this.leaderboardSkipReason = reason;
+      this.report?.setLeaderboard(null, reason);
+    });
+    const offLeaderboardNameResult = multiplayer?.onLeaderboardNameResult((result: LeaderboardNameResult) => {
+      this.report?.setLeaderboardNameResult(result);
+    });
     const offRematchStart = multiplayer?.onRematchStart(() => {
       this.rematchPartnerLeft = false;
+      this.leaderboardPayload = null;
+      this.leaderboardSkipReason = undefined;
+      this.report?.setLeaderboard(null);
       this.resetLocal();
     });
     const offRematchPartnerLeft = multiplayer?.onRematchPartnerLeft(() => {
@@ -187,7 +212,7 @@ export class MissionDirector {
     });
     this.unsubscribe = () => {
       offStun?.(); offSpotted?.(); offShove?.(); offLine(); offYank(); offFloorCleared?.(); offRunEnded?.();
-      offRematchStart?.(); offRematchPartnerLeft?.();
+      offRematchStart?.(); offRematchPartnerLeft?.(); offLeaderboard?.(); offLeaderboardSkipped?.(); offLeaderboardNameResult?.();
     };
 
     if (uiParent) {
@@ -280,6 +305,9 @@ export class MissionDirector {
           }
         },
         onRematchVote: mode === 'multiplayer' ? (want) => multiplayer?.sendRematchVote(want) : undefined,
+        onLeaderboardName: mode === 'multiplayer'
+          ? (name, team) => multiplayer?.sendLeaderboardName(name, team)
+          : undefined,
         onNewSeed: mode === 'night-shift' ? () => {
           resetRun();
           clearRunIntent();
@@ -360,6 +388,11 @@ export class MissionDirector {
       this.updateScoreHud();
       this.showFloorCard(Math.max(1, run.floor | 0), run.twist);
     }
+  }
+
+  setObjectiveState(plan: ObjectivePlan | null, state: ObjectiveState | null): void {
+    this.objectivePlan = plan;
+    this.objectiveState = state;
   }
 
   sync(status: RoomStatus): void {
@@ -525,6 +558,15 @@ export class MissionDirector {
     };
   }
 
+  debugSetStage(stage: 'hack-security' | 'steal-prototype' | 'escape'): void {
+    this.state = {
+      ...this.state,
+      stage,
+      alarm: stage === 'escape' ? true : this.state.alarm,
+      securityActive: stage === 'escape' ? true : this.state.securityActive,
+    };
+  }
+
   get cameraContext() {
     return { alarm: this.state.alarm, vaultOpen: this.hacksWereComplete, complete: this.state.extracted };
   }
@@ -556,8 +598,8 @@ export class MissionDirector {
     if (hook.__nightShift) delete hook.__nightShift;
   }
 
-  private spotted(role: DroneRole): void {
-    if (this.spotCooldown > 0 || this.state.stage === 'complete') return;
+  public spotted(role: DroneRole, force = false): void {
+    if ((!force && this.spotCooldown > 0) || this.state.stage === 'complete') return;
     this.spotCooldown = 2.8;
     this.peakDetection = 0;
     // Single-player only: in multiplayer the server detects, counts and broadcasts 'security-spotted'.
@@ -631,21 +673,35 @@ export class MissionDirector {
     if (!this.objectiveTitle || !this.objectiveDetail || !this.detectionFill) return;
     const warm = this.state.stage === 'infiltrate' ? this.warmup() : null;
     const job = floorJob(this.runLayout?.floor);
-    if (this.objectiveKicker && this.objectiveKicker.textContent !== job.kicker) this.objectiveKicker.textContent = job.kicker;
+    const plan = this.runLayout?.plan;
+    const planJobName = plan?.job.name.replace(/^VAULT:\s*/i, '') ?? '';
+    const kicker = plan
+      ? `${plan.job.boss ? 'BOSS VAULT' : 'Night job'} · ${planJobName}`
+      : job.kicker;
+    if (this.objectiveKicker && this.objectiveKicker.textContent !== kicker) this.objectiveKicker.textContent = kicker;
+    const syncedObjective = this.objectivePlan && this.objectiveState
+      ? objectiveHud(this.objectiveState, this.objectivePlan)
+      : null;
+    const objectiveActive = syncedObjective && !this.objectiveState?.done &&
+      (this.state.stage === 'hack-security' || this.state.stage === 'steal-prototype');
     const [title, detail] = this.state.stage === 'infiltrate'
       ? warm ? ['Warm up on the apron', ''] : [job.infiltrate, this.routeHint]
       : this.state.stage === 'hack-security'
-        ? [job.hack, `${hackCount} / 3 access keys · ${this.routeHint}`]
+        ? objectiveActive
+          ? [syncedObjective.label, syncedObjective.detail]
+          : [job.hack, `${hackCount} / 3 access keys · ${this.routeHint}`]
         : this.state.stage === 'steal-prototype'
-          ? [
-              job.steal,
-              'The vault is open. Rise to the display cradle; ' +
-                byInput({
-                  keyboard: '[E] to carry the core.',
-                  touch: 'tap Grab to carry the core.',
-                  gamepad: 'grab to carry the core.',
-                }),
-            ]
+          ? objectiveActive
+            ? [syncedObjective.label, syncedObjective.detail]
+            : [
+                job.steal,
+                'The vault is open. Rise to the display cradle; ' +
+                  byInput({
+                    keyboard: '[E] to carry the core.',
+                    touch: 'tap Grab to carry the core.',
+                    gamepad: 'grab to carry the core.',
+                  }),
+              ]
           : this.state.stage === 'escape'
             ? [
                 job.escape,
@@ -753,24 +809,45 @@ export class MissionDirector {
     const card = document.createElement('div');
     card.className = 'floor-card';
     card.dataset.testid = 'floor-card';
+    if (this.runLayout?.plan?.job.boss) card.dataset.boss = '1';
 
     const kicker = document.createElement('small');
     kicker.className = 'floor-card__kicker';
     kicker.style.display = 'block';
-    kicker.textContent = floor > 1 ? `Floor ${floor} · ${floorJob(floor).kicker.replace('Night job · ', '')}` : `Floor ${floor}`;
+    const plan = this.runLayout?.plan;
+    kicker.textContent = plan ? `Floor ${floor} · ${plan.job.name}` : (floor > 1 ? `Floor ${floor} · ${floorJob(floor).kicker.replace('Night job · ', '')}` : `Floor ${floor}`);
+    kicker.dataset.testid = 'floor-job';
 
     const title = document.createElement('h3');
     title.textContent = twist.label;
 
     const flavor = document.createElement('p');
     flavor.className = 'floor-card__flavor';
-    flavor.textContent = twistFlavor(twist.id);
+    flavor.textContent = plan?.job.blurb ?? twistFlavor(twist.id);
+
+    const boss = plan?.job.boss ? document.createElement('span') : null;
+    if (boss) {
+      boss.className = 'floor-card__boss';
+      boss.dataset.boss = '1';
+      boss.textContent = 'BOSS VAULT · x2 payout';
+    }
+
+    const pacing = plan ? document.createElement('p') : null;
+    if (pacing && plan) {
+      pacing.className = 'floor-card__objective';
+      const hazards = hazardSummary(plan.hazards);
+      pacing.textContent = plan.job.tutorial && hazards.length === 0
+        ? `${plan.objective.label} · Fly together — the cord is your tool`
+        : `${plan.objective.label} · ${hazards.length ? hazards.join(' · ') : 'No active hazards'}`;
+    }
 
     const score = document.createElement('p');
     score.className = 'floor-card__score';
     score.textContent = `Score ${total.toLocaleString('en-US')} · streak x${multiplier}`;
 
     card.append(kicker, title, flavor, score);
+    if (boss) card.appendChild(boss);
+    if (pacing) card.appendChild(pacing);
 
     const dismiss = () => {
       if (this.floorCardTimer !== null) {
@@ -898,7 +975,9 @@ export class MissionDirector {
     if (!this.floorChip || !this.runLayout) return;
     // RunState / generateRun floors are already 1-based for Night Shift boots.
     const floor = Math.max(1, this.runLayout.floor | 0);
-    this.floorChip.textContent = `Floor ${floor}`;
+    const boss = this.runLayout.plan?.job.boss === true;
+    this.floorChip.textContent = boss ? `Floor ${floor} · Boss` : `Floor ${floor}`;
+    this.floorChip.classList.toggle('floor-chip--boss', boss);
     if (this.twistChip && this.runLayout.twist) {
       this.twistChip.textContent = this.runLayout.twist.label;
     }
@@ -923,14 +1002,17 @@ export class MissionDirector {
       // Only the server's floor-cleared / run-ended for THIS floor drives the co-op report (never a stale one).
       const floor = this.multiplayer?.currentStatus.run.floor;
       const summary = this.lastNightShiftSummary;
-      if (summary && summary.floor === floor) this.report.show(stats, summary, this.coopReportState());
+      if (summary && summary.floor === floor) {
+        this.report.setLeaderboard(this.leaderboardPayload, this.leaderboardSkipReason);
+        this.report.show(stats, summary, this.coopReportState());
+      }
       return;
     }
     if (this.mode === 'night-shift' && this.runLayout && stats.outcome === 'win') {
       if (!this.floorScored) {
         this.floorScored = true;
         const floor = Math.max(1, this.runLayout.floor | 0);
-        const scored = scoreFloor(stats, floor);
+        const scored = scoreFloor(stats, floor, this.runLayout.plan?.job.payoutScale ?? 1);
         this.updateScoreHud();
         // Mirror onNextFloor: ClientRun.localEscape (advanceFloor) when a run exists, else seed-only advance.
         const run = getRunState();
@@ -950,8 +1032,13 @@ export class MissionDirector {
           },
         };
       }
+      this.report.setLeaderboard(null, this.mode === 'night-shift' ? 'offline' : undefined);
       this.report.show(stats, this.lastNightShiftSummary, this.coopReportState());
     } else {
+      this.report.setLeaderboard(
+        this.multiplayer ? this.leaderboardPayload : null,
+        this.multiplayer ? this.leaderboardSkipReason : this.mode === 'night-shift' ? 'offline' : undefined,
+      );
       this.report.show(stats, this.lastNightShiftSummary, this.coopReportState());
     }
   }
@@ -1044,6 +1131,8 @@ export class MissionDirector {
     this.completedPresented = false;
     this.floorScored = false;
     this.lastNightShiftSummary = undefined;
+    this.leaderboardPayload = null;
+    this.leaderboardSkipReason = undefined;
     this.lastStage = 'infiltrate';
     this.audio.stopAlarm();
     this.report?.hide();

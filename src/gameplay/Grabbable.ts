@@ -128,6 +128,16 @@ export class Grabbable implements Interactable {
     }
   }
 
+  /** Release and re-seat loot after a fragile objective shatter. */
+  resetToCradle(next: Vector3): void {
+    this.holder = null;
+    this.holderId = '';
+    this.cradled = true;
+    this.relocateCradle(next);
+    this.setMotionMode('dynamic');
+    this.setSafeVelocity(this.zero);
+  }
+
   get heldBy(): DroneRole | null {
     return this.holder;
   }

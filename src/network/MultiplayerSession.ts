@@ -15,6 +15,10 @@ import {
 } from './ReconnectionToken.ts';
 import { serverEndpoint } from './ServerEndpoint.ts';
 import { warmupBudgetMs } from './ServerWarmup.ts';
+import type {
+  LeaderboardNameResult,
+  LeaderboardRecordedPayload,
+} from './LeaderboardApi.ts';
 import type { PlayerSnapshot } from '../player/PlayerState.ts';
 import type {
   DroneNetworkState,
@@ -29,6 +33,9 @@ import type {
   EmoteId,
   EmotePlayedMessage,
   PingPlacedMessage,
+  ObjectiveStateMessage,
+  HazardTripMessage,
+  ObjectiveEventMessage,
 } from './NetworkTypes.ts';
 
 const SEND_INTERVAL_MS = 50;
@@ -293,6 +300,8 @@ export interface FloorClearedMessage {
   streak: number;
   total: number;
   clean: boolean;
+  boss?: boolean;
+  job?: string;
   next: { seed: number; floor: number };
 }
 
@@ -409,9 +418,15 @@ export class MultiplayerSession {
   private readonly runEndedListeners = new Set<(message: RunEndedMessage) => void>();
   private readonly rematchStartListeners = new Set<(message: RematchStartMessage) => void>();
   private readonly rematchPartnerLeftListeners = new Set<(message: { role: DroneRole }) => void>();
+  private readonly leaderboardListeners = new Set<(message: LeaderboardRecordedPayload) => void>();
+  private readonly leaderboardSkippedListeners = new Set<(message: { reason: string }) => void>();
+  private readonly leaderboardNameResultListeners = new Set<(message: LeaderboardNameResult) => void>();
   private readonly pingListeners = new Set<(message: PingPlacedMessage) => void>();
   private readonly emoteListeners = new Set<(message: EmotePlayedMessage) => void>();
   private readonly objectEventListeners = new Set<(message: ObjectEventMessage) => void>();
+  private readonly objectiveStateListeners = new Set<(message: ObjectiveStateMessage) => void>();
+  private readonly hazardTripListeners = new Set<(message: HazardTripMessage) => void>();
+  private readonly objectiveEventListeners = new Set<(message: ObjectiveEventMessage) => void>();
   private readonly players = new Map<DroneRole, DroneNetworkState>();
   private readonly objects = new Map<string, GrabbableNetworkState>();
   private status: RoomStatus;
@@ -423,6 +438,7 @@ export class MultiplayerSession {
   private manualReconnectInFlight = false;
   /** Last applied floor key so reconnect / first sync still fires the layout hook once. */
   private lastFloorKey: string | null = null;
+  lastLeaderboard: LeaderboardRecordedPayload | null = null;
 
   private constructor(room: Room<unknown, SchemaRoomState>, beat?: number) {
     this.room = room;
@@ -454,6 +470,17 @@ export class MultiplayerSession {
     if (options.bot === true) createOptions.bot = true;
     const room = await retryInitialConnect(() => client.create<SchemaRoomState>('handshake', createOptions));
     return new MultiplayerSession(room, options.beat);
+  }
+
+  static async createBotRoom(options: { mode: RunMode; seed?: number }, timeoutMs: number): Promise<MultiplayerSession> {
+    const client = new Client(serverEndpoint());
+    const createOptions: { seed?: number; mode: RunMode; bot: true } = { mode: options.mode, bot: true };
+    if (typeof options.seed === 'number' && Number.isFinite(options.seed)) createOptions.seed = options.seed >>> 0;
+    const room = await withConnectTimeout(
+      client.create<SchemaRoomState>('handshake', createOptions),
+      Math.max(1, timeoutMs),
+    );
+    return new MultiplayerSession(room);
   }
 
   static async quickMatch(options: QuickMatchOptions): Promise<MultiplayerSession> {
@@ -621,7 +648,7 @@ export class MultiplayerSession {
   }
 
   /** TEST-ONLY: honoured by the server only when it runs with HANDSHAKE_TEST_HOOKS=1. */
-  debugStage(stage: 'escape'): void {
+  debugStage(stage: 'hack-security' | 'steal-prototype' | 'escape'): void {
     this.room.send('debug-stage', { stage });
   }
 
@@ -714,6 +741,21 @@ export class MultiplayerSession {
     this.objectEventListeners.add(listener); return () => this.objectEventListeners.delete(listener);
   }
 
+  onObjectiveState(listener: (message: ObjectiveStateMessage) => void): () => void {
+    this.objectiveStateListeners.add(listener);
+    return () => this.objectiveStateListeners.delete(listener);
+  }
+
+  onHazardTrip(listener: (message: HazardTripMessage) => void): () => void {
+    this.hazardTripListeners.add(listener);
+    return () => this.hazardTripListeners.delete(listener);
+  }
+
+  onObjectiveEvent(listener: (message: ObjectiveEventMessage) => void): () => void {
+    this.objectiveEventListeners.add(listener);
+    return () => this.objectiveEventListeners.delete(listener);
+  }
+
   reportTetherSave(): void {
     this.room.send('mission-tether-save');
   }
@@ -744,6 +786,25 @@ export class MultiplayerSession {
     return () => this.rematchPartnerLeftListeners.delete(listener);
   }
 
+  onLeaderboard(listener: (message: LeaderboardRecordedPayload) => void): () => void {
+    this.leaderboardListeners.add(listener);
+    return () => this.leaderboardListeners.delete(listener);
+  }
+
+  onLeaderboardSkipped(listener: (message: { reason: string }) => void): () => void {
+    this.leaderboardSkippedListeners.add(listener);
+    return () => this.leaderboardSkippedListeners.delete(listener);
+  }
+
+  onLeaderboardNameResult(listener: (message: LeaderboardNameResult) => void): () => void {
+    this.leaderboardNameResultListeners.add(listener);
+    return () => this.leaderboardNameResultListeners.delete(listener);
+  }
+
+  sendLeaderboardName(name: string, team = false): void {
+    this.room.send('leaderboard-name', { name: name.slice(0, 16), team: team === true });
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
@@ -751,8 +812,14 @@ export class MultiplayerSession {
     this.reconnectDeadlineMs = null;
     this.listeners.clear();
     this.objectEventListeners.clear();
+    this.objectiveStateListeners.clear();
+    this.hazardTripListeners.clear();
+    this.objectiveEventListeners.clear();
     this.rematchStartListeners.clear();
     this.rematchPartnerLeftListeners.clear();
+    this.leaderboardListeners.clear();
+    this.leaderboardSkippedListeners.clear();
+    this.leaderboardNameResultListeners.clear();
     clearReconnectionToken(this.roomCode);
     this.room.removeAllListeners();
     await this.room.leave(true);
@@ -803,6 +870,19 @@ export class MultiplayerSession {
       const role = roleOrNull(message?.role ?? '');
       if (role) for (const listener of this.spottedListeners) listener(role);
     });
+    room.onMessage('objective-state', (message: ObjectiveStateMessage) => {
+      if (message?.state && Number.isFinite(message.floor) && Number.isFinite(message.seed)) {
+        for (const listener of this.objectiveStateListeners) listener(message);
+      }
+    });
+    room.onMessage('hazard-trip', (message: HazardTripMessage) => {
+      if (message?.id && (message.role === 'pix' || message.role === 'nee')) {
+        for (const listener of this.hazardTripListeners) listener(message);
+      }
+    });
+    room.onMessage('objective-event', (message: ObjectiveEventMessage) => {
+      if (message?.type) for (const listener of this.objectiveEventListeners) listener(message);
+    });
     room.onMessage('floor-start', (message: FloorStartPayload) => {
       this.handleFloorStart(message);
     });
@@ -812,11 +892,25 @@ export class MultiplayerSession {
     room.onMessage('run-ended', (message: RunEndedMessage) => {
       for (const listener of this.runEndedListeners) listener(message);
     });
+    room.onMessage('leaderboard-recorded', (message: LeaderboardRecordedPayload) => {
+      if (!message || typeof message.id !== 'string' || !Array.isArray(message.boards)) return;
+      this.lastLeaderboard = message;
+      for (const listener of this.leaderboardListeners) listener(message);
+    });
+    room.onMessage('leaderboard-skipped', (message: { reason?: unknown }) => {
+      if (typeof message?.reason !== 'string') return;
+      for (const listener of this.leaderboardSkippedListeners) listener({ reason: message.reason });
+    });
+    room.onMessage('leaderboard-name-result', (message: LeaderboardNameResult) => {
+      if (!message || typeof message.ok !== 'boolean') return;
+      for (const listener of this.leaderboardNameResultListeners) listener(message);
+    });
     room.onMessage('rematch-start', (message: RematchStartMessage) => {
       if (!message || !Number.isFinite(message.seed) || !Number.isFinite(message.floor)) return;
       // A pinned Night Shift seed can reuse the same seed/floor key; rematch still needs
       // the normal floor-start layout reset to run for the new mission.
       this.lastFloorKey = null;
+      this.lastLeaderboard = null;
       for (const listener of this.rematchStartListeners) listener(message);
     });
     room.onMessage('rematch-partner-left', (message: { role?: string }) => {

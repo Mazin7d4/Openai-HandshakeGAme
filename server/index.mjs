@@ -1,6 +1,7 @@
 import { Room, Server, WebSocketTransport, matchMaker } from 'colyseus';
 import { schema, t } from '@colyseus/schema';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import layout from '../src/level/heist-layout.json' with { type: 'json' };
 import { Security, createSecurityState, SecuritySim } from './security.mjs';
 import { canPass, facingYaw } from './passRules.mjs';
@@ -14,6 +15,9 @@ import {
 } from '../shared/run.ts';
 import { applyRunLayout, generateRun } from '../shared/seed/index.mjs';
 import { scoreFloorPure, dropFloorsFrom } from '../shared/nightShiftScore.mjs';
+import { ObjectiveSim, shouldBroadcast as shouldBroadcastObjective } from './objectiveSim.mjs';
+import { HazardTripGate, checkHazardTrips } from '../shared/nightshift/hazards.mjs';
+import { isProfane, LeaderboardStore, RateLimiter, sanitizeName, validateRun } from './leaderboard.mjs';
 import { installLifecycleLogging, logListenError } from './lifecycle.mjs';
 import {
   acquireQuickMatchSeat,
@@ -38,6 +42,20 @@ const EMPTY_ROOM_SECONDS = Number.parseInt(process.env.EMPTY_ROOM_SECONDS ?? '60
 const LONELY_ROOM_SECONDS = Number.parseInt(process.env.LONELY_ROOM_SECONDS ?? '900', 10);
 // Seat hold after an unexpected drop. Tests may shorten via RECONNECT_SECONDS.
 const RECONNECT_SECONDS = Number.parseInt(process.env.RECONNECT_SECONDS ?? '30', 10);
+const LEADERBOARD_FILE = process.env.LEADERBOARD_FILE === 'off'
+  ? ''
+  : (process.env.LEADERBOARD_FILE ?? fileURLToPath(new URL('../data/leaderboard.json', import.meta.url)));
+const LEADERBOARD_IP_LIMIT = Number.parseInt(process.env.LEADERBOARD_IP_LIMIT ?? '12', 10);
+const LEADERBOARD_MIN_DAILY_SECONDS = Number.parseFloat(process.env.LEADERBOARD_MIN_DAILY_SECONDS ?? '30');
+const LEADERBOARD_MIN_FLOOR_SECONDS = Number.parseFloat(process.env.LEADERBOARD_MIN_FLOOR_SECONDS ?? '20');
+const LEADERBOARD_SOLO_MIN_DAILY_SECONDS = Number.parseFloat(process.env.LEADERBOARD_SOLO_MIN_DAILY_SECONDS ?? '45');
+const LEADERBOARD_SOLO_MIN_FLOOR_SECONDS = Number.parseFloat(process.env.LEADERBOARD_SOLO_MIN_FLOOR_SECONDS ?? '25');
+const LEADERBOARD_ACCEPT_DEBUG = TEST_HOOKS && process.env.LEADERBOARD_ACCEPT_DEBUG === '1';
+const leaderboardStore = new LeaderboardStore({ file: LEADERBOARD_FILE });
+leaderboardStore.load();
+const leaderboardIpLimiter = new RateLimiter({ limit: Number.isFinite(LEADERBOARD_IP_LIMIT) ? LEADERBOARD_IP_LIMIT : 12, windowMs: 60 * 60 * 1000 });
+const leaderboardHttpLimiter = new RateLimiter({ limit: 120, windowMs: 60 * 1000 });
+process.on('exit', () => leaderboardStore.flushSync());
 
 // --- CORS allow-list -----------------------------------------------------------
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
@@ -273,6 +291,11 @@ class HandshakeRoom extends Room {
   nightshiftEscapedFloor = 0;
   world = createWorldSinks();
   runLayout = null;
+  floorPlan = null;
+  objectiveSim = new ObjectiveSim();
+  hazardGate = new HazardTripGate();
+  objectiveBroadcastSeq = -1;
+  objectiveBroadcastElapsed = 0;
   heldSinceMs = new Map();
   lastGrabMs = new Map();
   pingTimes = new Map();
@@ -289,11 +312,16 @@ class HandshakeRoom extends Room {
   quickMatch = false;
   qmKey = '';
   quickMatchAllowed = true;
+  runSerial = 0;
+  runStartSeed = 0;
+  runTainted = false;
+  leaderboardRecordedSerial = 0;
+  leaderboardEntry = null;
+  leaderboardDecisionSerial = 0;
 
   static async onAuth(token, options = {}, context) {
-    if (options.quickMatch !== true) return true;
     const ip = clientIp(context);
-    checkQuickMatchLimit(ip);
+    if (options.quickMatch === true) checkQuickMatchLimit(ip);
     return { ip };
   }
 
@@ -365,6 +393,9 @@ class HandshakeRoom extends Room {
       this.addBotSeat(human.role === 'pix' ? 'nee' : 'pix', human.position);
       console.log(`[quickmatch] room ${this.roomId} key=${this.qmKey} bot`);
     });
+    this.onMessage('leaderboard-name', (client, message) => this.handleLeaderboardName(client, message));
+    // Scores are server-observed only; a client-posted score is dropped without disconnecting the sender.
+    this.onMessage('leaderboard-submit', () => {});
     this.onMessage('run-next-floor', (_client, message) => {
       const run = this.state.run;
       if (run.mode !== 'nightshift' || run.ended || !run.floorCleared || message?.floor !== run.floor) return;
@@ -383,9 +414,11 @@ class HandshakeRoom extends Room {
       console.log('[handshake] TEST HOOKS enabled');
       this._testPatrolFrozen = false;
       this.onMessage('debug-patrol-freeze', (_client, m) => {
+        this.runTainted = true;
         this._testPatrolFrozen = m?.frozen !== false;
       });
       this.onMessage('debug-clear-stuns', () => {
+        this.runTainted = true;
         for (const p of this.securitySim.patrol) {
           p.stunnedFor = 0;
           p.dazedFor = 0;
@@ -395,7 +428,11 @@ class HandshakeRoom extends Room {
         }
       });
       this.onMessage('debug-stage', (_client, m) => {
-        if (m?.stage === 'escape') {
+        this.runTainted = true;
+        if (m?.stage === 'hack-security' || m?.stage === 'steal-prototype') {
+          this.state.mission.stage = m.stage;
+          if (m?.openDoor === true) this.state.hack.doorOpen = true;
+        } else if (m?.stage === 'escape') {
           this.state.mission.stage = 'escape';
           this.state.mission.alarm = true;
           this.state.mission.securityActive = true;
@@ -403,13 +440,34 @@ class HandshakeRoom extends Room {
           if (m?.freezePatrols) this._testPatrolFrozen = true;
         }
       });
+      this.onMessage('debug-run-floor', (_client, message) => {
+        const floor = Math.max(1, Math.round(finite(message?.floor, this.state.run.floor)));
+        if (this.state.run.mode !== 'nightshift' || this.state.run.ended) return;
+        this.state.run.floor = floor;
+        this.state.run.floorCleared = false;
+        this.nightshiftEscapedFloor = 0;
+        this.nsTwangs.clear();
+        this.resetMission();
+        this.beginFloor();
+      });
+      this.onMessage('debug-objective', (client) => {
+        this.sendObjectiveState(client);
+      });
       this.onMessage('debug-run-escape', () => {
+        this.runTainted = true;
         this.clearFloor();
         this.handleEscape();
       });
-      this.onMessage('debug-run-clear', (_client, message) => this.debugRunClear(message));
-      this.onMessage('debug-run-capture', (client) => this.handleCapture(client.sessionId));
+      this.onMessage('debug-run-clear', (_client, message) => {
+        this.runTainted = true;
+        this.debugRunClear(message);
+      });
+      this.onMessage('debug-run-capture', (client) => {
+        this.runTainted = true;
+        this.handleCapture(client.sessionId);
+      });
       this.onMessage('debug-force-capture', (client, m) => {
+        this.runTainted = true;
         for (const p of this.securitySim.patrol) {
           p.stunnedFor = 0;
           p.dazedFor = 0;
@@ -419,8 +477,12 @@ class HandshakeRoom extends Room {
         }
         this.debugForceCapture(client, m);
       });
-      this.onMessage('debug-force-release', (client, m) => this.debugForceRelease(client, m));
+      this.onMessage('debug-force-release', (client, m) => {
+        this.runTainted = true;
+        this.debugForceRelease(client, m);
+      });
       this.onMessage('debug-object-place', (_client, m) => {
+        this.runTainted = true;
         const object = this.state.objects.get(m?.objectId);
         if (!object || object.mode !== 'free') return;
         copyVec3(object.position, m, MAX_WORLD_COORDINATE, 'object.position');
@@ -428,6 +490,7 @@ class HandshakeRoom extends Room {
         object.revision += 1;
       });
       this.onMessage('debug-bot-seat', (_client, message) => {
+        this.runTainted = true;
         this.botEnabled = message?.enable === true;
         this.setMetadata({ code: this.roomId, bot: this.botEnabled });
         const human = [...this.state.players.values()].find((player) => !player.bot && player.connected);
@@ -495,6 +558,7 @@ class HandshakeRoom extends Room {
       try {
         this.updateHack();
         this.botPilot.tick(deltaMs / 1000);
+        this.stepObjective(deltaMs / 1000);
         this.updateMission();
         this.updateHeldObjects(deltaMs / 1000);
         this.updateSecurity(deltaMs / 1000);
@@ -511,7 +575,8 @@ class HandshakeRoom extends Room {
 
   initRun(options = {}, begin = true) {
     const mode = isRunMode(options.mode) ? options.mode : 'standard';
-    const seedOpt = typeof options.seed === 'number' && Number.isFinite(options.seed)
+    // Daily rooms always use today's UTC daily seed (shared/run.ts), whatever the client asked for.
+    const seedOpt = mode !== 'daily' && typeof options.seed === 'number' && Number.isFinite(options.seed)
       ? options.seed >>> 0
       : undefined;
     const initial = createRunState({ mode, seed: seedOpt });
@@ -530,6 +595,12 @@ class HandshakeRoom extends Room {
     run.floorCleared = false;
     run.rematches = 0;
     run.floorTimes.clear();
+    this.runSerial += 1;
+    this.runStartSeed = run.seed;
+    this.runTainted = false;
+    this.leaderboardRecordedSerial = 0;
+    this.leaderboardEntry = null;
+    this.leaderboardDecisionSerial = 0;
     this.nsFloors = {};
     this.nsTwangs.clear();
     this.nsEndedBroadcast = false;
@@ -616,6 +687,7 @@ class HandshakeRoom extends Room {
       multiplier: this.state.run.multiplier,
       captures: this.state.run.captures,
     });
+    this.broadcastObjectiveState(true);
   }
 
   /** Night Shift: advance after a server-cleared floor. */
@@ -656,6 +728,7 @@ class HandshakeRoom extends Room {
       timesSpotted: Math.max(0, finite(this.state.mission.timesSpotted, 0)),
       tetherSaves: Math.max(0, finite(this.state.mission.tetherSaves, 0)),
       cordTwangs: twangs,
+      payoutScale: this.floorPlan?.job?.payoutScale ?? 1,
     }, run.floor, this.nsFloors);
     this.nsFloors = scored.floors;
     run.score = scored.total;
@@ -681,6 +754,8 @@ class HandshakeRoom extends Room {
       streak: scored.streak,
       total: scored.total,
       clean: scored.floors[run.floor]?.clean === true,
+      boss: this.floorPlan?.job?.boss === true,
+      job: this.floorPlan?.job?.name ?? '',
       next: { seed: next.seed, floor: next.floor },
     });
   }
@@ -704,6 +779,7 @@ class HandshakeRoom extends Room {
       run.ended = true;
       this.clearRematchVotes();
       this.state.mission.securityActive = false;
+      this.recordLeaderboard('captures');
       if (!this.nsEndedBroadcast) {
         this.nsEndedBroadcast = true;
         this.broadcast('run-ended', {
@@ -741,6 +817,108 @@ class HandshakeRoom extends Room {
     mission.securityActive = false;
     this.clearRematchVotes();
     this.clearFloor();
+    if (this.state.run.mode === 'daily') this.recordLeaderboard('debug-run-clear');
+  }
+
+  leaderboardBoardsPayload(boards, ranks = {}) {
+    return boards.map((key) => ({ key, rank: ranks[key] ?? null, entries: leaderboardStore.top(key) }));
+  }
+
+  recordLeaderboard(reason = 'run-end') {
+    const run = this.state.run;
+    if (this.leaderboardRecordedSerial === this.runSerial || this.leaderboardDecisionSerial === this.runSerial) return;
+    const now = Date.now();
+    const players = Array.from(this.state.players.values());
+    const humans = players.filter((player) => player.bot !== true);
+    const validation = validateRun({
+      mode: run.mode,
+      seed: this.runStartSeed,
+      missionStartedAt: this.missionStartedAt,
+      runStartedAt: run.startedAt,
+      now,
+      elapsedSeconds: finite(this.state.mission.elapsedSeconds, 0),
+      timesSpotted: finite(this.state.mission.timesSpotted, 0),
+      lootDelivered: players.reduce((sum, player) => sum + (Number(player.lootDelivered) || 0), 0),
+      floorsCleared: Object.keys(this.nsFloors).length,
+      score: Number(run.score),
+      captures: Number(run.captures),
+      maxCaptures: Number(run.maxCaptures),
+      humans: humans.length,
+      bots: players.filter((player) => player.bot === true).length,
+      tainted: this.runTainted,
+    }, {
+      minDailySeconds: LEADERBOARD_MIN_DAILY_SECONDS,
+      minFloorSeconds: LEADERBOARD_MIN_FLOOR_SECONDS,
+      soloMinDailySeconds: LEADERBOARD_SOLO_MIN_DAILY_SECONDS,
+      soloMinFloorSeconds: LEADERBOARD_SOLO_MIN_FLOOR_SECONDS,
+      acceptTainted: LEADERBOARD_ACCEPT_DEBUG,
+    });
+    if (!validation.ok) {
+      this.leaderboardDecisionSerial = this.runSerial;
+      this.broadcast('leaderboard-skipped', { reason: validation.reason });
+      if (this.leaderboardDecisionSerial === this.runSerial) {
+        console.log(`[handshake] room ${this.roomId} leaderboard skip ${validation.reason}`);
+      }
+      return;
+    }
+    const ips = [...new Set(humans.map((human) => {
+      const client = this.clients.find((candidate) => candidate.sessionId === human.playerId);
+      return client?.auth?.ip ?? 'unknown';
+    }))];
+    if (ips.some((ip) => !leaderboardIpLimiter.canHit(ip))) {
+      this.leaderboardDecisionSerial = this.runSerial;
+      this.broadcast('leaderboard-skipped', { reason: 'rate-limit' });
+      console.log(`[handshake] room ${this.roomId} leaderboard skip rate-limit`);
+      return;
+    }
+    for (const ip of ips) leaderboardIpLimiter.hit(ip);
+    const entryBase = {
+      names: { pix: 'PIX', nee: 'NEE' },
+      team: '',
+      score: Number(run.score),
+      timeSeconds: finite(this.state.mission.elapsedSeconds, 0),
+      floors: Object.keys(this.nsFloors).length,
+      spotted: finite(this.state.mission.timesSpotted, 0),
+      recordedAt: now,
+      seed: this.runStartSeed,
+    };
+    if (validation.kind === 'solo') {
+      const bot = players.find((player) => player.bot === true);
+      if (bot?.role === 'pix' || bot?.role === 'nee') entryBase.names[bot.role] = 'AI';
+    }
+    const added = leaderboardStore.add(validation.boards, entryBase);
+    this.leaderboardRecordedSerial = this.runSerial;
+    this.leaderboardDecisionSerial = this.runSerial;
+    this.leaderboardEntry = { id: added.id, serial: this.runSerial, boards: validation.boards, nameEdits: new Map(), lastEditAt: 0 };
+    this.broadcast('leaderboard-recorded', { id: added.id, boards: this.leaderboardBoardsPayload(validation.boards, added.ranks) });
+  }
+
+  handleLeaderboardName(client, message) {
+    const player = this.state.players.get(client.sessionId);
+    const entry = this.leaderboardEntry;
+    if (!player || player.bot === true || player.connected !== true || !entry || entry.serial !== this.runSerial) return;
+    const name = sanitizeName(message?.name);
+    if (!name) {
+      client.send('leaderboard-name-result', { ok: false, reason: 'empty' });
+      return;
+    }
+    if (isProfane(name)) {
+      client.send('leaderboard-name-result', { ok: false, reason: 'profanity' });
+      return;
+    }
+    const now = Date.now();
+    const edits = entry.nameEdits.get(client.sessionId) ?? 0;
+    if (edits >= 5 || now - entry.lastEditAt < 1000) {
+      client.send('leaderboard-name-result', { ok: false, reason: 'rate-limit' });
+      return;
+    }
+    const team = message?.team === true;
+    if (!leaderboardStore.rename(entry.id, player.role, name, { team })) return;
+    entry.nameEdits.set(client.sessionId, edits + 1);
+    entry.lastEditAt = now;
+    client.send('leaderboard-name-result', { ok: true, name });
+    const ranks = Object.fromEntries(entry.boards.map((board) => [board, leaderboardStore.top(board, 50).findIndex((candidate) => candidate.id === entry.id) + 1 || null]));
+    this.broadcast('leaderboard-recorded', { id: entry.id, boards: this.leaderboardBoardsPayload(entry.boards, ranks) });
   }
 
   addBotSeat(role, position) {
@@ -800,6 +978,7 @@ class HandshakeRoom extends Room {
       this.state.started = true;
       this.broadcast('bot-seat', { role, active: false, handoff: true, by: client.sessionId });
       if (this.quickMatch) console.log(`[quickmatch] room ${this.roomId} key=${this.qmKey} paired`);
+      this.sendObjectiveState(client);
       return;
     }
 
@@ -824,6 +1003,7 @@ class HandshakeRoom extends Room {
       this.addBotSeat(role === 'pix' ? 'nee' : 'pix');
     }
     if (this.quickMatch) console.log(`[quickmatch] room ${this.roomId} key=${this.qmKey} ${this.state.started ? 'paired' : 'waiting'}`);
+    this.sendObjectiveState(client);
   }
 
   /** Unexpected drop: hold the seat, freeze the drone, keep match state. */
@@ -967,7 +1147,7 @@ class HandshakeRoom extends Room {
     if (!player?.connected || player.captured || !object || distance(player.position, object.position) > object.grabRadius) {
       return;
     }
-    if (object.id === 'prototype' && !this.state.hack.doorOpen) return;
+    if (object.id === 'prototype' && (!this.state.hack.doorOpen || this.objectiveSim.locked)) return;
     const now = Date.now();
     if (now - (this.lastGrabMs.get(sessionId) ?? 0) < GRAB_COOLDOWN_MS) return;
     this.lastGrabMs.set(sessionId, now);
@@ -1086,6 +1266,20 @@ class HandshakeRoom extends Room {
         : null;
   }
 
+  get terminalRange() {
+    return TERMINAL_RANGE;
+  }
+
+  botHackStation(role) {
+    for (const stationId of ['terminal-a', 'terminal-b', 'terminal-c']) {
+      const fields = this.stationFields(stationId);
+      if (fields?.role === role && !this.state.hack[fields.complete]) {
+        return { stationId, position: this.world.terminals[stationId] };
+      }
+    }
+    return null;
+  }
+
   startHack(sessionId, message) {
     const player = this.state.players.get(sessionId);
     const stationId = message?.stationId;
@@ -1116,15 +1310,20 @@ class HandshakeRoom extends Room {
       this.state.hack[fields.owner] !== player.role ||
       distance(player.position, this.world.terminals[stationId]) > TERMINAL_RANGE
     ) return;
+    this.completeHackForRole(player, stationId);
+  }
+
+  completeHackForRole(player, stationId) {
+    const fields = this.stationFields(stationId);
+    if (!player || !fields || this.state.hack[fields.complete] || this.state.hack[fields.owner] !== player.role) return false;
     this.state.hack[fields.complete] = true;
     player.hacks = Math.min(65535, player.hacks + 1);
     this.state.hack[fields.owner] = '';
     this.state.hack.doorOpen =
       this.state.hack.stationAComplete && this.state.hack.stationBComplete &&
       this.state.hack.stationCComplete;
-    if (this.state.hack.doorOpen && !this.doorOpenedAt) {
-      this.doorOpenedAt = Date.now();
-    }
+    if (this.state.hack.doorOpen && !this.doorOpenedAt) this.doorOpenedAt = Date.now();
+    return true;
   }
 
   cancelHack(sessionId, message) {
@@ -1182,9 +1381,67 @@ class HandshakeRoom extends Room {
         mission.securityActive = false;
         if (this.state.run.mode === 'nightshift') {
           this.clearFloor();
+        } else if (this.state.run.mode === 'daily') {
+          this.recordLeaderboard('mission-complete');
         }
       }
     }
+  }
+
+  stepObjective(dt) {
+    if (!this.floorPlan?.objective || this.state.mission.stage === 'complete') return;
+    const events = this.objectiveSim.step(
+      Math.max(0, Math.min(0.25, dt)),
+      Array.from(this.state.players.values()),
+      this.state.objects.get('prototype')?.heldBy ?? '',
+    );
+    for (const event of events) {
+      if (event.type === 'shatter') this.handlePrototypeShatter(event.role);
+      else this.broadcast('objective-event', event);
+    }
+    const elapsed = finite(this.state.mission.elapsedSeconds, 0);
+    if (shouldBroadcastObjective(this.objectiveBroadcastSeq, this.objectiveSim, elapsed - this.objectiveBroadcastElapsed)) {
+      this.broadcastObjectiveState();
+    }
+  }
+
+  objectivePayload() {
+    return {
+      floor: this.state.run.floor,
+      seed: this.state.run.seed,
+      state: this.objectiveSim.snapshot(),
+    };
+  }
+
+  sendObjectiveState(client) {
+    if (this.state.run.mode !== 'nightshift') return;
+    client?.send('objective-state', this.objectivePayload());
+  }
+
+  broadcastObjectiveState(force = false) {
+    if (this.state.run.mode !== 'nightshift' || !this.floorPlan) return;
+    const elapsed = finite(this.state.mission.elapsedSeconds, 0);
+    this.broadcast('objective-state', this.objectivePayload());
+    this.objectiveBroadcastSeq = this.objectiveSim.state.seq;
+    this.objectiveBroadcastElapsed = elapsed;
+  }
+
+  handlePrototypeShatter(role = 'pix') {
+    const prototype = this.state.objects.get('prototype');
+    if (!prototype) return;
+    const loot = this.runLayout?.loot ?? layout.objects.prototype;
+    this.setOwnership(prototype, null, 'shatter', role === 'nee' ? 'nee' : 'pix');
+    prototype.position.x = loot.x;
+    prototype.position.y = loot.y;
+    prototype.position.z = loot.z;
+    prototype.velocity.x = 0;
+    prototype.velocity.y = 0;
+    prototype.velocity.z = 0;
+    prototype.revision += 1;
+    const spottedRole = role === 'nee' ? 'nee' : 'pix';
+    this.markSpotted(spottedRole, true);
+    this.broadcast('objective-event', { type: 'shatter', role: spottedRole });
+    this.broadcastObjectiveState(true);
   }
 
   updateSecurity(dt) {
@@ -1210,11 +1467,25 @@ class HandshakeRoom extends Room {
     });
     // Each drone has its own spotted cooldown, so both can be spotted in the same window.
     for (const role of result.spotted) {
-      if (!(role in this.spotCooldownUntil)) continue;
-      if (this.spotCooldownUntil[role] <= now && this.state.mission.stage !== 'complete') {
-        this.state.mission.timesSpotted += 1;
-        this.spotCooldownUntil[role] = now + 2800;
-        this.broadcast('security-spotted', { role });
+      this.markSpotted(role);
+    }
+    if (this.floorPlan?.hazards && this.state.mission.stage !== 'complete') {
+      const hazardPlayers = players.map((player) => ({
+        role: player.role,
+        x: player.position.x,
+        y: player.position.y,
+        z: player.position.z,
+        captured: player.captured,
+      }));
+      const ordered = hazardPlayers.slice().sort((a, b) => a.role.localeCompare(b.role));
+      const cordPoints = ordered.map((player) => ({ x: player.x, y: player.y, z: player.z }));
+      const trips = this.hazardGate.filter(
+        checkHazardTrips(this.floorPlan.hazards, this.state.mission.elapsedSeconds, hazardPlayers, cordPoints),
+        this.state.mission.elapsedSeconds,
+      );
+      for (const trip of trips) {
+        this.markSpotted(trip.role);
+        this.broadcast('hazard-trip', { id: trip.id, role: trip.role, via: trip.via });
       }
     }
     // A shove goes only to the client that owns the shoved drone; it applies the impulse locally.
@@ -1233,6 +1504,16 @@ class HandshakeRoom extends Room {
         if (freed) this.finishCapture(freed.role, freed.index, 'both');
       }
     }
+  }
+
+  markSpotted(role, force = false) {
+    if (!(role in this.spotCooldownUntil) || this.state.mission.stage === 'complete') return false;
+    const now = Date.now();
+    if (!force && this.spotCooldownUntil[role] > now) return false;
+    this.state.mission.timesSpotted += 1;
+    this.spotCooldownUntil[role] = now + 2800;
+    this.broadcast('security-spotted', { role });
+    return true;
   }
 
   beginCapture(role, index) {
@@ -1366,6 +1647,7 @@ class HandshakeRoom extends Room {
     if (!partnerEntry) return;
     const [partnerId, partner] = partnerEntry;
     if (!partner.connected || distance(sender.position, partner.position) > 13.5) return;
+    this.objectiveSim.noteYank(sender.role);
     const target = this.clients.find((candidate) => candidate.sessionId === partnerId);
     this.yankTimes.set(client.sessionId, now);
     const impulse = message.impulse ?? {};
@@ -1394,6 +1676,7 @@ class HandshakeRoom extends Room {
     const sender = this.state.players.get('bot');
     const partner = [...this.state.players.values()].find((player) => !player.bot && player.connected);
     if (!sender?.connected || sender.captured || !partner || !partner.captured || distance(sender.position, partner.position) > 11) return false;
+    this.objectiveSim.noteYank(sender.role);
     const freed = this.securitySim.releaseRole(partner.role, 'yank');
     if (!freed) return false;
     this.finishCapture(freed.role, freed.index, 'yank');
@@ -1458,6 +1741,11 @@ class HandshakeRoom extends Room {
   applySeedFloor(seed, floor = 0) {
     const run = generateRun(seed >>> 0, Math.max(0, floor | 0));
     this.runLayout = run;
+    this.floorPlan = run.plan ?? null;
+    this.objectiveSim.reset(this.floorPlan?.objective ?? null);
+    this.hazardGate = new HazardTripGate();
+    this.objectiveBroadcastSeq = -1;
+    this.objectiveBroadcastElapsed = 0;
     applyRunLayout(run, {
       spawn: this.world.spawn,
       extraction: this.world.extraction,
@@ -1537,6 +1825,7 @@ class HandshakeRoom extends Room {
     this.state.hack.stationBComplete = false;
     this.state.hack.stationCComplete = false;
     this.state.hack.doorOpen = false;
+    this.botPilot.reset();
     const prototype = this.state.objects.get('prototype');
     if (prototype) {
       this.setOwnership(prototype, null, 'reset', 'pix');
@@ -1569,6 +1858,10 @@ class HandshakeRoom extends Room {
     mission.objectsThrown = 0;
     mission.tetherSaves = 0;
     this.missionStartedAt = Date.now();
+    this.objectiveSim.reset(this.floorPlan?.objective ?? null);
+    this.hazardGate = new HazardTripGate();
+    this.objectiveBroadcastSeq = -1;
+    this.objectiveBroadcastElapsed = 0;
   }
 
   releaseRole(role) {
@@ -1691,12 +1984,45 @@ httpServer.on('request', (req, res) => {
       quickMatchWaiting: [...liveRooms].filter((room) => room.quickMatch && !room.locked &&
         [...room.state.players.values()].filter((player) => !player.bot && player.connected).length === 1).length,
       version: pkg.version || 'dev',
+      leaderboard: true,
     });
     res.writeHead(200, {
       'Content-Type': 'application/json',
       ...corsHeaders(req),
     });
     res.end(body);
+    return;
+  }
+  if (path === '/leaderboard') {
+    const headers = { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, headers);
+      res.end();
+      return;
+    }
+    if (req.method !== 'GET') {
+      res.writeHead(405, { ...headers, Allow: 'GET, OPTIONS' });
+      res.end();
+      return;
+    }
+    const ip = clientIp({ headers: req.headers, req });
+    if (!leaderboardHttpLimiter.hit(ip)) {
+      res.writeHead(429, { ...headers, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'rate-limit' }));
+      return;
+    }
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+    const board = url.searchParams.get('board');
+    if (board !== null && !/^(daily:\d{4}-\d{2}-\d{2}|solo:daily:\d{4}-\d{2}-\d{2}|nightshift:all|solo:nightshift:all|nightshift:week:\d{4}-W\d{2}|solo:nightshift:week:\d{4}-W\d{2})$/.test(board)) {
+      res.writeHead(400, { ...headers, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'invalid-board' }));
+      return;
+    }
+    const body = board === null
+      ? leaderboardStore.boardsSummary()
+      : { key: board, entries: leaderboardStore.top(board) };
+    res.writeHead(200, { ...headers, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(body));
     return;
   }
   for (const listener of originalListeners) {
@@ -1711,4 +2037,5 @@ if (permissive) {
   console.log(`[handshake] CORS allow-list: ${ALLOWED_ORIGINS.join(', ')}`);
 }
 console.log(`[handshake] reconnect grace ${RECONNECT_SECONDS}s`);
+console.log(`[handshake] leaderboard file: ${LEADERBOARD_FILE || 'memory'}`);
 console.log(`[handshake] listening on port ${PORT}`);

@@ -229,6 +229,11 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
   font: 800 18px/1 var(--font-screen); font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
   font-variation-settings: 'ROND' 100; letter-spacing: 0.02em;
 }
+.floor-chip--boss {
+  color: #6f4c00;
+  border-color: #d9ae45;
+  background: #fff1b8;
+}
 .beat-chip {
   color: var(--pix); background: var(--screen); border-color: var(--graphite);
   box-shadow: 0 3px 0 #000;
@@ -395,6 +400,7 @@ html[data-reduced-motion='1'] .mission-objective { transition: none; }
   border: var(--rim); border-radius: var(--r-control);
   font: 800 16px/1.2 var(--font-title); font-stretch: 112%;
 }
+.mission-status-badge[hidden] { display: none !important; }
 .mission-status-badge[data-state='alarm'] {
   color: var(--alarm); border-color: var(--alarm); background: var(--paper);
 }
@@ -595,6 +601,38 @@ html[data-reduced-motion='1'] *::after {
 .heist-report__player-stats-table td { padding: 5px 2px; border-bottom: 1px solid var(--aluminium); text-align: right; white-space: normal; overflow-wrap: anywhere; }
 .heist-report__player-stats-table th:first-child,
 .heist-report__player-stats-table td:first-child { text-align: left; }
+.heist-report__leaderboard {
+  width: 100%; min-width: 0; margin: 0 0 10px; padding: 10px;
+  border: var(--rim); border-radius: var(--r-control); background: var(--porcelain);
+}
+.heist-report__leaderboard-title { margin: 0 0 6px; font: 800 18px/1.1 var(--font-title); }
+.heist-report__leaderboard-rank { margin: 7px 0; color: var(--pencil); font-size: 14px; font-weight: 700; }
+.heist-report__leaderboard-muted { margin: 0; color: var(--pencil); font-size: 14px; }
+.leaderboard-list { width: 100%; min-width: 0; list-style: none; display: grid; gap: 2px; margin: 0; padding: 0; }
+.leaderboard-row {
+  display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 6px;
+  min-width: 0; padding: 4px 5px; border-bottom: 1px solid var(--aluminium);
+  font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.leaderboard-row.is-own { color: var(--pix-ink); background: var(--warm-screen); font-weight: 800; }
+.leaderboard-row__rank { color: var(--pencil); }
+.leaderboard-row__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.leaderboard-row__score { white-space: nowrap; text-align: right; }
+.heist-report__leaderboard-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; align-items: center; }
+.heist-report__leaderboard-form input[type='text'] { width: 100%; min-width: 0; min-height: 42px; padding: 7px 9px; border: var(--rim); border-radius: var(--r-control); background: var(--warm-screen); }
+.heist-report__leaderboard-form label { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; color: var(--pencil); font-size: 14px; }
+.heist-report__leaderboard-form input[type='checkbox'] { width: 18px; height: 18px; accent-color: var(--pix-ink); }
+.heist-report__leaderboard-form .btn { min-height: 42px; padding: 7px 12px; }
+.heist-report__leaderboard-form small { grid-column: 1 / -1; min-height: 1.2em; color: var(--pencil); font-size: 13px; }
+.leaderboard-panel { width: 100%; min-width: 0; margin-top: 22px; }
+.leaderboard-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.leaderboard-tab { min-height: 44px; padding: 7px 6px; font-size: 14px; }
+.leaderboard-tab.is-active { color: var(--pix-ink); border-color: var(--pix-ink); background: var(--warm-screen); }
+@media (max-width: 420px) {
+  .leaderboard-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.leaderboard-status { min-height: 1.5em; margin-top: 10px; color: var(--pencil); font-size: 14px; }
+.leaderboard-panel > .btn--quiet { min-height: 44px; padding: 6px 10px; }
 .heist-report__stamp {
   position: absolute; right: 18px; top: 72px;
   padding: 6px 10px; border: 3px solid var(--exit); border-radius: var(--r-control);
@@ -1093,6 +1131,23 @@ html[data-reduced-motion='1'] .wake-spinner { display: none; }
 .floor-card h3 {
   margin: 4px 0;
   font-size: 26px;
+}
+
+.floor-card__boss {
+  display: inline-block;
+  margin: 4px 0 2px;
+  padding: 4px 8px;
+  border: 1px solid #d9ae45;
+  border-radius: 999px;
+  color: #ffd76a;
+  font: 800 12px/1 var(--font-screen);
+  letter-spacing: .08em;
+}
+
+.floor-card__objective {
+  margin: 8px 0 0;
+  color: #ffd23f;
+  font-size: 13px;
 }
 
 .floor-card--out {

@@ -184,6 +184,7 @@ export function dailyUrl(base: string | URL, options?: { date?: Date | string })
 
 export interface UrlRunOptions {
   seed?: number;
+  floor?: number;
   mode?: RunMode;
   beat?: number;
 }
@@ -196,6 +197,8 @@ export function runOptionsFromSearch(search: string | URLSearchParams): UrlRunOp
   const out: UrlRunOptions = {};
   const seed = parseSeed(params.get('seed'));
   if (seed != null) out.seed = seed;
+  const floor = Number(params.get('floor'));
+  if (floor >= 1) out.floor = floor;
   const modeRaw = params.get('mode')?.trim().toLowerCase();
   if (modeRaw === 'daily' || modeRaw === 'nightshift') out.mode = modeRaw;
   const beatRaw = params.get('beat');

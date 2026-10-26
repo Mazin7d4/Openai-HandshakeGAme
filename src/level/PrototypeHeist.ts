@@ -493,7 +493,9 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   // Server gallery: replace the flat rack slabs with instanced Blender rack units (collision box stays).
   for (const [z, x, width] of [[-21, -4, 16], [-13, 7, 22]] as const) {
     const n = Math.round(width / 2.4); const w = width / n;
-    for (let i = 0; i < n; i++) kit.place({ prop: 'Rack', x: x - width / 2 + w * (i + 0.5), z, scale: [w / 2.4, 1, 1] });
+    // Keep decorative racks below the normal follow-camera sightline; the collision bank
+    // remains authored-size so the flight route and physics contract do not change.
+    for (let i = 0; i < n; i++) kit.place({ prop: 'Rack', x: x - width / 2 + w * (i + 0.5), z, scale: [w / 2.4, 0.42, 1] });
     const bank = scene.getMeshByName(`rack-bank-${z}`); if (bank) bank.isVisible = false;
   }
   for (const name of ['rack-upright', 'rack-tray', 'rack-status']) for (const m of scene.meshes.filter(m => m.name === name)) m.dispose();

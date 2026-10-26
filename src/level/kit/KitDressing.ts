@@ -26,14 +26,14 @@ interface KitPart {
   local: Matrix;
 }
 
-interface KitAsset {
+export interface KitAsset {
   name: string;
   parts: KitPart[];
   bounds: { min: [number, number, number]; max: [number, number, number] };
   footprint: { w: number; d: number };
 }
 
-interface KitSources {
+export interface KitSources {
   assets: Map<string, KitAsset>;
   allPartMeshes: Mesh[];
 }
@@ -91,7 +91,7 @@ const kitLoadingPromises = new WeakMap<Scene, Promise<KitSources>>();
 const activeHandles = new WeakMap<Scene, KitDressingHandle>();
 const warnedMissingAssets = new Set<string>();
 
-async function loadKitSources(scene: Scene): Promise<KitSources> {
+export async function loadKitSources(scene: Scene): Promise<KitSources> {
   const cached = kitLoadingPromises.get(scene);
   if (cached) return cached;
 
@@ -186,6 +186,39 @@ async function loadKitSources(scene: Scene): Promise<KitSources> {
 
   kitLoadingPromises.set(scene, loadPromise);
   return loadPromise;
+}
+
+/** Place one cached kit asset as ordinary instances. Presentation callers own the returned meshes. */
+export async function placeKitAsset(
+  scene: Scene,
+  name: string,
+  position: Vector3,
+  yaw: number,
+  targetSize?: Vector3,
+): Promise<AbstractMesh[]> {
+  const kit = await loadKitSources(scene);
+  const asset = kit.assets.get(name);
+  if (!asset) return [];
+  const sx = asset.bounds.max[0] - asset.bounds.min[0];
+  const sy = asset.bounds.max[1] - asset.bounds.min[1];
+  const sz = asset.bounds.max[2] - asset.bounds.min[2];
+  const wanted = targetSize ?? new Vector3(sx, sy, sz);
+  const scale = Math.min(
+    sx > 0 ? wanted.x / sx : 1,
+    sy > 0 ? wanted.y / sy : 1,
+    sz > 0 ? wanted.z / sz : 1,
+  );
+  const out: AbstractMesh[] = [];
+  for (const part of asset.parts) {
+    const instance = part.mesh.createInstance(`${name}-instance`);
+    instance.position.copyFrom(position);
+    instance.rotation.set(0, yaw, 0);
+    instance.scaling.setAll(scale);
+    instance.isPickable = false;
+    instance.receiveShadows = true;
+    out.push(instance);
+  }
+  return out;
 }
 
 export async function dressRunLayout(scene: Scene, layout: RunLayout): Promise<KitDressingHandle> {

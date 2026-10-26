@@ -25,7 +25,7 @@ import { zeroFlightAxes } from '../input/FlightAxes.ts';
 import { PLAYER_ONE_KEYS } from '../input/KeyboardInput.ts';
 import { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole, EmoteId } from '../network/NetworkTypes.ts';
-import { getRunState } from '../run/ClientRun.ts';
+import { getRunState, setNightShiftLayoutGenerator } from '../run/ClientRun.ts';
 import { Drone, DRONE_PALETTES } from '../player/Drone.ts';
 import { BotTag } from '../player/BotTag.ts';
 import { DRONE_MODEL_URL } from '../player/DroneVisual.ts';
@@ -37,7 +37,8 @@ import { AccessibilityFeedback } from '../ui/AccessibilityFeedback.ts';
 import { GameHud } from '../ui/GameHud.ts';
 import { OnboardingCoach } from '../ui/OnboardingCoach.ts';
 import { effectiveReducedMotion, getSettings, saveSettings } from '../ui/Settings.ts';
-import { generateRun, type RunLayout } from '../seed/index.ts';
+import { type RunLayout } from '../seed/index.ts';
+import { generateNightShiftRun } from '../seed/nightShiftRun.ts';
 import { getRunInfo } from '../net/runInfo.ts';
 import { TouchControls } from '../ui/TouchControls.ts';
 import { isTouchPlayDevice } from '../ui/touchDetect.ts';
@@ -456,7 +457,8 @@ export class GameApp {
     // Story/solo/co-op keep the handcrafted level; only Night Shift remixes (until Netcode syncs room seeds).
     // UI reads seed/floor through getRunInfo() so Netcode can swap the source without HUD changes.
     const runSeed = mode === 'night-shift' ? options.runSeed ?? getRunInfo() : null;
-    const runLayout = runSeed ? generateRun(runSeed.seed, runSeed.floor) : null;
+    setNightShiftLayoutGenerator(generateNightShiftRun);
+    const runLayout = runSeed ? generateNightShiftRun(runSeed.seed, runSeed.floor) : null;
     // TEST-ONLY: ?autotest&stage=escape starts local modes in the alarm escape, beside the heavy crate.
     const escapeStage = Autopilot.enabled && mode !== 'multiplayer'
       && new URLSearchParams(window.location.search).get('stage') === 'escape';
@@ -501,6 +503,7 @@ export class GameApp {
             leaderVelocity: () => live.drones?.[0]?.velocity ?? null,
             leaderInTrouble: () => live.drones?.[0]?.inTrouble ?? false,
             leaderCaptured: () => live.drones?.[0]?.isCaptured ?? false,
+            avoidYank: () => live.gameplay?.botAvoidYank() ?? false,
             objective: () => {
               const leader = live.drones?.[0]?.position;
               return leader ? live.gameplay?.botObjective('nee', leader) ?? null : null;
@@ -614,8 +617,17 @@ export class GameApp {
         player.drone.debugTeleport(x, y, z);
         return true;
       },
+      /** Photo/test hook: pin the camera at eye looking at target (null restores the rig). */
+      photo: (eye: { x: number; y: number; z: number } | null, target?: { x: number; y: number; z: number }) => {
+        this.cameraRig.debugPose = eye && target
+          ? { eye: new Vector3(eye.x, eye.y, eye.z), target: new Vector3(target.x, target.y, target.z) }
+          : null;
+      },
       /** Ask the server for a test stage (needs HANDSHAKE_TEST_HOOKS=1 on the server). */
-      debugStage: (stage: 'escape') => this.multiplayer?.debugStage(stage),
+      debugStage: (stage: 'hack-security' | 'steal-prototype' | 'escape') => {
+        if (this.multiplayer) this.multiplayer.debugStage(stage === 'escape' ? 'escape' : stage);
+        else this.gameplay.debugStage(stage);
+      },
       /** Propose a clothesline stun to the server (it validates against its own patrol + player positions). */
       requestStun: (index: number, at?: { x: number; y: number; z: number }) => {
         const point = at ?? this.gameplay.debugSecurity().patrols[index];
@@ -632,6 +644,8 @@ export class GameApp {
       },
       /** Current seed/mode/floor/captures for UI + seed-sync checks. */
       runState: () => getRunState(),
+      /** TEST-ONLY: current held object for carry/objective verification. */
+      heldObject: (role: DroneRole) => this.gameplay.heldObjectId(role),
       /** TEST-ONLY Night Shift floor advance (HANDSHAKE_TEST_HOOKS=1). */
       debugRunEscape: () => this.multiplayer?.debugRunEscape(),
       /** TEST-ONLY: force the authoritative room into the results phase. */
@@ -802,6 +816,7 @@ export class GameApp {
     this.gameplay.sfx.cordTension(this.tether.currentStrain);
     if (switchDrone && this.mode === 'dev-local') this.switchDevDrone();
     this.gameplay.update(dt, droneByRole, this.tether.currentStrain);
+    this.gameplay.applyHazardPhysics(dt, droneByRole);
     this.tether.apply(dt, (drone) => {
       const player = this.players.find((candidate) => candidate.drone === drone);
       return player?.control.kind !== 'remote';

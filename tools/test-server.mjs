@@ -15,9 +15,11 @@ export async function freePort() {
 }
 
 export async function startTestServer({ port, env = {}, root, timeoutMs = 20_000 }) {
+  const childEnv = { ...process.env, ...env, PORT: String(port) };
+  if (!Object.prototype.hasOwnProperty.call(env, 'LEADERBOARD_FILE')) childEnv.LEADERBOARD_FILE = 'off';
   const child = spawn(process.execPath, ['--experimental-strip-types', `${root}/server/index.mjs`], {
     cwd: root,
-    env: { ...process.env, ...env, PORT: String(port) },
+    env: childEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 

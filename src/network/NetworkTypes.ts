@@ -5,6 +5,7 @@ import type {
   Vec3State,
 } from '../player/PlayerState.ts';
 import type { RunMode } from '../../shared/run.ts';
+import type { ObjectiveState } from '../../shared/nightshift/types.d.ts';
 
 export type DroneRole = 'pix' | 'nee';
 export type EmoteId = 'here' | 'wait' | 'go' | 'yay';
@@ -98,6 +99,23 @@ export interface MissionNetworkState {
   timesSpotted: number;
   objectsThrown: number;
   tetherSaves: number;
+}
+
+export interface ObjectiveStateMessage {
+  floor: number;
+  seed: number;
+  state: ObjectiveState;
+}
+
+export interface HazardTripMessage {
+  id: string;
+  role: DroneRole;
+  via: 'drone' | 'cord';
+}
+
+export interface ObjectiveEventMessage {
+  type: string;
+  role?: DroneRole;
 }
 
 /** Server-owned security (patrol drones + camera). Clients only render/interpolate it. */

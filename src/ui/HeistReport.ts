@@ -1,5 +1,6 @@
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
+import type { LeaderboardNameResult, LeaderboardRecordedPayload } from '../network/LeaderboardApi.ts';
 import { challengeUrl as buildChallengeUrl } from '../../shared/run.ts';
 import {
   awardAccent,
@@ -13,6 +14,7 @@ import { createFaceGlyph, drawFaceGlyph, type FaceMood } from './FaceGlyph.ts';
 import { MenuNavigator } from './MenuNavigator.ts';
 import { effectiveReducedMotion, getSettings } from './Settings.ts';
 import { cosmeticDefinition, recordRunUnlocks } from '../player/Cosmetics.ts';
+import { renderLeaderboardRows } from './LeaderboardPanel.ts';
 
 export interface HeistReportHandlers {
   onPlayAgain: () => void;
@@ -24,6 +26,7 @@ export interface HeistReportHandlers {
   onNewSeed?: () => void;
   /** Re-watch the slow-mo escape replay (button shown only when footage exists). */
   onReplay?: () => void;
+  onLeaderboardName?: (name: string, team: boolean) => void;
   audio?: GameAudio | null;
 }
 
@@ -77,10 +80,16 @@ export class HeistReport {
   private readonly rematchBtn: HTMLButtonElement | null;
   private readonly rematchStatusEl: HTMLElement | null;
   private readonly playerStatsEl: HTMLElement | null;
+  private readonly leaderboardSection: HTMLElement;
   private readonly nav = new MenuNavigator();
   private stats: RunStats | null = null;
   private replayBtn: HTMLButtonElement | null = null;
   private lastShow: [RunStats, NightShiftSummary | undefined, CoopReportState | undefined] | null = null;
+  private leaderboardPayload: LeaderboardRecordedPayload | null = null;
+  private leaderboardSkipReason: string | undefined;
+  private leaderboardName = '';
+  private leaderboardTeam = false;
+  private leaderboardNameStatus = '';
   private gradeTimers: number[] = [];
   private readonly onKey = (event: KeyboardEvent) => this.handleKey(event);
   private readonly handlers: HeistReportHandlers;
@@ -179,6 +188,12 @@ export class HeistReport {
       this.playerStatsEl.setAttribute('aria-label', 'Player statistics');
       this.nightShiftEl.after(this.playerStatsEl);
     }
+
+    this.leaderboardSection = document.createElement('section');
+    this.leaderboardSection.className = 'heist-report__leaderboard';
+    this.leaderboardSection.dataset.testid = 'report-leaderboard';
+    this.leaderboardSection.hidden = true;
+    actions.before(this.leaderboardSection);
 
     const challenge = button('Copy challenge link', 'btn', 'challenge-friend');
     challenge.addEventListener('click', () => void this.copyChallengeLink());
@@ -322,6 +337,7 @@ export class HeistReport {
     }
 
     this.renderCoop();
+    this.renderLeaderboard();
 
     this.gradeEl.replaceChildren();
     const faces = gradeFaces(stats);
@@ -369,6 +385,39 @@ export class HeistReport {
   updateCoopStatus(state: CoopReportState): void {
     this.currentCoopState = state;
     this.renderCoop();
+    // Coop status ticks often; only rebuild the board when co-op-ness flips, so the name form stays stable.
+    const isCoop = state.players.size > 1;
+    if (isCoop !== this.leaderboardRenderedCoop) this.renderLeaderboard();
+  }
+
+  setLeaderboard(payload: LeaderboardRecordedPayload | null, skipReason?: string): void {
+    const oldInput = this.leaderboardSection.querySelector<HTMLInputElement>('[data-testid="leaderboard-name-input"]');
+    const oldTeam = this.leaderboardSection.querySelector<HTMLInputElement>('[data-testid="leaderboard-team"]');
+    if (oldInput) this.leaderboardName = oldInput.value;
+    if (oldTeam) this.leaderboardTeam = oldTeam.checked;
+    this.leaderboardPayload = payload;
+    this.leaderboardSkipReason = skipReason;
+    if (!payload && !skipReason) {
+      this.leaderboardNameStatus = '';
+      this.leaderboardName = '';
+      this.leaderboardTeam = false;
+    }
+    this.renderLeaderboard();
+  }
+
+  setLeaderboardNameResult(result: LeaderboardNameResult): void {
+    this.leaderboardNameStatus = result.ok
+      ? 'Saved'
+      : result.reason === 'profanity'
+        ? 'Please pick another name'
+        : result.reason === 'empty'
+          ? 'Name is empty'
+          : 'Too many changes';
+    if (result.name) this.leaderboardName = result.name;
+    const input = this.leaderboardSection.querySelector<HTMLInputElement>('[data-testid="leaderboard-name-input"]');
+    if (input && result.name) input.value = result.name;
+    const status = this.leaderboardSection.querySelector<HTMLElement>('[data-testid="leaderboard-name-status"]');
+    if (status) status.textContent = this.leaderboardNameStatus;
   }
 
   hide(): void {
@@ -468,6 +517,94 @@ export class HeistReport {
     this.playerStatsEl.append(scroll);
   }
 
+  private leaderboardRenderedCoop: boolean | null = null;
+
+  private renderLeaderboard(): void {
+    const section = this.leaderboardSection;
+    const coop = this.currentCoopState;
+    const isCoop = Boolean(coop && coop.players.size > 1);
+    this.leaderboardRenderedCoop = isCoop;
+    if (this.leaderboardSkipReason === 'offline') {
+      section.hidden = false;
+      section.replaceChildren();
+      const note = document.createElement('p');
+      note.className = 'heist-report__leaderboard-muted';
+      note.dataset.testid = 'leaderboard-unranked';
+      note.textContent = 'Unranked (offline)';
+      section.append(note);
+      return;
+    }
+    if (!isCoop || (!this.leaderboardPayload && !this.leaderboardSkipReason)) {
+      section.hidden = true;
+      section.replaceChildren();
+      return;
+    }
+    const existingInput = section.querySelector<HTMLInputElement>('[data-testid="leaderboard-name-input"]');
+    const existingTeam = section.querySelector<HTMLInputElement>('[data-testid="leaderboard-team"]');
+    if (existingInput) this.leaderboardName = existingInput.value;
+    if (existingTeam) this.leaderboardTeam = existingTeam.checked;
+    section.hidden = false;
+    section.replaceChildren();
+
+    if (this.leaderboardSkipReason) {
+      const note = document.createElement('p');
+      note.className = 'heist-report__leaderboard-muted';
+      note.textContent = `This run is not on the board — ${leaderboardSkipText(this.leaderboardSkipReason)}`;
+      section.append(note);
+      return;
+    }
+
+    const payload = this.leaderboardPayload;
+    const board = payload?.boards.find((candidate) => candidate.key.startsWith('daily:') || candidate.key.startsWith('solo:daily:') || candidate.key === 'nightshift:all' || candidate.key === 'solo:nightshift:all');
+    if (!payload || !board) {
+      section.hidden = true;
+      return;
+    }
+    const heading = document.createElement('h2');
+    heading.className = 'heist-report__leaderboard-title';
+    const solo = board.key.startsWith('solo:');
+    heading.textContent = board.key.includes('daily:')
+      ? (solo ? 'Solo + AI daily board' : 'Daily board')
+      : (solo ? 'Solo + AI board' : 'Night Shift board');
+    section.append(heading);
+    const list = renderLeaderboardRows(board.entries, board.key, payload.id);
+    list.dataset.testid = 'leaderboard-list';
+    section.append(list);
+    const rank = document.createElement('p');
+    rank.className = 'heist-report__leaderboard-rank';
+    rank.dataset.testid = 'leaderboard-rank';
+    rank.textContent = board.rank == null ? 'Outside the top 10' : `You placed #${board.rank}`;
+    section.append(rank);
+
+    const form = document.createElement('form');
+    form.className = 'heist-report__leaderboard-form';
+    form.addEventListener('submit', (event) => event.preventDefault());
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.dataset.testid = 'leaderboard-name-input';
+    input.maxLength = 16;
+    input.placeholder = 'Your name';
+    input.autocomplete = 'off';
+    input.enterKeyHint = 'done';
+    input.value = this.leaderboardName;
+    input.addEventListener('input', () => { this.leaderboardName = input.value; });
+    const label = document.createElement('label');
+    const team = document.createElement('input');
+    team.type = 'checkbox';
+    team.dataset.testid = 'leaderboard-team';
+    team.checked = this.leaderboardTeam;
+    team.addEventListener('change', () => { this.leaderboardTeam = team.checked; });
+    label.append(team, document.createTextNode('Team name'));
+    const save = button('Save', 'btn', 'leaderboard-name-save');
+    save.addEventListener('click', () => this.handlers.onLeaderboardName?.(input.value, team.checked));
+    const status = document.createElement('small');
+    status.dataset.testid = 'leaderboard-name-status';
+    status.setAttribute('role', 'status');
+    status.textContent = this.leaderboardNameStatus;
+    form.append(input, label, save, status);
+    section.append(form);
+  }
+
   /** Builds `?seed=<code>&beat=<ms>` via shared/run.ts challengeUrl. */
   challengeUrl(): string {
     const base = new URL(window.location.href);
@@ -562,6 +699,15 @@ function cordDivider(): HTMLElement {
   cord.className = 'heist-report__crew-cord';
   cord.setAttribute('aria-hidden', 'true');
   return cord;
+}
+
+function leaderboardSkipText(reason: string): string {
+  if (reason === 'bot' || reason === 'solo') return 'bot runs and solo runs are not ranked.';
+  if (reason === 'players') return 'only co-op and solo-with-AI server runs are ranked.';
+  if (reason === 'tainted') return 'tainted runs are not ranked.';
+  if (reason === 'too-fast' || reason === 'daily-time' || reason === 'duration') return 'runs under the minimum time are not ranked.';
+  if (reason === 'rate-limit') return 'too many submissions were made.';
+  return 'this run was not eligible.';
 }
 
 /** 1200×630 share PNG: wordmark, time, grade faces, awards. */

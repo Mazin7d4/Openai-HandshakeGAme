@@ -5,6 +5,8 @@ export const BOT_TUNING = {
   avoidRadius: 4,
   rescueDelay: 0.8,
   exitArrive: 3,
+  hackSeconds: 3.5,
+  objectiveRange: 15,
 };
 
 export function planarDistance(a, b) {

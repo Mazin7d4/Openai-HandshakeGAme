@@ -18,6 +18,7 @@ import {
   retryWarmup,
   startWarmup,
   waitForServer,
+  warmupReadyWithin,
   warmupIsFresh,
 } from './network/ServerWarmup.ts';
 import {
@@ -34,9 +35,9 @@ import {
   getRunInfo,
   prepareChallengeRun,
   prepareDailyRun,
+  peekRunIntent,
   runOptionsFromSearch,
 } from './net/runInfo.ts';
-import { getBest } from './run/nightShiftScore.ts';
 import './style.css';
 import { audio } from './audio/AudioManager.ts';
 import { titleMenuNav } from './ui/MenuNavigator.ts';
@@ -98,6 +99,7 @@ const root: HTMLElement = rootNode;
 let game: GameApp | null = null;
 let titleAttract: TitleAttract | null = null;
 let quickMatchInFlight = false;
+let soloStartInFlight = false;
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -194,7 +196,7 @@ function showMainMenu(): void {
   play.append(element('span', 'btn__label', 'Play now'), element('span', 'btn__hint', 'Solo · you fly PIX'));
   const daily = menuButton('Daily Heist', 'daily-heist', () => {
     prepareDailyRun(new Date());
-    void startGame('night-shift');
+    void startSoloNightShift();
   });
   daily.title = `Night Shift seeded from today's UTC date (${dailySeed(new Date())})`;
   const actions = element('div', 'menu-actions');
@@ -202,6 +204,7 @@ function showMainMenu(): void {
     play,
     daily,
     menuButton('Play with a friend', 'multiplayer', showMultiplayerMenu),
+    menuButton('Leaderboards', 'leaderboards', showLeaderboards, 'btn--quiet'),
   );
   if (devMenuAllowed) {
     actions.append(menuButton('Dev local', 'dev-local', () => {
@@ -248,19 +251,44 @@ function showSinglePlayer(): void {
   }, 'btn--primary');
   const night = menuButton('Night Shift', 'night-shift', () => {
     clearRunIntent();
-    void startGame('night-shift');
+    void startSoloNightShift();
   });
   night.title = 'Endless seeded floors. Your score carries over.';
   const actions = element('div', 'menu-actions');
   actions.append(start, night, menuButton('Back', 'back', showMainMenu, 'btn--quiet'));
   panel.append(actions);
-  const best = getBest();
-  if (best) {
+  bindMenuNav(panel, showMainMenu, start);
+  void import('./run/nightShiftScore.ts').then(({ getBest }) => {
+    const best = getBest();
+    if (!best) return;
     const p = element('p', 'menu-best', `Night Shift best: floor ${best.floor} · ${best.score}`);
     p.dataset.testid = 'night-shift-best';
     panel.append(p);
+  });
+}
+
+async function startSoloNightShift(): Promise<void> {
+  if (soloStartInFlight) return;
+  const params = new URLSearchParams(window.location.search);
+  if (!warmupReadyWithin(60_000) || params.get('bot') === '0' || params.get('ranked') === '0') {
+    void startGame('night-shift');
+    return;
   }
-  bindMenuNav(panel, showMainMenu, start);
+  soloStartInFlight = true;
+  try {
+    const { tryRankedSolo } = await import('./network/RankedSolo.ts');
+    const session = await tryRankedSolo({ seed: peekRunIntent()?.seed });
+    if (session) {
+      clearRunIntent();
+      void startGame('multiplayer', session);
+      return;
+    }
+  } catch {
+    // The ranked path is optional; fall through to the instant local run.
+  } finally {
+    soloStartInFlight = false;
+  }
+  void startGame('night-shift');
 }
 
 function showMultiplayerMenu(): void {
@@ -271,12 +299,38 @@ function showMultiplayerMenu(): void {
     menuButton('Create a room', 'create-room', () => {
       void createRoom();
     }, 'btn--primary'),
+    menuButton('Daily (co-op)', 'create-daily-room', () => { void createRoom({ mode: 'daily' }); }),
     menuButton('Join with a code', 'join-room', () => showJoinRoom()),
     menuButton('Quick match', 'quick-match', () => { void quickMatch(); }),
     menuButton('Back', 'back', showMainMenu, 'btn--quiet'),
   );
   panel.append(actions);
   bindMenuNav(panel, showMainMenu, '[data-testid="create-room"]');
+}
+
+function showLeaderboards(): void {
+  let leaderboard: { dispose: () => void } | null = null;
+  const close = () => {
+    leaderboard?.dispose();
+    leaderboard = null;
+    showMainMenu();
+  };
+  const panel = menuPanel('Leaderboards', 'Global runs from the daily heist and Night Shift.');
+  const host = element('div', 'leaderboard-host');
+  const actions = element('div', 'menu-actions');
+  actions.append(menuButton('Back', 'back', close, 'btn--quiet'));
+  panel.append(host, actions);
+  bindMenuNav(panel, close, '[data-testid="back"]');
+  void import('./ui/LeaderboardPanel.ts').then(({ LeaderboardPanel }) => {
+    if (!root.contains(panel)) return;
+    leaderboard = new LeaderboardPanel(host);
+    bindMenuNav(panel, close, '[data-testid="lb-tab-daily"]');
+  }).catch(() => {
+    if (!root.contains(panel)) return;
+    const status = element('p', 'leaderboard-status', 'Leaderboard unavailable right now');
+    status.dataset.testid = 'lb-status';
+    host.append(status);
+  });
 }
 
 function quickMatchKey(): string {
@@ -454,16 +508,16 @@ async function ensureServerAwake(
   return false;
 }
 
-async function createRoom(): Promise<void> {
+async function createRoom(override: { mode?: 'daily' } = {}): Promise<void> {
   const panel = menuPanel('Creating room', 'Connecting to the multiplayer server…');
   const status = element('p', 'lobby-status', 'Please wait.');
   status.setAttribute('role', 'alert');
   status.setAttribute('aria-live', 'polite');
   panel.append(status);
   bindMenuNav(panel, showMultiplayerMenu);
-  if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void createRoom(); }))) return;
+  if (!(await ensureServerAwake(panel, showMultiplayerMenu, () => { void createRoom(override); }))) return;
   try {
-    const session = await (await loadNet()).MultiplayerSession.createRoom({ ...readUrlRunOptions(), bot: new URLSearchParams(location.search).get('bot') === '1' });
+    const session = await (await loadNet()).MultiplayerSession.createRoom({ ...readUrlRunOptions(), ...override, bot: new URLSearchParams(location.search).get('bot') === '1' });
     showLobby(session);
   } catch (error) {
     status.textContent = errorMessage(error);
@@ -883,7 +937,7 @@ if (bootParams.has('report')) {
   void bootFromInviteLink();
   preloadNow();
 } else if (urlRun.seed != null) {
-  prepareChallengeRun(urlRun.seed, urlRun.beat);
+  prepareChallengeRun(urlRun.seed, urlRun.beat, urlRun.floor ?? 1);
   void startGame('night-shift');
   preloadNow();
 } else if (bootParams.get('play') === 'solo') {

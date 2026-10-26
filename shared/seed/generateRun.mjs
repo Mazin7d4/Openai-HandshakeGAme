@@ -50,6 +50,7 @@ import { validateRunLayout } from './validate.mjs';
  *   twist: TwistParams,
  *   escalation: ReturnType<typeof escalateFloor>,
  *   cord: { restLength: number, maxLength: number },
+ *   plan: import('../nightshift/types.d.ts').FloorPlan,
  * }} RunLayout
  */
 
