@@ -38,10 +38,22 @@ const colors: Record<string, string> = {
   ice: '#BFE9FF',
   iceLight: '#E5F8FF',
   gust: '#9AD8FF',
+  objectiveMint: '#39E6A5',
+  vaultGold: '#D59B2A',
+  vaultGoldBright: '#FFD66B',
+  vaultSteel: '#17252B',
+  vaultPanel: '#26343A',
+  serverBlue: '#193B59',
+  serverBlueBright: '#4FB8FF',
+  officeWarm: '#A66E45',
+  officeSage: '#6B8C78',
+  ventSteel: '#465B62',
+  moonBlue: '#7898B8',
 };
 
 const emissiveNames = new Set([
   'goal', 'goalBright', 'done', 'pix', 'nee', 'danger', 'warn', 'white', 'iceLight', 'gust',
+  'objectiveMint', 'vaultGoldBright', 'serverBlueBright',
 ]);
 
 export function floorMaterials(scene: Scene): FloorMaterials {
@@ -72,6 +84,9 @@ export function floorMaterials(scene: Scene): FloorMaterials {
   result.dangerCurtain.backFaceCulling = false;
   result.dangerCurtain.transparencyMode = StandardMaterial.MATERIAL_ALPHABLEND;
   result.goalDim.emissiveColor = new Color3(0.1, 0.07, 0.01);
+  result.objectiveMint.emissiveColor = result.objectiveMint.diffuseColor.clone();
+  result.vaultGoldBright.emissiveColor = result.vaultGoldBright.diffuseColor.clone();
+  result.serverBlueBright.emissiveColor = result.serverBlueBright.diffuseColor.clone();
   result.ice.alpha = 0.78;
   result.gust.alpha = 0.78;
 
