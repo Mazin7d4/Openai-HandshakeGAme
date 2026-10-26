@@ -162,6 +162,7 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 .menu-kicker { color: var(--graphite); font: 800 16px/1 var(--font-title); font-stretch: 125%; letter-spacing: 0.02em; }
 .menu-panel h1 { margin-top: 10px; font-size: 34px; }
 .menu-subtitle, .lobby-status { margin-top: 10px; }
+.title-best-crew { margin: 6px 0 0; color: var(--pencil); font-size: 13px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .menu-actions, .join-form { display: grid; gap: 12px; margin-top: 24px; }
 .room-label { display: block; margin-top: 24px; }
 .room-code {
