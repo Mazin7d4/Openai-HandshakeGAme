@@ -229,6 +229,11 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
   font: 800 18px/1 var(--font-screen); font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
   font-variation-settings: 'ROND' 100; letter-spacing: 0.02em;
 }
+.floor-chip--boss {
+  color: #6f4c00;
+  border-color: #d9ae45;
+  background: #fff1b8;
+}
 .beat-chip {
   color: var(--pix); background: var(--screen); border-color: var(--graphite);
   box-shadow: 0 3px 0 #000;
@@ -395,6 +400,7 @@ html[data-reduced-motion='1'] .mission-objective { transition: none; }
   border: var(--rim); border-radius: var(--r-control);
   font: 800 16px/1.2 var(--font-title); font-stretch: 112%;
 }
+.mission-status-badge[hidden] { display: none !important; }
 .mission-status-badge[data-state='alarm'] {
   color: var(--alarm); border-color: var(--alarm); background: var(--paper);
 }

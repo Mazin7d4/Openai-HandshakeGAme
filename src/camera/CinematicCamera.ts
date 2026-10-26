@@ -36,6 +36,11 @@ export class CinematicCamera {
   private pitch = 0.53;
   private reveal = 0;
   private occluders: AbstractMesh[] | null = null;
+  private occluderMeshCount = -1;
+  private readonly occlusionDelta = new Vector3();
+  private readonly occlusionDirection = new Vector3();
+  private readonly occlusionRay = new Ray(Vector3.Zero(), Vector3.Forward(), 0);
+  private readonly occlusionAxes = ['x', 'y', 'z'] as const;
   private readonly canvas: HTMLCanvasElement | null;
   private looking = false;
   private lookYaw = 0;
@@ -356,20 +361,54 @@ export class CinematicCamera {
   }
 
   private updateOcclusion(subjects: Vector3[], dt: number): void {
-    this.occluders ??= this.scene.meshes.filter(mesh => mesh.metadata?.cameraOccluder);
+    // Room dressing is built asynchronously after the first camera frame. Refresh when
+    // the scene mesh set changes so newly merged racks/props participate in occlusion.
+    if (this.occluderMeshCount !== this.scene.meshes.length) {
+      this.occluders = this.scene.meshes.filter(mesh => mesh.metadata?.cameraOccluder);
+      this.occluderMeshCount = this.scene.meshes.length;
+    }
     const inspection = this.scene.activeCamera !== this.camera;
-    for (const mesh of this.occluders) {
+    for (const mesh of this.occluders ?? []) {
       let obscures = false;
       if (!inspection) {
         for (const point of subjects) {
-          const delta = point.subtract(this.camera.position);
-          const length = delta.length();
-          const ray = new Ray(this.camera.position, delta.normalize(), Math.max(0, length - 0.5));
-          // fastCheck: any triangle hit is enough to fade the occluder (no closest-hit sort).
-          if (ray.intersectsMesh(mesh, true).hit) { obscures = true; break; }
+          this.occlusionDelta.copyFrom(point).subtractInPlace(this.camera.position);
+          const length = this.occlusionDelta.length();
+          if (length <= 0.5) continue;
+          this.occlusionDirection.copyFrom(this.occlusionDelta).scaleInPlace(1 / length);
+          this.occlusionRay.origin.copyFrom(this.camera.position);
+          this.occlusionRay.direction.copyFrom(this.occlusionDirection);
+          this.occlusionRay.length = length - 0.5;
+          // Bounding-box testing is stable for imported instances and cheaper than triangle
+          // picking; room props are static and already have frozen world bounds.
+          if (this.segmentIntersectsBounds(mesh, this.occlusionRay.length)) { obscures = true; break; }
         }
       }
       mesh.visibility = smooth(mesh.visibility, obscures ? 0.10 : 1, obscures ? 12 : 5, dt);
     }
+  }
+
+  private segmentIntersectsBounds(mesh: AbstractMesh, length: number): boolean {
+    const box = mesh.getBoundingInfo().boundingBox;
+    const min = box.minimumWorld;
+    const max = box.maximumWorld;
+    let near = 0;
+    let far = length;
+    const origin = this.occlusionRay.origin;
+    const direction = this.occlusionRay.direction;
+    for (const axis of this.occlusionAxes) {
+      const component = direction[axis];
+      if (Math.abs(component) < 1e-5) {
+        if (origin[axis] < min[axis] || origin[axis] > max[axis]) return false;
+        continue;
+      }
+      let a = (min[axis] - origin[axis]) / component;
+      let b = (max[axis] - origin[axis]) / component;
+      if (a > b) { const swap = a; a = b; b = swap; }
+      near = Math.max(near, a);
+      far = Math.min(far, b);
+      if (near > far) return false;
+    }
+    return far >= 0 && near <= length;
   }
 }

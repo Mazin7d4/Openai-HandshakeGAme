@@ -25,7 +25,9 @@ export async function loadPropKit(scene: Scene) {
       if (!(child instanceof Mesh) || !child.getTotalVertices()) continue;
       child.computeWorldMatrix(true);
       parts.push({ mesh: child, local: child.getWorldMatrix().clone() });
-      child.isPickable = false; child.receiveShadows = true; child.metadata = { ...child.metadata, castShadow: true };
+      child.isPickable = false;
+      child.receiveShadows = true;
+      child.metadata = { ...child.metadata, castShadow: true };
       if (child.material instanceof PBRMaterial) child.material.maxSimultaneousLights = 4;
     }
     sources.set(node.name.slice(5), parts);

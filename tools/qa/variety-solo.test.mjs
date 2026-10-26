@@ -1,29 +1,38 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import { generateRun } from '../../shared/seed/index.mjs';
 import { runTest, url, assert, collectErrors, openPage, closePage, waitForNightShiftHud } from './lib.mjs';
 
 const shotDir = '/workspace/handshake/playtest/oct25/nightshift';
 mkdirSync(shotDir, { recursive: true });
+for (const file of readdirSync(shotDir)) {
+  if (file.endsWith('.png')) unlinkSync(`${shotDir}/${file}`);
+}
 
 function picks() {
-  // Floor 1 (teaching grab), one boss vault, then two more floors with objective
-  // kinds not yet shown, so the four screenshots cover four different jobs.
+  // The showcase set deliberately covers the four authored cooperative objectives,
+  // with a boss vault and enough room archetypes to exercise the visual builder.
+  const wantedKinds = new Set(['twin-levers', 'pylon-safe', 'fragile', 'relay']);
   const selected = [];
   const kinds = new Set();
-  const want = (plan, floor) => {
-    if (selected.length === 0) return floor === 1;
-    if (selected.length === 1) return plan.job.boss;
-    return plan.rooms.some((room) => room.archetype !== 'classic') && plan.hazards.length >= 2;
+  const archetypes = new Set();
+  const add = (seed, floor, plan) => {
+    selected.push({ seed, floor, plan });
+    kinds.add(plan.objective.kind);
+    for (const room of plan.rooms) if (room.archetype !== 'classic') archetypes.add(room.archetype);
   };
   for (let seed = 0; seed < 5000 && selected.length < 4; seed++) {
-    for (let floor = 1; floor <= 9 && selected.length < 4; floor++) {
+    for (let floor = 2; floor <= 12 && selected.length < 4; floor++) {
       const plan = generateRun(seed, floor).plan;
-      if (kinds.has(plan.objective.kind) || !want(plan, floor)) continue;
-      kinds.add(plan.objective.kind);
-      selected.push({ seed, floor, plan });
+      if (!wantedKinds.has(plan.objective.kind) || kinds.has(plan.objective.kind)) continue;
+      if (selected.length === 0 && !plan.job.boss) continue;
+      const addsKind = !kinds.has(plan.objective.kind);
+      const addsRoom = plan.rooms.some((room) => room.archetype !== 'classic' && !archetypes.has(room.archetype));
+      if (addsKind && (addsRoom || archetypes.size >= 4) && plan.hazards.length > 0) add(seed, floor, plan);
     }
   }
   if (!selected.find((pick) => pick.plan.job.boss)) throw new Error('could not choose a boss floor');
+  if (kinds.size < 4) throw new Error(`objective variety too narrow: ${[...kinds].join(', ')}`);
+  if (archetypes.size < 4) throw new Error(`room variety too narrow: ${[...archetypes].join(', ')}`);
   return selected;
 }
 
@@ -39,6 +48,7 @@ function shotFocus(plan, seed, floor) {
   if (objective.levers) return centroid(objective.levers);
   if (objective.pylon) return centroid([objective.pylon, objective.safe]);
   if (objective.pads) return centroid(objective.pads.slice(0, 3));
+  if (objective.kind === 'fragile' || objective.kind === 'grab') return generateRun(seed, floor).loot;
   const room = plan.rooms
     .filter((candidate) => candidate.archetype !== 'classic' && candidate.pieces.length)
     .sort((a, b) => b.pieces.length - a.pieces.length)[0];
@@ -93,24 +103,30 @@ await runTest('variety-solo', async (browser, notes) => {
       y: Math.max(1.8, (hazard.rect.y0 + hazard.rect.y1) / 2),
       z: (hazard.rect.z0 + hazard.rect.z1) / 2,
     });
-    // Stage a readable shot: let the floor card play, park the crew beside the
-    // objective, and pin a high three-quarter photo camera over it.
+    // Stage a readable shot: let the floor card play, park both drones beside
+    // the objective, and let the normal follow camera settle over them.
     await page.waitForTimeout(2500);
     const focus = shotFocus(choice.plan, choice.seed, choice.floor);
-    await page.evaluate(({ focus }) => {
-      window.__autotest.teleport('pix', focus.x - 1.2, 2.4, focus.z - 2.5);
-      window.__autotest.teleport('nee', focus.x + 1.2, 2.4, focus.z - 2.5);
-      const toward = focus.x > 0 ? -2 : 2;
-      window.__autotest.photo({ x: focus.x + toward, y: focus.z > 1.5 ? 8.2 : 11, z: focus.z - 6 }, { x: focus.x, y: 0.5, z: focus.z + 0.5 });
+    await page.evaluate(({ focus, fragile }) => {
+      const hoverY = fragile ? Math.max(3.8, (focus.y ?? 5.25) - 0.8) : Math.max(2.8, (focus.y ?? 1.8) + 0.4);
+      const side = fragile ? 2.2 : 1.25;
+      const depth = fragile ? 3.2 : 1.4;
+      window.__autotest.teleport('pix', focus.x - side, hoverY, focus.z - depth);
+      window.__autotest.teleport('nee', focus.x + side, hoverY, focus.z - depth);
       for (const id of ['dev-readout', 'dev-controls']) {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
       }
-    }, { focus });
+    }, { focus, fragile: choice.plan.objective.kind === 'fragile' });
     const skip = page.getByRole('button', { name: 'Skip' });
     if (await skip.count()) await skip.first().click().catch(() => {});
     await page.waitForTimeout(2000);
-    await page.screenshot({ path: `${shotDir}/floor-${choice.floor}-${choice.plan.objective.kind}.png` });
+    await page.evaluate(() => {
+      const toasts = document.querySelector('[data-testid="juice-toasts"]');
+      if (toasts instanceof HTMLElement) toasts.style.display = 'none';
+    });
+    const bossSuffix = choice.plan.job.boss ? '-boss' : '';
+    await page.screenshot({ path: `${shotDir}/floor-${choice.floor}-${choice.plan.objective.kind}${bossSuffix}.png` });
     assert(errors.length === 0, `browser errors on floor ${choice.floor}:\n${errors.join('\n')}`);
     notes.floors.push({ floor: choice.floor, seed: choice.seed, objective: choice.plan.objective.kind, boss: choice.plan.job.boss, drawCalls: hook.drawCalls, bodies: hook.bodies });
     await closePage(page);

@@ -11,7 +11,8 @@ import type { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole, RoomStatus } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
 import type { RunLayout } from '../seed/index.ts';
-import { applyRunLayout, generateRun } from '../seed/index.ts';
+import { applyRunLayout } from '../seed/index.ts';
+import { generateNightShiftRun } from '../seed/nightShiftRun.ts';
 import { getRunState, onFloorStart, setLayoutSinkProvider } from '../run/ClientRun.ts';
 import { GrabSystem } from './GrabSystem.ts';
 import { Grabbable } from './Grabbable.ts';
@@ -170,7 +171,7 @@ export class GameplayWorld {
       // Lobby may have received floor-start before sinks existed; apply from synced run state.
       const run = session.currentStatus.run ?? getRunState();
       if (run?.mode === 'nightshift' && !runLayout) {
-        this.applySoloLayout(generateRun(run.seed, run.floor));
+        this.applySoloLayout(generateNightShiftRun(run.seed, run.floor));
       }
     } else if (runLayout) {
       this.applySoloLayout(runLayout);
@@ -189,7 +190,11 @@ export class GameplayWorld {
         this.mission.applyRunLayout(run);
         this.floorPlanRuntime.applyLayout(run);
         this.kitDressing?.dispose();
-        void dressRunLayout(this.scene, run).then((h) => { this.kitDressing = h; }).catch((e) => console.warn('[kit] dressing failed', e));
+        if (!run.plan) {
+          void dressRunLayout(this.scene, run).then((h) => { this.kitDressing = h; }).catch((e) => console.warn('[kit] dressing failed', e));
+        } else {
+          this.kitDressing = null;
+        }
       },
     };
   }

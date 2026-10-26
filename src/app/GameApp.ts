@@ -25,7 +25,7 @@ import { zeroFlightAxes } from '../input/FlightAxes.ts';
 import { PLAYER_ONE_KEYS } from '../input/KeyboardInput.ts';
 import { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole, EmoteId } from '../network/NetworkTypes.ts';
-import { getRunState } from '../run/ClientRun.ts';
+import { getRunState, setNightShiftLayoutGenerator } from '../run/ClientRun.ts';
 import { Drone, DRONE_PALETTES } from '../player/Drone.ts';
 import { BotTag } from '../player/BotTag.ts';
 import { DRONE_MODEL_URL } from '../player/DroneVisual.ts';
@@ -37,7 +37,8 @@ import { AccessibilityFeedback } from '../ui/AccessibilityFeedback.ts';
 import { GameHud } from '../ui/GameHud.ts';
 import { OnboardingCoach } from '../ui/OnboardingCoach.ts';
 import { effectiveReducedMotion, getSettings, saveSettings } from '../ui/Settings.ts';
-import { generateRun, type RunLayout } from '../seed/index.ts';
+import { type RunLayout } from '../seed/index.ts';
+import { generateNightShiftRun } from '../seed/nightShiftRun.ts';
 import { getRunInfo } from '../net/runInfo.ts';
 import { TouchControls } from '../ui/TouchControls.ts';
 import { isTouchPlayDevice } from '../ui/touchDetect.ts';
@@ -456,7 +457,8 @@ export class GameApp {
     // Story/solo/co-op keep the handcrafted level; only Night Shift remixes (until Netcode syncs room seeds).
     // UI reads seed/floor through getRunInfo() so Netcode can swap the source without HUD changes.
     const runSeed = mode === 'night-shift' ? options.runSeed ?? getRunInfo() : null;
-    const runLayout = runSeed ? generateRun(runSeed.seed, runSeed.floor) : null;
+    setNightShiftLayoutGenerator(generateNightShiftRun);
+    const runLayout = runSeed ? generateNightShiftRun(runSeed.seed, runSeed.floor) : null;
     // TEST-ONLY: ?autotest&stage=escape starts local modes in the alarm escape, beside the heavy crate.
     const escapeStage = Autopilot.enabled && mode !== 'multiplayer'
       && new URLSearchParams(window.location.search).get('stage') === 'escape';

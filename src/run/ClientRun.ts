@@ -52,6 +52,7 @@ let beatTarget: number | null = null;
 let ended = false;
 const floorListeners = new Set<FloorStartListener>();
 let layoutSinkProvider: LayoutSinkProvider | null = null;
+let nightShiftLayoutGenerator: (seed: number, floor: number) => RunLayout = generateRun;
 
 function toSnapshot(state: RunState): ClientRunSnapshot {
   const scored = state as RunState & Partial<Pick<ClientRunSnapshot, 'score' | 'streak' | 'multiplier' | 'lastFloorPoints' | 'floorCleared'>>;
@@ -84,6 +85,13 @@ export function setLayoutSinkProvider(provider: LayoutSinkProvider | null): void
   layoutSinkProvider = provider;
 }
 
+/** Installed by the lazy game chunk once Night Shift rendering is ready. */
+export function setNightShiftLayoutGenerator(
+  generator: ((seed: number, floor: number) => RunLayout) | null,
+): void {
+  nightShiftLayoutGenerator = generator ?? generateRun;
+}
+
 export function onFloorStart(listener: FloorStartListener): () => void {
   floorListeners.add(listener);
   return () => {
@@ -100,7 +108,7 @@ export function applyFloorStart(payload: FloorStartPayload): RunLayout | null {
   const mode = payload.mode ?? snapshot?.mode ?? localState?.mode ?? 'standard';
   let layout: RunLayout | null = null;
   if (mode === 'nightshift') {
-    layout = generateRun(payload.seed, payload.floor);
+    layout = nightShiftLayoutGenerator(payload.seed, payload.floor);
     const sinks = layoutSinkProvider?.() ?? undefined;
     applyRunLayout(layout, sinks ?? undefined);
   }

@@ -26,6 +26,11 @@ function validPiece(piece: RoomPiece): boolean {
   ) && piece.sx > 0 && piece.sy > 0 && piece.sz > 0;
 }
 
+/** Keep server racks below the normal over-the-shoulder sightline. Colliders keep authored size. */
+function visualPieceHeight(piece: RoomPiece): number {
+  return piece.mat === 'rack' ? Math.min(piece.sy, 1.8) : piece.sy;
+}
+
 function finishStatic(mesh: Mesh, occluder: boolean): void {
   mesh.isPickable = false;
   mesh.receiveShadows = true;
@@ -64,18 +69,19 @@ export async function buildRooms(scene: Scene, rooms: RoomPlan[]): Promise<Floor
   };
 
   const addPrimitive = (piece: RoomPiece): void => {
+    const visualSy = visualPieceHeight(piece);
     const mesh = piece.kind === 'cyl'
       ? CreateCylinder(`room-${piece.mat}`, {
         diameter: piece.sx,
-        height: piece.sy,
+        height: visualSy,
         tessellation: 12,
       }, scene)
       : CreateBox(`room-${piece.mat}`, {
         width: piece.sx,
-        height: piece.sy,
+        height: visualSy,
         depth: piece.sz,
       }, scene);
-    mesh.position.set(piece.x, piece.y, piece.z);
+    mesh.position.set(piece.x, piece.y - (piece.sy - visualSy) * 0.5, piece.z);
     mesh.rotation.y = piece.rotY;
     addVisual(mesh, piece.mat, piece.sy > 2.2);
   };
@@ -87,14 +93,36 @@ export async function buildRooms(scene: Scene, rooms: RoomPlan[]): Promise<Floor
       }
 
       let kitMeshes: AbstractMesh[] = [];
-      if (useKits && piece.asset && kitPlacements < 16) {
+      // Rack kit pivots are authored for full-level dressing rather than centred plan pieces;
+      // use the sized primitive for these sightline-critical blockers.
+      if (useKits && piece.asset && piece.mat !== 'rack' && kitPlacements < 16) {
+        const visualSy = visualPieceHeight(piece);
         kitMeshes = await placeKitAsset(
           scene,
           piece.asset,
-          new Vector3(piece.x, piece.y, piece.z),
+          new Vector3(piece.x, piece.y - (piece.sy - visualSy) * 0.5, piece.z),
           piece.rotY,
           new Vector3(piece.sx, piece.sy, piece.sz),
         );
+        if (visualSy < piece.sy) {
+          const heightScale = visualSy / piece.sy;
+          for (const kitMesh of kitMeshes) {
+            kitMesh.scaling.y *= heightScale;
+          }
+        }
+        // Kit assets use authored pivots rather than the plan's centre convention. Re-centre
+        // the placed bounds so a rack's requested height really clears the drone sightline.
+        let minY = Number.POSITIVE_INFINITY;
+        let maxY = Number.NEGATIVE_INFINITY;
+        for (const kitMesh of kitMeshes) {
+          kitMesh.computeWorldMatrix(true);
+          const bounds = kitMesh.getBoundingInfo().boundingBox;
+          minY = Math.min(minY, bounds.minimumWorld.y);
+          maxY = Math.max(maxY, bounds.maximumWorld.y);
+        }
+        const visualCenterY = piece.y - (piece.sy - visualSy) * 0.5;
+        const centerOffset = visualCenterY - (minY + maxY) * 0.5;
+        for (const kitMesh of kitMeshes) kitMesh.position.y += centerOffset;
         if (kitMeshes.length > 0) {
           kitPlacements++;
           for (const kitMesh of kitMeshes) {

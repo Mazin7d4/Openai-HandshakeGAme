@@ -650,7 +650,12 @@ export class MissionDirector {
     if (!this.objectiveTitle || !this.objectiveDetail || !this.detectionFill) return;
     const warm = this.state.stage === 'infiltrate' ? this.warmup() : null;
     const job = floorJob(this.runLayout?.floor);
-    if (this.objectiveKicker && this.objectiveKicker.textContent !== job.kicker) this.objectiveKicker.textContent = job.kicker;
+    const plan = this.runLayout?.plan;
+    const planJobName = plan?.job.name.replace(/^VAULT:\s*/i, '') ?? '';
+    const kicker = plan
+      ? `${plan.job.boss ? 'BOSS VAULT' : 'Night job'} · ${planJobName}`
+      : job.kicker;
+    if (this.objectiveKicker && this.objectiveKicker.textContent !== kicker) this.objectiveKicker.textContent = kicker;
     const syncedObjective = this.objectivePlan && this.objectiveState
       ? objectiveHud(this.objectiveState, this.objectivePlan)
       : null;
@@ -947,7 +952,9 @@ export class MissionDirector {
     if (!this.floorChip || !this.runLayout) return;
     // RunState / generateRun floors are already 1-based for Night Shift boots.
     const floor = Math.max(1, this.runLayout.floor | 0);
-    this.floorChip.textContent = `Floor ${floor}`;
+    const boss = this.runLayout.plan?.job.boss === true;
+    this.floorChip.textContent = boss ? `Floor ${floor} · Boss` : `Floor ${floor}`;
+    this.floorChip.classList.toggle('floor-chip--boss', boss);
     if (this.twistChip && this.runLayout.twist) {
       this.twistChip.textContent = this.runLayout.twist.label;
     }
