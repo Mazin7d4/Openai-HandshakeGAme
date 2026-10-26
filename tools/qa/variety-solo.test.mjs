@@ -9,10 +9,10 @@ for (const file of readdirSync(shotDir)) {
   if (file.endsWith('.png')) unlinkSync(`${shotDir}/${file}`);
 }
 
-function doorwayAt(z) {
+function doorwayAt(z, offset = 0) {
   const doorway = DOORWAYS.find((candidate) => Math.abs((candidate.min.z + candidate.max.z) / 2 - z) < 1.5);
   if (!doorway) throw new Error(`missing shared doorway near z=${z}`);
-  return { x: (doorway.min.x + doorway.max.x) / 2, y: (doorway.min.y + doorway.max.y) / 2, z: (doorway.min.z + doorway.max.z) / 2 };
+  return { x: (doorway.min.x + doorway.max.x) / 2, y: (doorway.min.y + doorway.max.y) / 2, z: (doorway.min.z + doorway.max.z) / 2 + offset };
 }
 
 function routePoint(point) {
@@ -22,11 +22,11 @@ function routePoint(point) {
 }
 
 function fragileRoute(loot, extraction, toExtraction) {
-  const office = doorwayAt(-26);
-  const vault = doorwayAt(2);
-  const reception = doorwayAt(-43);
-  const spine = doorwayAt(-34);
-  const escape = doorwayAt(-9);
+  const office = doorwayAt(-26, -1.2);
+  const vault = doorwayAt(2, 1.2);
+  const reception = doorwayAt(-43, -1.2);
+  const spine = doorwayAt(-34, -1.2);
+  const escape = doorwayAt(-9, -1.2);
   const route = toExtraction
     ? [
         { x: vault.x, y: 3.2, z: vault.z },
@@ -36,7 +36,7 @@ function fragileRoute(loot, extraction, toExtraction) {
         { x: escape.x, y: 3, z: escape.z },
       ]
     : [
-        { x: 1, y: 8, z: -44 },
+        { x: reception.x, y: reception.y, z: reception.z },
         { x: office.x, y: 5.2, z: office.z },
         { x: vault.x, y: 3.2, z: vault.z },
         { x: loot.x, y: loot.y, z: loot.z },

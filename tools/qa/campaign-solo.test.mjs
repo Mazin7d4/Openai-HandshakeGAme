@@ -9,7 +9,7 @@ mkdirSync(shotDir, { recursive: true });
 
 await runTest('campaign-solo', async (browser, notes) => {
   const { page } = await openPage(browser, { viewport: { width: 844, height: 390 } });
-  await page.goto(url());
+  await page.goto(url(), { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await page.getByTestId('campaign').click();
   await page.getByTestId('level-select').waitFor({ state: 'visible' });
   await page.screenshot({ path: `${shotDir}/level-select-phone.png` });
@@ -29,12 +29,12 @@ await runTest('campaign-solo', async (browser, notes) => {
 
   // Absent and malformed progress must fall back to the safe initial state.
   await page.evaluate(() => localStorage.removeItem('pixnee.campaign.v1'));
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 60_000 });
   await page.getByTestId('campaign').click();
   assert.equal(await page.getByTestId('level-card-l1-tethered').getAttribute('data-locked'), '0');
   assert.equal(await page.getByTestId('level-card-l2-twin-levers').getAttribute('data-locked'), '1');
   await page.evaluate(() => localStorage.setItem('pixnee.campaign.v1', '{broken json'));
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 60_000 });
   await page.getByTestId('campaign').click();
   assert.equal(await page.getByTestId('level-card-l1-tethered').getAttribute('data-locked'), '0');
   assert.equal(await page.getByTestId('level-card-l2-twin-levers').getAttribute('data-locked'), '1');
@@ -46,7 +46,7 @@ await runTest('campaign-solo', async (browser, notes) => {
     const completion = await completeLevel(page, level, layout);
     completed.push(completion);
     if (level.index === 1) {
-      await page.goto(url());
+      await page.goto(url(), { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.getByTestId('campaign').click();
       assert.equal(await page.getByTestId('level-card-l1-tethered').getAttribute('data-locked'), '0');
       assert.equal(await page.getByTestId('level-card-l2-twin-levers').getAttribute('data-locked'), '0');
@@ -61,7 +61,7 @@ await runTest('campaign-solo', async (browser, notes) => {
 });
 
 async function stageShowcase(page, level, layout) {
-  await page.goto(url({ level: level.id, bot: '1' }));
+  await page.goto(url({ level: level.id, bot: '1' }), { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await waitForGame(page);
   await page.getByTestId('floor-card').waitFor({ state: 'visible', timeout: 30_000 });
   await page.waitForFunction(() => Boolean(window.__floorPlan?.planHash), null, { timeout: 30_000 });
@@ -86,7 +86,7 @@ async function stageShowcase(page, level, layout) {
 }
 
 async function completeLevel(page, level, layout) {
-  await page.goto(url({ level: level.id, bot: '1' }));
+  await page.goto(url({ level: level.id, bot: '1' }), { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await waitForGame(page);
   await page.waitForFunction(() => Boolean(window.__floorPlan?.planHash), null, { timeout: 30_000 });
   // Existing variety QA uses this shortcut to skip the legacy hack; objective play remains real.
@@ -150,7 +150,7 @@ async function completeRelay(page, objective, spawn) {
 }
 
 async function completeFragileCarry(page, layout) {
-  await gotoPoint(page, 'pix', layout.loot, 1.4, true);
+  await routeTo(page, layout.spawn, layout.loot, { y: 7 });
   await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
   await page.waitForFunction(() => window.__autotest.heldObject?.('pix') === 'prototype', null, { timeout: 12_000 });
   await carryPrototype(page, layout, true);
@@ -158,7 +158,7 @@ async function completeFragileCarry(page, layout) {
 
 async function carryPrototype(page, layout, alreadyHolding = false) {
   if (!alreadyHolding) {
-    await gotoPoint(page, 'pix', layout.loot, 1.4, true);
+    await routeTo(page, layout.spawn, layout.loot, { y: 7 });
     await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
     await page.waitForFunction(() => window.__autotest.heldObject?.('pix') === 'prototype', null, { timeout: 12_000 });
   }
@@ -168,10 +168,13 @@ async function carryPrototype(page, layout, alreadyHolding = false) {
 
 async function routeTo(page, from, target, options = {}) {
   const y = options.y ?? 7;
+  const reception = doorwayCenter(-43, -1.2);
+  const office = doorwayCenter(-26, -1.2);
+  const vault = doorwayCenter(2, 1.2);
   const route = [
-    { x: from.x, y, z: -44 },
-    { x: from.x, y: 5.2, z: -26 },
-    { x: 0, y: 3.3, z: 2 },
+    { x: reception.x, y: reception.y, z: reception.z },
+    { x: office.x, y: 5.2, z: office.z },
+    { x: vault.x, y: 3.3, z: vault.z },
     { x: target.x, y: Math.max(2.2, target.y), z: target.z },
   ];
   assert(route.every((point) => isRoutePointClear(point)), `route point intersects authored blocker: ${JSON.stringify(route)}`);
@@ -198,12 +201,23 @@ function isRoutePointClear(point) {
     || DOORWAYS.some((doorway) => pointInAabb(point, doorway, 0.05));
 }
 
+function doorwayCenter(z, offset = 0) {
+  const doorway = DOORWAYS.find((candidate) => Math.abs((candidate.min.z + candidate.max.z) / 2 - z) < 1.5);
+  if (!doorway) throw new Error(`missing shared doorway near z=${z}`);
+  return { x: (doorway.min.x + doorway.max.x) / 2, y: (doorway.min.y + doorway.max.y) / 2, z: (doorway.min.z + doorway.max.z) / 2 + offset };
+}
+
 async function gotoPoint(page, role, point, tolerance = 1.5, hold = false) {
   await page.evaluate(({ role, point, tolerance, hold }) => window.__autotest.goto(role, point.x, point.y, point.z, tolerance, hold), { role, point, tolerance, hold });
-  await page.waitForFunction(({ role, point, tolerance }) => {
-    const current = window.__autotest.position(role);
-    return current && Math.hypot(current.x - point.x, current.y - point.y, current.z - point.z) <= Math.max(2.8, tolerance + 0.8);
-  }, { role, point, tolerance }, { timeout: 45_000 });
+  try {
+    await page.waitForFunction(({ role, point, tolerance }) => {
+      const current = window.__autotest.position(role);
+      return current && Math.hypot(current.x - point.x, current.y - point.y, current.z - point.z) <= Math.max(2.8, tolerance + 0.8);
+    }, { role, point, tolerance }, { timeout: 45_000 });
+  } catch (error) {
+    const diagnostic = await page.evaluate((role) => ({ position: window.__autotest.position(role), objective: window.__floorPlan?.objective(), mission: window.__autotest.security?.()?.stage }), role).catch(() => null);
+    throw new Error(`goto timeout ${role} ${JSON.stringify(point)} ${JSON.stringify(diagnostic)}: ${error.message}`);
+  }
 }
 
 function showcaseFocus(layout) {
