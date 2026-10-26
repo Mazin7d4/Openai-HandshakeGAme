@@ -7,9 +7,9 @@
   },
   "infiltrationZ": -54,
   "extraction": {
-    "x": -15,
+    "x": 11,
     "y": 2,
-    "z": -61
+    "z": 43.5
   },
   "terminals": {
     "terminal-a": {
@@ -35,9 +35,9 @@
       "z": -50
     },
     "crate-blue": {
-      "x": -14.8,
+      "x": 8,
       "y": 1.8,
-      "z": 12.5
+      "z": 37
     },
     "crate-pink": {
       "x": -4.5,

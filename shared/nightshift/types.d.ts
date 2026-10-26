@@ -144,7 +144,7 @@ export interface JobPlan {
 }
 
 export interface FloorPlan {
-  version: 1;
+  version: 2;
   job: JobPlan;
   rooms: RoomPlan[];
   objective: ObjectivePlan;

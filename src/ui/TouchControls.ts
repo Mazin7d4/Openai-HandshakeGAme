@@ -11,6 +11,7 @@ export interface TouchControlsHandlers {
   camera: CinematicCamera;
   onJumpBoost?: (down: boolean) => void;
   onGrab: () => void;
+  onThrow?: () => void;
   onYank: () => void;
   onInteract: () => void;
   onPause: () => void;
@@ -63,6 +64,8 @@ export class TouchControls {
   private lastTapY = 0;
   private readonly unsubSettings: () => void;
   private readonly radial: HTMLDivElement;
+  private readonly carryButton: HTMLButtonElement;
+  private readonly throwButton: HTMLButtonElement;
   private readonly liftHolds = new Set<HTMLButtonElement>();
   private emotePointer: { id: number; started: number; moved: boolean; selected: EmoteId | null } | null = null;
 
@@ -203,6 +206,10 @@ export class TouchControls {
 
     this.actions = document.createElement('div');
     this.actions.className = 'touch-actions';
+    this.carryButton = this.tapButton('Grab', 'grab', 'touch-grab', () => this.handlers.onGrab());
+    this.throwButton = this.tapButton('Throw', 'grab', 'touch-throw', () => this.handlers.onThrow?.());
+    this.throwButton.classList.add('touch-carry-throw');
+    this.throwButton.hidden = true;
     this.actions.append(
       this.holdButton('Jump', 'boost', 'touch-jump', (down) => {
         this.jumpBoostHeld = down;
@@ -211,7 +218,8 @@ export class TouchControls {
       }),
       this.holdButton('Up', 'updown', 'touch-up', (down) => this.setLiftHold('touch-up', down, 1)),
       this.holdButton('Down', 'updown', 'touch-down', (down) => this.setLiftHold('touch-down', down, -1)),
-      this.tapButton('Grab', 'grab', 'touch-grab', () => this.handlers.onGrab()),
+      this.carryButton,
+      this.throwButton,
       this.tapButton('Yank', 'yank', 'touch-yank', () => this.handlers.onYank()),
       this.tapButton('Hack', 'hack', 'touch-hack', () => this.handlers.onInteract()),
       this.tapButton('Ping', 'ping', 'touch-ping', () => this.handlers.onPing?.()),
@@ -325,6 +333,19 @@ export class TouchControls {
         this.handlers.virtual.setAxes({ lift: 0, boost: false });
       }
     }
+  }
+
+  /** Keep carry actions in the touch action cluster instead of the world prompt. */
+  setCarryState(carrying: boolean, pass = false): void {
+    this.root.classList.toggle('touch-controls--carrying', carrying);
+    const label = pass ? 'Pass' : 'Drop';
+    this.carryButton.hidden = false;
+    this.carryButton.dataset.carrying = carrying ? '1' : '0';
+    this.carryButton.setAttribute('aria-label', carrying ? label : 'Grab');
+    const caption = this.carryButton.querySelector('.touch-btn__label');
+    if (caption) caption.textContent = carrying ? label : 'Grab';
+    this.carryButton.querySelector('.touch-btn__glyph')?.setAttribute('data-carry', carrying ? label.toLowerCase() : 'grab');
+    this.throwButton.hidden = !carrying;
   }
 
   /** Swap the virtual stick target after a local drone switch recreates HumanControlSource. */

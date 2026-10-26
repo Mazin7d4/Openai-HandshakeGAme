@@ -259,6 +259,17 @@ export class GameplayWorld {
     this.grab.debugGrab('prototype', 'nee');
   }
 
+  debugOpenHack(type: 'packet-routing' | 'signal-match' | 'memory-trace'): void {
+    const station = this.hack.stations.find((candidate) => candidate.minigameType === type);
+    if (!station) return;
+    this.hack.debugOpenStation(station.id, station.allowedRole === 'nee' ? 'nee' : 'pix');
+  }
+
+  debugGrabForUi(role: DroneRole): void {
+    this.grab.releaseHeld(role === 'pix' ? 'nee' : 'pix');
+    this.grab.debugGrab('prototype', role);
+  }
+
   debugStage(stage: 'hack-security' | 'steal-prototype' | 'escape'): void {
     this.hack.debugCompleteAll();
     this.mission.debugSetStage(stage);

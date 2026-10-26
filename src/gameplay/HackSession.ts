@@ -50,6 +50,7 @@ export class HackSession {
   private doorOpen = false;
   private alarmed = false;
   private active: ActiveHack | null = null;
+  private debugView = false;
 
   constructor(
     scene: Scene,
@@ -92,7 +93,9 @@ export class HackSession {
         accent: new Color3(0.42, 0.9, 0.62),
       }),
     ];
-    this.door = new Door(scene, plugin);
+    this.door = new Door(scene, plugin, {
+      name: 'lab-access-door', x: 0, y: 4, z: 2, width: 5.6, height: 8, depth: 0.7, travel: -8.2,
+    });
   }
 
   /** Re-apply terminal positions from a RunLayout (solo next-floor stub). */
@@ -181,13 +184,17 @@ export class HackSession {
   update(dt: number, drones: ReadonlyMap<DroneRole, Drone>): void {
     if (this.active) {
       const drone = drones.get(this.active.role);
-      if (!drone || this.active.station.distanceTo(drone.position) > this.active.station.interactionRadius + 0.8) {
+      if (!this.debugView && (!drone || this.active.station.distanceTo(drone.position) > this.active.station.interactionRadius + 0.8)) {
         this.cancelCurrent();
       }
     }
     for (const station of this.stations) {
       station.update(dt, this.ownerFor(station.id), this.completeFor(station.id));
     }
+    const inLabThreshold = [...drones.values()].some((drone) =>
+      Math.abs(drone.position.x) < 3.1 && Math.abs(drone.position.z - 2) < 1.25 && drone.position.y < 8.2,
+    );
+    this.door.setCloseBlocked(this.alarmed && inLabThreshold);
     this.door.setOpen(this.doorOpen && !this.alarmed);
     this.door.update(dt);
     for (const [role, drone] of drones) {
@@ -211,6 +218,15 @@ export class HackSession {
     if (this.multiplayer) return;
     for (const station of this.stations) this.setComplete(station.id, true);
     this.doorOpen = true;
+  }
+
+  debugOpenStation(id: HackStationId, role: DroneRole): void {
+    const station = this.stations.find((candidate) => candidate.id === id);
+    if (!station) return;
+    if (this.active) this.closeView();
+    this.setOwner(id, role);
+    this.debugView = true;
+    this.openPuzzle(station, role);
   }
 
   allComplete(): boolean {
@@ -239,6 +255,7 @@ export class HackSession {
 
   private openPuzzle(station: HackStation, role: DroneRole): void {
     if (!this.uiParent || this.active) return;
+    document.body.classList.add('hack-session-open');
     const done = () => this.completeCurrent();
     const cancel = () => this.cancelCurrent();
     const view = station.minigameType === 'packet-routing'
@@ -273,6 +290,8 @@ export class HackSession {
   private closeView(): void {
     this.active?.view.dispose();
     this.active = null;
+    this.debugView = false;
+    document.body.classList.remove('hack-session-open');
   }
 
   private ownerFor(id: HackStationId): DroneRole | null {

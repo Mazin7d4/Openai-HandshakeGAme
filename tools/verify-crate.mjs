@@ -1,6 +1,6 @@
 // Fast co-op crate check: ?autotest&stage=escape starts in the alarm escape (vault hacked,
-// NEE carrying the prototype) beside the Heavy Lab Crate. Proves the drag clears the relief
-// vent and the extraction is reachable, without the ~10 min software-WebGL heist route.
+// NEE carrying the prototype) in the loading dock. Proves the drag clears the conveyor
+// route and the extraction is reachable, without the ~10 min software-WebGL heist route.
 import { chromium } from 'playwright';
 import { clearCrate, escape } from './heist-route.mjs';
 
@@ -60,7 +60,7 @@ try {
   const moved = Math.hypot(final.x - initial.x, final.z - initial.z);
   step(`crate moved ${moved.toFixed(2)}`);
   if (moved <= 4.5) throw new Error(`Crate only moved ${moved.toFixed(2)} units`);
-  for (const point of escape.slice(3)) {
+  for (const point of escape) {
     await pilot(['pix'], point);
     await pilot(['nee'], point);
     if (point.z === 3) step('vent cleared');

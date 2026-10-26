@@ -55,12 +55,12 @@ const FRESH_STATE: MissionNetworkState = {
 interface FloorJob { kicker: string; infiltrate: string; hack: string; steal: string; escape: string }
 const CLASSIC_JOB: FloorJob = {
   kicker: 'Prototype theft', infiltrate: 'Sneak in under reception', hack: 'Crack the office consoles',
-  steal: 'Grab the prototype', escape: 'Get out through the west vent',
+  steal: 'Grab the prototype', escape: 'Reach the loading dock extraction pad',
 };
 const NIGHT_JOBS: readonly FloorJob[] = [
-  { kicker: 'Night job · Server swap', infiltrate: 'Slip past the night desk', hack: 'Spoof the badge readers', steal: 'Lift the server core', escape: 'Haul it out the west vent' },
-  { kicker: 'Night job · Board-room bug', infiltrate: 'Duck in behind the cleaners', hack: 'Hot-wire the key terminals', steal: 'Snatch the prototype drive', escape: 'Bail through the west vent' },
-  { kicker: 'Night job · Lab breach', infiltrate: 'Ghost through reception', hack: 'Override the lab locks', steal: 'Pinch the robot brain', escape: 'Scram out the west vent' },
+  { kicker: 'Night job · Server swap', infiltrate: 'Slip past the night desk', hack: 'Spoof the badge readers', steal: 'Lift the server core', escape: 'Reach the loading dock extraction pad' },
+  { kicker: 'Night job · Board-room bug', infiltrate: 'Duck in behind the cleaners', hack: 'Hot-wire the key terminals', steal: 'Snatch the prototype drive', escape: 'Reach the loading dock extraction pad' },
+  { kicker: 'Night job · Lab breach', infiltrate: 'Ghost through reception', hack: 'Override the lab locks', steal: 'Pinch the robot brain', escape: 'Reach the loading dock extraction pad' },
 ];
 const CAMPAIGN_LEVEL_IDS = ['l1-tethered', 'l2-twin-levers', 'l3-wrap-and-drag', 'l4-fragile-relay', 'l5-big-vault'] as const;
 export function floorJob(floor: number | null | undefined): FloorJob {
@@ -112,7 +112,6 @@ export class MissionDirector {
   private readonly scene: Scene;
   private warmup: () => WarmupStep[] | null = () => null;
   private lastWarmupKey: string | null = null;
-  private routeHint = 'Enter beneath reception, then rise together through the service vent.';
   private vault = new Vector3(layout.objects.prototype.x, layout.objects.prototype.y, layout.objects.prototype.z);
   private extraction = new Vector3(layout.extraction.x, layout.extraction.y, layout.extraction.z);
   private runLayout: RunLayout | null = null;
@@ -247,7 +246,7 @@ export class MissionDirector {
       uiParent.append(objective);
       objective.addEventListener('click', () => {
         if (objective.dataset.collapsed !== '1') return;
-        this.expandObjective();
+        this.expandObjective(true);
       });
       this.colourBlindSafe = getSettings().colourBlindSafe;
       this.unsubSettings = subscribeSettings((s) => {
@@ -501,14 +500,6 @@ export class MissionDirector {
       hacked: { 'terminal-a': hack.isComplete('terminal-a'), 'terminal-b': hack.isComplete('terminal-b'), 'terminal-c': hack.isComplete('terminal-c') },
       prototypeHeld: this.state.prototypeHeldBy !== null,
     });
-    const centerZ = [...drones.values()].reduce((sum, drone) => sum + drone.position.z, 0) / Math.max(1, drones.size);
-    this.routeHint = centerZ < -40
-      ? 'Under reception, then climb into the high vent. Stay close through the opening.'
-      : !hack.isComplete('terminal-a') || !hack.isComplete('terminal-b')
-        ? 'Two keys: PIX on the left desktop; NEE beneath the right desk. Move together between them.'
-        : !hack.isComplete('terminal-c')
-          ? 'Server gallery unlocked. Weave around the racks or fly over them; reach the high memory shelf.'
-          : 'Vault authorized. Through the central shutter, then climb to the companion core.';
     if (this.multiplayer && this.securityState) {
       // Server-owned enemies: render/interpolate only. Shoves land on our own (client-owned) drone.
       // On the partner's drone the impulse is overwritten by its replicated pose next frame; it still
@@ -713,11 +704,11 @@ export class MissionDirector {
     const objectiveActive = syncedObjective && !this.objectiveState?.done &&
       (this.state.stage === 'hack-security' || this.state.stage === 'steal-prototype');
     const [title, detail] = this.state.stage === 'infiltrate'
-      ? warm ? ['Warm up on the apron', ''] : [job.infiltrate, this.routeHint]
+      ? warm ? ['Warm up on the apron', ''] : [job.infiltrate, 'Reach the next room together.']
       : this.state.stage === 'hack-security'
         ? objectiveActive
           ? [syncedObjective.label, syncedObjective.detail]
-          : [job.hack, `${hackCount} / 3 access keys · ${this.routeHint}`]
+          : [job.hack, `${hackCount} / 3 access keys`]
         : this.state.stage === 'steal-prototype'
           ? objectiveActive
             ? [syncedObjective.label, syncedObjective.detail]
@@ -733,7 +724,7 @@ export class MissionDirector {
           : this.state.stage === 'escape'
             ? [
                 job.escape,
-                'Main shutter sealed! West relief vent is open. Heavy Lab Crate is jamming the relief vent - haul it clear together. Follow green floor lights; throw loose objects at patrols. Both drones must reach Pickup / 01.',
+                'Alarm active. Both drones and the core must reach the extraction pad.',
               ]
             : ['Prototype secured', 'Extraction complete'];
     this.objectiveTitle.textContent = title;
@@ -774,9 +765,14 @@ export class MissionDirector {
     return true;
   }
 
-  private expandObjective(): void {
+  private expandObjective(fromUser = false): void {
     if (!this.objective || !this.compactObjective()) return;
     if (this.objectiveCollapseTimer !== null) window.clearTimeout(this.objectiveCollapseTimer);
+    if (isTouchPlayDevice() && !fromUser) {
+      this.objective.classList.add('mission-objective--collapsed');
+      this.objective.dataset.collapsed = '1';
+      return;
+    }
     this.objective.classList.remove('mission-objective--collapsed');
     this.objective.dataset.collapsed = '0';
     this.objectiveCollapseTimer = window.setTimeout(() => {

@@ -642,6 +642,11 @@ export class GameApp {
           this.engine.resize();
         }
       },
+      /** Test-only geometry/camera invariants for the authored heist bot route. */
+      cameraDiagnostics: () => ({
+        eyeY: this.cameraRig.camera.position.y,
+        cameraOccluders: this.cameraRig.fadeableOccluderNames(),
+      }),
       /** Ask the server for a test stage (needs HANDSHAKE_TEST_HOOKS=1 on the server). */
       debugStage: (stage: 'hack-security' | 'steal-prototype' | 'escape') => {
         if (this.multiplayer) this.multiplayer.debugStage(stage === 'escape' ? 'escape' : stage);
@@ -665,6 +670,9 @@ export class GameApp {
       runState: () => getRunState(),
       /** TEST-ONLY: current held object for carry/objective verification. */
       heldObject: (role: DroneRole) => this.gameplay.heldObjectId(role),
+      debugOpenHack: (type: 'packet-routing' | 'signal-match' | 'memory-trace') => this.gameplay.debugOpenHack(type),
+      debugGrabForUi: (role: DroneRole) => this.gameplay.debugGrabForUi(role),
+      toast: (text: string) => this.hud?.toast(text, 'good'),
       /** TEST-ONLY Night Shift floor advance (HANDSHAKE_TEST_HOOKS=1). */
       debugRunEscape: () => this.multiplayer?.debugRunEscape(),
       /** TEST-ONLY: force the authoritative room into the results phase. */
@@ -897,11 +905,13 @@ export class GameApp {
       : this.multiplayer?.currentStatus.localRole ?? 'pix';
     const hudPlayer = this.players.find((player) => player.role === hudRole);
     if (hudPlayer) {
+      const prompts = [...this.gameplay.promptsFor(hudRole, hudPlayer.drone), ...this.tetherPrompts(hudPlayer, dt)];
       this.hud?.update(
-        [...this.gameplay.promptsFor(hudRole, hudPlayer.drone), ...this.tetherPrompts(hudPlayer, dt)],
+        prompts,
         this.mode,
         hudRole,
       );
+      this.touch?.setCarryState(this.gameplay.heldObjectId(hudRole) !== null, prompts.some((text) => /^\[E\]\s+Pass\b/.test(text)));
     }
   }
 
@@ -1069,6 +1079,7 @@ export class GameApp {
       camera: this.cameraRig,
       solo: this.mode !== 'multiplayer',
       onGrab: () => live()?.requestGrabDrop(),
+      onThrow: () => live()?.requestThrow(),
       onYank: () => live()?.requestYank(),
       onInteract: () => live()?.requestInteract(),
       // Pause is a UI state transition, not movement input. Applying it from the

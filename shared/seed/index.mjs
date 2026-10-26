@@ -7,6 +7,7 @@ export {
   TERMINAL_CANDIDATE_SETS,
   PATROL_ROUTE_CANDIDATES,
   CAMERA_CANDIDATES,
+  SEED_FORMAT_VERSION,
 } from './variants.mjs';
 export {
   TWISTS,

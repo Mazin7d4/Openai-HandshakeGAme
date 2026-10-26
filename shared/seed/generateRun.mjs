@@ -10,6 +10,7 @@ import {
   LEVEL_SLOTS,
   LOOT_CANDIDATES,
   PATROL_ROUTE_CANDIDATES,
+  SEED_FORMAT_VERSION,
   TERMINAL_CANDIDATE_SETS,
   VARIANTS_BY_SLOT,
 } from './variants.mjs';
@@ -38,6 +39,7 @@ import { validateRunLayout } from './validate.mjs';
  *
  * @typedef {{
  *   seed: number,
+ *   formatVersion: number,
  *   floor: number,
  *   variants: Record<string, RoomVariant>,
  *   spawn: Vec3,
@@ -172,6 +174,7 @@ function drawLayout(rand, seed, floor) {
 
   return Object.freeze({
     seed: seed >>> 0,
+    formatVersion: SEED_FORMAT_VERSION,
     floor: floor | 0,
     variants: Object.freeze(variants),
     spawn: Object.freeze({ ...spawn }),
@@ -300,6 +303,7 @@ export function generateRun(seed, floor = 0) {
     const escalation = escalateFloor(floor, twist);
     layout = Object.freeze({
       seed: seed >>> 0,
+      formatVersion: SEED_FORMAT_VERSION,
       floor: floor | 0,
       variants: Object.freeze({
         arrival: VARIANTS_BY_SLOT.arrival[0],

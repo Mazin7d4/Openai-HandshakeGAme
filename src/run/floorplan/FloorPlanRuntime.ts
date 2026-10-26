@@ -125,7 +125,7 @@ export class FloorPlanRuntime {
     this.elapsed = 0;
     this.objectiveGate = new HazardTripGate();
     const generation = ++this.generation;
-    void buildRooms(this.scene, plan.rooms).then((handle) => {
+    void buildRooms(this.scene, plan.rooms, plan.job.boss).then((handle) => {
       if (generation !== this.generation) {
         handle.dispose();
         return;
