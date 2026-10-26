@@ -1321,6 +1321,11 @@ class HandshakeRoom extends Room {
     ) {
       return;
     }
+    if (this.state.run.mode === 'campaign' && this.floorPlan?.campaign?.index === 1 && stationId === 'terminal-c') {
+      this.state.hack[fields.owner] = player.role;
+      this.completeHackForRole(player, stationId);
+      return;
+    }
     if (!this.state.hack[fields.owner] || this.state.hack[fields.owner] === player.role) {
       this.state.hack[fields.owner] = player.role;
     }
@@ -1374,7 +1379,7 @@ class HandshakeRoom extends Room {
   }
 
   triggerAlarm(role) {
-    if (this.state.mission.alarm || !this.state.hack.doorOpen) return;
+    if (this.state.mission.alarm || (this.state.run.mode !== 'campaign' && !this.state.hack.doorOpen)) return;
     this.state.mission.stage = 'escape';
     this.state.mission.alarm = true;
     this.state.mission.securityActive = true;

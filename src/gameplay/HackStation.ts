@@ -1,5 +1,4 @@
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
-import { CreateTorus } from '@babylonjs/core/Meshes/Builders/torusBuilder.js';
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
@@ -26,7 +25,7 @@ export interface HackStationSpec {
 
 const ROLE_RING_COLORS: Record<DroneRole | 'either', string> = {
   pix: '#3DDBFF',
-  nee: '#FF6194',
+  nee: '#FF7A59',
   either: '#F4EFE6',
 };
 
@@ -137,12 +136,10 @@ export class HackStation implements Interactable {
     this.ringMaterial.disableLighting = true;
     this.ringMaterial.emissiveColor = this.ringActiveColor.clone();
 
-    this.floorRing = CreateTorus(
-      `${spec.id}-floor-ring`,
-      { diameter: 2.2, thickness: 0.06, tessellation: 40 },
-      scene,
-    );
-    this.floorRing.position.set(spec.position.x, spec.position.y - 1.25 + 0.03, spec.position.z);
+    // The glow is part of the console's screen bezel, never a floor marker.
+    this.floorRing = createRoundedBox(`${spec.id}-screen-bezel`,
+      { width: 1, height: 1.5, depth: 0.08, radius: 0.06 }, scene);
+    this.floorRing.position.set(spec.position.x, spec.position.y, spec.position.z - 0.4);
     this.floorRing.isPickable = false;
     this.floorRing.material = this.ringMaterial;
   }
@@ -153,7 +150,15 @@ export class HackStation implements Interactable {
     this.mesh.position.copyFrom(next);
     this.indicator.position.copyFrom(next);
     this.indicator.position.z -= 0.42;
+    this.floorRing.position.set(next.x, next.y, next.z - 0.4);
     this.mesh.computeWorldMatrix(true);
+  }
+
+  setEnabled(enabled: boolean): void {
+    this.mesh.setEnabled(enabled);
+    this.indicator.setEnabled(enabled);
+    this.floorRing.setEnabled(enabled);
+    this.aggregate.shape.filterCollideMask = enabled ? 0xffffffff : 0;
   }
 
   distanceTo(point: Vector3): number {

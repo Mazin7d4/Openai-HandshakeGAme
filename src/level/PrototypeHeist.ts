@@ -57,7 +57,7 @@ export function applyCampaignPalette(scene: Scene, index: number): void {
     { clear: '#6e2b34', ambient: '#291116', light: '#ff8b68' },
   ][Math.max(0, Math.min(4, index - 1))];
   if (!palettes) return;
-  scene.clearColor = Color4.FromHexString(`${palettes.clear}FF`);
+  scene.clearColor = Color4.FromHexString('#1E2326FF');
   scene.ambientColor = Color3.FromHexString(palettes.ambient);
   // Tint only the key light, and only partway, so the mascots stay cream-white
   // (PIX cyan / NEE coral) while each level still reads as its own mood.
@@ -547,8 +547,9 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
       const pulse = 0.5 + 0.5 * Math.sin(elapsed * 3);
       const lum = 0.82 + 0.18 * pulse;
       beaconMat.emissiveColor.set(lum, 0.945 * lum, 0.84 * lum);
-      for (const [key, b] of Object.entries(beacons)) {
-        const on = show[key as keyof typeof beacons];
+      void show;
+      for (const b of Object.values(beacons)) {
+        const on = false; // Wayfinding belongs to architecture and physical object feedback.
         b.gem.setEnabled(on); b.ring.setEnabled(on);
         if (!on) continue;
         b.gem.rotation.y = elapsed * 1.6; b.gem.position.y = b.baseY + Math.sin(elapsed * 2.2) * 0.18;

@@ -495,7 +495,7 @@ export class MissionDirector {
       alarm: this.state.alarm,
       complete: this.state.extracted,
       officeOpen: hack.isComplete('terminal-a') && hack.isComplete('terminal-b'),
-      vaultOpen: hack.allComplete() || this.campaignVaultOpen,
+      vaultOpen: hack.allComplete() || this.campaignVaultOpen || Boolean(this.runLayout?.plan?.campaign && (this.runLayout.plan.campaign.index > 1 || hack.isComplete('terminal-c'))),
       stage: this.state.stage,
       hacked: { 'terminal-a': hack.isComplete('terminal-a'), 'terminal-b': hack.isComplete('terminal-b'), 'terminal-c': hack.isComplete('terminal-c') },
       prototypeHeld: this.state.prototypeHeldBy !== null,
@@ -839,6 +839,7 @@ export class MissionDirector {
     kicker.className = 'floor-card__kicker';
     kicker.style.display = 'block';
     const plan = this.runLayout?.plan;
+    card.classList.toggle('floor-card--campaign', Boolean(plan?.campaign));
     kicker.textContent = plan?.campaign
       ? `Campaign ${plan.campaign.index}/5 · ${plan.job.name}`
       : plan
@@ -945,7 +946,7 @@ export class MissionDirector {
     recordCampaignLevel(campaign.levelId, stars, stats.elapsedSeconds);
     const progress = loadCampaignProgress();
     const totalStars = Object.values(progress.levels).reduce((sum, level) => sum + level.stars.filter(Boolean).length, 0);
-    const parSeconds = [150, 180, 210, 240, 300][campaign.index - 1] ?? 300;
+    const parSeconds = [150, 180, 210, 240, 240][campaign.index - 1] ?? 300;
     this.report.setCampaignResult({
       index: campaign.index,
       levelName: this.runLayout?.plan?.job.name ?? campaign.levelId,
@@ -1099,7 +1100,7 @@ export class MissionDirector {
       this.report.show(stats, this.lastNightShiftSummary, this.coopReportState());
     } else if (this.mode === 'campaign' && this.runLayout?.plan?.campaign && stats.outcome === 'win') {
       const campaign = this.runLayout.plan.campaign;
-      const parSeconds = [150, 180, 210, 240, 300][campaign.index - 1] ?? 300;
+      const parSeconds = [150, 180, 210, 240, 240][campaign.index - 1] ?? 300;
       const scored = scoreCampaignLevel({
         seconds: stats.elapsedSeconds,
         parSeconds,

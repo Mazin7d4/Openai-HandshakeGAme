@@ -119,7 +119,7 @@ export class FloorPlanRuntime {
     this.objectiveVisuals = new ObjectiveVisuals(this.scene, this.activeObjectivePlan, {
       mesh: this.prototype.mesh,
       cradle: point(run.loot),
-    });
+    }, Boolean(plan.campaign));
     this.hazardVisuals = new HazardVisuals(this.scene, plan.hazards);
     this.mission.setObjectiveState(this.activeObjectivePlan, this.objectiveState);
     this.elapsed = 0;
@@ -180,7 +180,7 @@ export class FloorPlanRuntime {
         this.hazardVisuals?.flash(trip.id);
       }
     }
-    this.objectiveVisuals?.update(delta, state);
+    this.objectiveVisuals?.update(delta, this.objectiveState ?? state, [...drones.values()].map((drone) => ({ role: drone.role, x: drone.position.x, y: drone.position.y, z: drone.position.z })));
     this.hazardVisuals?.update(this.elapsed, hazardPhase);
     this.mission.setObjectiveState(this.activeObjectivePlan, state);
   }
@@ -352,7 +352,7 @@ export class FloorPlanRuntime {
     this.objectiveVisuals = new ObjectiveVisuals(this.scene, this.activeObjectivePlan, {
       mesh: this.prototype.mesh,
       cradle: point(this.layout!.loot),
-    });
+    }, Boolean(plan.campaign));
     this.mission.setObjectiveState(this.activeObjectivePlan, this.objectiveState);
     this.publishDebugHook();
   }

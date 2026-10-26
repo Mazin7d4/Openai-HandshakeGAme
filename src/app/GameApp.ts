@@ -193,7 +193,7 @@ export class GameApp {
         })
       : null;
     this.a11y = hudParent ? new AccessibilityFeedback(hudParent) : null;
-    this.coach = hudParent ? new OnboardingCoach(hudParent, mode === 'night-shift' || mode === 'campaign' ? 'singleplayer' : mode) : null;
+    this.coach = hudParent && mode !== 'campaign' && !runLayout?.plan?.campaign ? new OnboardingCoach(hudParent, mode === 'night-shift' ? 'singleplayer' : mode) : null;
     this.hud?.setControlsCardSuppressed(this.coach?.isActive === true);
     if (hudParent && this.touchPlay) {
       hudParent.classList.add('touch-play');
