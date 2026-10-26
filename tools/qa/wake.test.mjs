@@ -136,6 +136,7 @@ async function body(browser, notes) {
       assert(await host.page.getByTestId('back').isVisible(), 'unreachable back button missing');
       await host.page.getByTestId('wake-play-solo').tap();
       await host.page.getByTestId('start-singleplayer').waitFor({ state: 'visible' });
+      await host.page.getByTestId('start-singleplayer').tap();
       await waitForGame(host.page, 120_000);
       notes.unreachableAfterMs = shownAfter;
       notes.unreachable = true;

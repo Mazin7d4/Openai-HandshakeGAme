@@ -91,7 +91,8 @@ async function body(browser, notes) {
     assert(inviteUrl.searchParams.has('server'), 'local invite URL omitted server override');
     await auditLobby(host.page);
     await host.page.getByTestId('copy-code').tap();
-    assert(await host.page.getByTestId('copy-code').innerText() === 'Copied', 'copy button did not show Copied');
+    await host.page.waitForFunction(() => document.querySelector('[data-testid="copy-code"]')?.textContent === 'Copied', null, { timeout: 3_000 })
+      .catch(() => { throw new Error('copy button did not show Copied'); });
     try {
       assert(await host.page.evaluate(() => navigator.clipboard.readText()) === invite, 'clipboard text does not match invite');
     } catch (error) {
