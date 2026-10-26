@@ -189,7 +189,8 @@ export class HackSession {
       }
     }
     for (const station of this.stations) {
-      station.update(dt, this.ownerFor(station.id), this.completeFor(station.id));
+      const nearby = [...drones.entries()].some(([role, drone]) => station.canInteract(role, drone.position, this.completeFor(station.id)));
+      station.update(dt, this.ownerFor(station.id), this.completeFor(station.id), nearby);
     }
     const inLabThreshold = [...drones.values()].some((drone) =>
       Math.abs(drone.position.x) < 3.1 && Math.abs(drone.position.z - 2) < 1.25 && drone.position.y < 8.2,

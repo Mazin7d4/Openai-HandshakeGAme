@@ -107,6 +107,7 @@ export function isMascotMesh(mesh: AbstractMesh): boolean {
 /** Names / prefixes that stay separate (animated, interactive, networked, or gameplay-critical). */
 export function isDynamicOrInteractive(mesh: AbstractMesh): boolean {
   const n = mesh.name;
+  if (mesh.metadata?.presentationDynamic) return true;
   if (mesh.metadata?.cameraOccluder) return true;
   if (isMascotMesh(mesh)) return true;
   return n.startsWith('vault-belljar')

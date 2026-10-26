@@ -31,6 +31,9 @@ import layout from './heist-layout.json';
 import { mergeRigidChildren } from '../scene/mergeChildren.ts';
 import { createRoundedBox } from '../scene/roundedBox.ts';
 import { addHeroLighting } from './HeroLighting.ts';
+import { ArrivalLesson } from './ArrivalLesson.ts';
+import { PowerCircuit } from './PowerCircuit.ts';
+import { gameEvents } from '../gameplay/GameEvents.ts';
 
 const SECURITY_AMBER = Color3.FromHexString('#FFB84D');
 const SCREEN_IDLE = new Color3(0.35, 0.35, 0.35);
@@ -40,6 +43,7 @@ export interface HeistPresentation {
   alarm: boolean; complete: boolean; officeOpen: boolean; vaultOpen?: boolean;
   /** Optional presentation-only mission hints (key lamps read `hacked`). */
   stage?: string; hacked?: Record<string, boolean>; prototypeHeld?: boolean;
+  drones?: readonly Vector3[];
 }
 const levels = new WeakMap<Scene, { update(dt: number, state: HeistPresentation): void }>();
 export function updateHeistPresentation(scene: Scene, dt: number, state: HeistPresentation): void {
@@ -58,14 +62,14 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     if (solid) addStaticBody(mesh, scene);
     return mesh;
   };
-  const wallCap = (name: string, x: number, z: number, w: number, d: number, material: Material = p.dark) =>
-    box(`${name}-cap`, x, 9.35, z, w, 0.7, d, material, true);
+  const wallCap = (name: string, x: number, z: number, w: number, d: number) =>
+    box(`${name}-cap`, x, 9.35, z, w, 0.7, d, p.dark, true);
   // Partitions read as a low capped knee wall with clear glass above and only a thin top rail,
   // so the cap never becomes a thick bar across the crew in the 45-60 degree dollhouse view.
   const kneeCap = (name: string, x: number, z: number, w: number, d: number) =>
     box(`${name}-cap`, x, 4.85, z, w, 0.3, d + 0.1, p.dark, false);
   const glassRail = (name: string, x: number, z: number, w: number) =>
-    box(`${name}-rail`, x, 9.04, z, w, 0.12, 0.22, p.metal, false);
+    box(`${name}-rail`, x, 9.04, z, w, 0.12, 0.22, p.dark, false);
   const partitionTrim = (name: string, z: number, segments: [number, number][]) => {
     for (const [x, width] of segments) {
       box(`${name}-frosted-band`, x, 5.3, z, width, 0.3, 0.2, p.glass, false);
@@ -106,16 +110,28 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     return mesh;
   };
   const desk = (name: string, x: number, z: number, width = 9) => {
-    box(`${name}-oak`, x, 3.75, z, width, 0.32, 4.3, p.wood);
+    if (name === 'office-nee') {
+      // A real U-shaped patch bay: the south-facing cutout exposes NEE's console from above.
+      box(`${name}-oak-back`, x, 3.75, z + 0.9, width, 0.32, 1.4, p.wood);
+      box(`${name}-oak-east`, x + 2.3, 3.75, z - 0.7, 3.4, 0.32, 1.8, p.wood);
+    } else box(`${name}-oak`, x, 3.75, z, width, 0.32, 3.2, p.wood);
     for (const dx of [-width / 2 + 0.4, width / 2 - 0.4]) {
-      box(`${name}-leg`, x + dx, 1.8, z, 0.28, 3.6, 3.8, p.paint);
+      box(`${name}-leg`, x + dx, 1.8, z, 0.28, 3.6, 2.8, p.paint);
     }
-    box(`${name}-screen`, x + 1.5, 5.3, z + 0.8, 3.1, 2, 0.18, p.dark);
+    box(`${name}-screen`, x + 1.5, 5.3, z + 0.8, 1.9, 1.1, 0.18, p.dark);
     box(`${name}-foot`, x + 1.5, 4.05, z + 0.8, 1.4, 0.16, 0.8, p.metal, false);
     box(`${name}-screen-stem`, x + 1.5, 4.4, z + 0.8, 0.2, 1.3, 0.2, p.metal, false);
   };
   // Entire building: 8 x 18 m at the established drone scale. Roof is a collision-only cutaway.
   box('foundation', 0, -0.4, -10, 40, 0.8, 114, p.floor);
+  const serverFloor = new StandardMaterial('server-blue-black-floor', scene);
+  serverFloor.diffuseColor = Color3.FromHexString('#344654'); serverFloor.specularColor = Color3.Black();
+  const dockFloor = new StandardMaterial('dock-ochre-concrete', scene);
+  dockFloor.diffuseColor = Color3.FromHexString('#8A7958'); dockFloor.specularColor = Color3.Black();
+  box('reception-cream-floor', 0, 0.009, -49, 37.2, 0.015, 11.5, p.paint, false);
+  box('office-teal-floor', 0, 0.009, -34.5, 37.2, 0.015, 16.5, p.blue, false);
+  box('server-cold-floor', 0, 0.009, -12, 37.2, 0.015, 27.4, serverFloor, false);
+  box('dock-industrial-floor', 0, 0.009, 37, 37.2, 0.015, 19.5, dockFloor, false);
   box('east-wall', 19, 4.5, -10, 0.6, 9, 114, p.paint);
   box('west-wall', -19, 4.5, -10, 0.6, 9, 114, p.sage);
   box('north-wall', 0, 4.5, 47, 38, 9, 0.6, p.paint);
@@ -131,8 +147,8 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   daylight.diffuseColor = Color3.FromHexString('#E7F1F5'); daylight.emissiveColor = Color3.FromHexString('#BFDCE8'); daylight.disableLighting = true;
   const rollerFrame = box('loading-roller-door-frame', 6, 4.5, 46.58, 0.35, 9, 0.9, daylight, false);
   const rollerFrameEast = box('loading-roller-door-frame', 16, 4.5, 46.58, 0.35, 9, 0.9, daylight, false);
-  wallCap('loading-roller-door-frame', 6, 46.58, 0.8, 1.0, p.metal);
-  wallCap('loading-roller-door-frame', 16, 46.58, 0.8, 1.0, p.metal);
+  wallCap('loading-roller-door-frame', 6, 46.58, 0.8, 1.0);
+  wallCap('loading-roller-door-frame', 16, 46.58, 0.8, 1.0);
   rollerLeaf.isPickable = false;
   rollerFrame.isPickable = false;
   rollerFrameEast.isPickable = false;
@@ -160,9 +176,9 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   box('entry-wall-right', 11, 2.35, -55, 16, 4.7, 0.5, p.paint); kneeCap('entry-wall-right', 11, -55, 16, 0.8);
   box('entry-glass-left', -12.5, 6.85, -55, 13, 4.3, 0.16, p.glass); glassRail('entry-glass-left', -12.5, -55, 13);
   box('entry-glass-right', 11, 6.85, -55, 16, 4.3, 0.16, p.glass); glassRail('entry-glass-right', 11, -55, 16);
-  box('entry-header', -1.5, 8.5, -55, 9, 1, 0.6, p.wood); wallCap('entry-header', -1.5, -55, 9, 0.8, p.wood);
+  box('entry-header', -1.5, 8.5, -55, 9, 1, 0.6, p.wood); wallCap('entry-header', -1.5, -55, 9, 0.8);
   partitionTrim('entry-partition', -55, [[-12.5, 13], [11, 16]]);
-  desk('reception', -4.5, -49, 11);
+  desk('reception', -6.5, -49, 7);
   sign('reception-sign', '02 RECEPTION', '', 2, 2.6, -54.6, 6);
   sign('apron-sign', '01 APRON', '', -12.5, 2.6, -55.35, 5);
   exitStrip('G0', -1.5, -55.35, 9, true);
@@ -174,25 +190,27 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   box('vent-glass-top', -5, 8.55, -43, 5, 0.9, 0.16, p.glass);
   glassRail('office-divider-glass-west', -13.25, -43, 11.5); glassRail('office-divider-glass-east', 8.25, -43, 21.5);
   partitionTrim('vent-partition', -43, [[-13.25, 11.5], [8.25, 21.5]]);
-  box('vent-sill', -5, 4.8, -43, 5, 0.22, 5, p.metal);
+  box('vent-sill', -5, 4.8, -43, 5, 0.22, 4, p.metal);
+  for (const x of [-7.5, -2.5]) box('vent-frame-lamp', x, 6.45, -43.36, 0.16, 3.1, 0.16, lintelWarm, false);
+  box('vent-frame-lamp', -5, 4.95, -43.36, 5, 0.12, 0.16, lintelWarm, false);
   box('vent-left', -7.6, 6.4, -43, 0.2, 3.4, 5, p.metal, true, true);
   box('vent-right', -2.4, 6.4, -43, 0.2, 3.4, 5, p.metal, true, true);
   // Office cooperative pocket: PIX on the desktop; NEE at the under-desk patch bay.
   desk('office-pix', -5, -33, 9);
   desk('office-nee', 7, -31, 8);
   box('office-rug', 1, 0.025, -35, 20, 0.04, 12, p.blue, false);
-  box('office-glass', 13, 7, -35, 0.14, 14, 15, p.glass, true);
+  box('office-glass', 13, 4.5, -35, 0.14, 9, 15, p.glass, true);
   sign('office-sign', '03 OFFICE', '', 1, 2.6, -27.4, 5.5);
   box('office-wall-west', -11.5, 2.35, -26, 15, 4.7, 0.6, p.paint); kneeCap('office-wall-west', -11.5, -26, 15, 0.9);
   box('office-wall-east', 10.5, 2.35, -26, 17, 4.7, 0.6, p.paint); kneeCap('office-wall-east', 10.5, -26, 17, 0.9);
   box('office-glass-west', -11.5, 6.85, -26, 15, 4.3, 0.16, p.glass); box('office-glass-east', 10.5, 6.85, -26, 17, 4.3, 0.16, p.glass);
   glassRail('office-glass-west', -11.5, -26, 15); glassRail('office-glass-east', 10.5, -26, 17);
   partitionTrim('office-partition', -26, [[-11.5, 15], [10.5, 17]]);
-  box('office-door-header', -1, 8.5, -26, 6, 1, 0.6, p.wood); wallCap('office-door-header', -1, -26, 6, 0.8, p.wood);
+  box('office-door-header', -1, 8.5, -26, 6, 1, 0.6, p.wood); wallCap('office-door-header', -1, -26, 6, 0.8);
   exitStrip('G2', -1, -26.35, 5.6, false);
   // Server gallery: alternating aisle ends and a high maintenance shelf. All flight gaps ≥ 2.4 units.
   for (const x of [-8.5, 8.5] as const) {
-    box(`rack-row-${x}`, x, 3, -16, 3, 6, 14, p.dark, true, true);
+    box(`rack-row-${x}`, x, 2.6, -16, 3, 5.2, 14, p.dark, true, true);
     for (let z = -22.5; z <= -9.5; z += 2.4) {
       box('rack-upright', x - 1.3, 3, z, 0.08, 5.5, 0.08, p.metal, false);
       for (let y = 1; y < 7; y += 1.3) {
@@ -206,8 +224,8 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   for (let i = 0; i < 3; i++) box('catwalk-ramp-step', -3, 4.6 - i * 1.2, -8.9 - i * 1.0, 3, 0.3, 1.0, p.metal);
   sign('server-sign', '04 SERVERS', '', -3, 2.6, -4.8, 5.5);
   const memoryGlass = new StandardMaterial('memory-array-indigo', scene);
-  memoryGlass.diffuseColor = Color3.FromHexString('#293B82'); memoryGlass.emissiveColor = Color3.FromHexString('#4E57D8');
-  memoryGlass.alpha = 0.72; memoryGlass.specularColor = Color3.FromHexString('#9EA8FF');
+  memoryGlass.diffuseColor = Color3.FromHexString('#293B82'); memoryGlass.emissiveColor = Color3.FromHexString('#283961');
+  memoryGlass.alpha = 0.9; memoryGlass.specularColor = Color3.FromHexString('#9EA8FF');
   const memoryArray = CreateCylinder('memory-array', { diameter: 3.2, height: 8.5, tessellation: 32 }, scene);
   memoryArray.position.set(3, 4.25, -5.5); memoryArray.material = memoryGlass; memoryArray.isPickable = false;
   exitStrip('G3', 0, 1.6, 5.6, false);
@@ -217,7 +235,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   box('lab-glass-left', -10.9, 6.85, 2, 16.2, 4.3, 0.16, p.glass); box('lab-glass-right', 10.4, 6.85, 2, 15.2, 4.3, 0.16, p.glass);
   glassRail('lab-glass-left', -10.9, 2, 16.2); glassRail('lab-glass-right', 10.4, 2, 15.2);
   partitionTrim('lab-partition', 2, [[-10.9, 16.2], [10.4, 15.2]]);
-  box('lab-door-header', 0, 8.5, 2, 5.6, 1, 0.7, p.wood); wallCap('lab-door-header', 0, 2, 5.6, 0.9, p.wood);
+  box('lab-door-header', 0, 8.5, 2, 5.6, 1, 0.7, p.wood); wallCap('lab-door-header', 0, 2, 5.6, 0.9);
   sign('lab-sign', '05 LAB', '', 3, 2.6, 2.5, 5);
   sign('dock-sign', '06 DOCK', '', 11, 2.6, 46.5, 5);
   // Hero lab: real-scale benches, clear central floor and a display at human worktop height.
@@ -339,8 +357,9 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     for (const dx of [-2.6, 2.6]) box('pendant-wire', x + dx, 8.55, z, 0.025, 0.7, 0.025, p.dark, false);
   }
   const plugin = scene.getPhysicsEngine()!.getPhysicsPlugin() as HavokPlugin;
+  const arrivalLesson = new ArrivalLesson(scene, plugin);
   const officeDoor = new Door(scene, plugin, { name: 'office-access-shutter', x: -1, y: 4, z: -26, width: 6, height: 8, depth: 0.5, travel: -8.2 });
-  officeDoor.mesh.material = p.sage;
+  officeDoor.mesh.material = p.dark;
   const vaultDoorLeft = new Door(scene, plugin, { name: 'vault-backdrop-door-left', x: -2.5, y: 4.5, z: 27, width: 5, height: 9, depth: 0.35, travel: -6, axis: 'x' });
   const vaultDoorRight = new Door(scene, plugin, { name: 'vault-backdrop-door-right', x: 2.5, y: 4.5, z: 27, width: 5, height: 9, depth: 0.35, travel: 6, axis: 'x' });
   vaultDoorLeft.mesh.material = p.wood; vaultDoorRight.mesh.material = p.wood;
@@ -349,18 +368,17 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   exitStrip('G1', -5, -43.35, 5, true);
   exitStrip('G5', 11, 46.4, 10, true);
   const indigo = new StandardMaterial('morrow-indigo', scene);
-  indigo.diffuseColor = Color3.FromHexString('#25316B'); indigo.emissiveColor = Color3.FromHexString('#4C59C7'); indigo.disableLighting = true;
+  indigo.diffuseColor = Color3.FromHexString('#25316B'); indigo.emissiveColor = Color3.FromHexString('#30384A'); indigo.disableLighting = true;
   const morrowDisc = CreateCylinder('morrow-disc', { diameter: 4.2, height: 0.14, tessellation: 48 }, scene);
   morrowDisc.position.set(-5, 2.5, -43.32); morrowDisc.rotation.x = Math.PI / 2; morrowDisc.material = indigo; morrowDisc.isPickable = false;
-  const lampCyan = new StandardMaterial('key-lamp-cyan', scene); lampCyan.diffuseColor = Color3.FromHexString('#37D7FF'); lampCyan.emissiveColor = lampCyan.diffuseColor.clone(); lampCyan.disableLighting = true;
-  const lampCoral = new StandardMaterial('key-lamp-coral', scene); lampCoral.diffuseColor = Color3.FromHexString('#FF718F'); lampCoral.emissiveColor = lampCoral.diffuseColor.clone(); lampCoral.disableLighting = true;
-  const keyLamps = (['terminal-a', 'terminal-b'] as const).map((id, i) => {
-    const x = i === 0 ? -5.3 : 3.3; // on the knee wall either side of the sinking shutter
-    const ring = CreateTorus(`key-lamp-${id}-ring`, { diameter: 1.15, thickness: 0.12, tessellation: 32 }, scene);
-    ring.position.set(x, 3.6, -26.38); ring.rotation.x = Math.PI / 2; ring.material = i === 0 ? lampCyan : lampCoral; ring.isPickable = false;
-    const disc = CreateCylinder(`key-lamp-${id}-disc`, { diameter: 0.9, height: 0.08, tessellation: 32 }, scene);
-    disc.position.set(x, 3.6, -26.39); disc.rotation.x = Math.PI / 2; disc.material = i === 0 ? lampCyan : lampCoral; disc.isPickable = false; disc.setEnabled(false);
-    return { ring, disc };
+  const circuits = (['terminal-a', 'terminal-b', 'terminal-c'] as const).map((id, i) => {
+    const t = layout.terminals[id];
+    const x = i === 0 ? -5.3 : i === 1 ? 3.3 : -3.9;
+    const z = i < 2 ? -26.4 : 1.55;
+    return new PowerCircuit(scene, id, i === 0 ? '#3DDBFF' : i === 1 ? '#FF8176' : '#FFF3DC', [
+      new Vector3(t.x, t.y - 1, t.z + 0.5), new Vector3(t.x, 0.13, t.z + 0.5),
+      new Vector3(x, 0.13, t.z + 0.5), new Vector3(x, 0.13, z), new Vector3(x, 3.6, z),
+    ], new Vector3(x, 3.6, z));
   });
   // Readability: graphite jamb frames make each doorway read at camera distance.
   for (const dx of [-3.25, 3.25]) box('door-jamb', -1 + dx, 3, -26, 0.5, 6.2, 1.0, p.dark, false);
@@ -374,7 +392,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   let origSunIntensity = 1.65;
   let origFillIntensity = 0.48;
   const origClearColor = new Color4();
-  const alarmClear = new Color4(0.42, 0.45, 0.46, 1); // dusk-neutral sky, never red
+  const alarmClear = new Color4(0.09, 0.10, 0.12, 1); // dusk-neutral sky, never red
   let alarmBlend = 0; // 0 = normal, 1 = full alarm
   let alarmTime = 0;
   let alarmPhase = 0;
@@ -384,16 +402,19 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   let completeTintTimer = 0;
   levels.set(scene, { update(dt, state) {
     elapsed += dt;
+    const lessonOpen = arrivalLesson.update(dt, state.drones ?? [], !!state.stage && state.stage !== 'infiltrate');
+    if (officeDoor.isOpen !== state.officeOpen) gameEvents.emit('mechanism', { kind: 'door', position: officeDoor.mesh.position.clone(), complete: state.officeOpen });
     officeDoor.setOpen(state.officeOpen); officeDoor.update(dt);
     const vaultOpen = state.alarm || state.complete;
     vaultDoorLeft.setOpen(vaultOpen); vaultDoorRight.setOpen(vaultOpen);
     vaultDoorLeft.update(dt); vaultDoorRight.update(dt);
-    const stripsLit = new Set(['G0', 'G1', ...(state.officeOpen ? ['G2'] : []), ...((state.vaultOpen && !state.alarm) ? ['G3'] : []), ...(vaultOpen ? ['G4'] : []), 'G5']);
+    const stripsLit = new Set([...(lessonOpen ? ['G0'] : []), 'G1', ...(state.officeOpen ? ['G2'] : []), ...((state.vaultOpen && !state.alarm) ? ['G3'] : []), ...(vaultOpen ? ['G4'] : []), 'G5']);
     for (const [id, strip] of exitStrips) strip.material = stripsLit.has(id) ? lintelWarm : lintelDark;
     const hacked = state.hacked ?? {};
-    for (const [i, id] of ['terminal-a', 'terminal-b'].entries()) {
-      keyLamps[i].ring.setEnabled(!hacked[id]); keyLamps[i].disc.setEnabled(!!hacked[id]);
-    }
+    for (const [i, id] of ['terminal-a', 'terminal-b', 'terminal-c'].entries()) circuits[i].setPowered(!!hacked[id]);
+    const padLevel = state.prototypeHeld ? 0.7 + 0.3 * Math.sin(elapsed * 3) : 0.22;
+    padMat.emissiveColor.set(0.16 * padLevel, padLevel, 0.4 * padLevel);
+    rollerLeaf.material = vaultOpen ? daylight : p.dark;
     p.escape.emissiveColor.set(state.alarm ? 0.22 : 0.06, state.alarm ? 0.8 : 0.17, state.alarm ? 0.43 : 0.1);
 
     // ── Vault reveal ──
@@ -508,7 +529,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   const kit = await loadPropKit(scene);
   // Server gallery: replace the flat rack slabs with instanced Blender rack units (collision box stays).
   for (const x of [-8.5, 8.5] as const) {
-    for (let z = -22.5; z <= -9.5; z += 2.4) kit.place({ prop: 'Rack', x, z, scale: [1.2, 0.7, 1] });
+    for (let z = -22.5; z <= -9.5; z += 2.4) kit.place({ prop: 'Rack', x, z, scale: [1.05, 0.55, 1] });
     const row = scene.getMeshByName(`rack-row-${x}`); if (row) row.isVisible = false;
   }
   for (const name of ['rack-upright', 'rack-tray', 'rack-status']) for (const m of scene.meshes.filter(m => m.name === name)) m.dispose();

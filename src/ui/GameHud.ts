@@ -140,7 +140,9 @@ export class GameHud {
               : match[1] === 'R' ? 'yank'
               : match[1] === 'E' ? 'grab'
               : 'touch';
-            item.append(controlIcon(glyph), label);
+            item.setAttribute('aria-label', match[2]);
+            item.title = match[2];
+            item.append(controlIcon(glyph));
           } else {
             const gamepadKeys: Record<string, string> = { F: 'B', E: 'X', Q: 'Y', R: 'RB', Shift: 'A' };
             item.append(keycaps(inputKind() === 'gamepad' ? (gamepadKeys[match[1]] ?? match[1]) : match[1]), label);
