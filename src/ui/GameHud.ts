@@ -123,7 +123,10 @@ export class GameHud {
     const promptKey = `${this.touch ? 't' : inputKind()}\u0000${prompts.join('\u0000')}`;
     if (promptKey !== this.promptKey) {
       this.promptKey = promptKey;
-      this.prompt.replaceChildren(...prompts.map((text) => {
+      const visiblePrompts = this.touch
+        ? prompts.filter((text) => !/^\[E\]\s+(Drop|Pass)\b|^\[Q\]\s+Throw\b/.test(text))
+        : prompts;
+      this.prompt.replaceChildren(...visiblePrompts.map((text) => {
         const item = document.createElement('button');
         item.type = 'button';
         // "[F] Hack the console" -> drawn keycap (or touch glyph) + label.
@@ -151,7 +154,10 @@ export class GameHud {
         return item;
       }));
     }
-    this.prompt.classList.toggle('visible', prompts.length > 0 && !this.paused);
+    const hasVisiblePrompt = this.touch
+      ? prompts.some((text) => !/^\[E\]\s+(Drop|Pass)\b|^\[Q\]\s+Throw\b/.test(text))
+      : prompts.length > 0;
+    this.prompt.classList.toggle('visible', hasVisiblePrompt && !this.paused);
     const activeDroneText = mode === 'dev-local'
       ? `Flying ${activeRole.toUpperCase()} · Tab switches`
       : activeRole.toUpperCase();

@@ -330,6 +330,20 @@ html[data-reduced-motion='1'] .mission-objective { transition: none; }
   100% { opacity: 0; transform: translateY(-18px); }
 }
 
+/* Phone HUD: the objective owns the top-center lane; callouts queue beneath it. */
+@media (orientation: landscape) and (max-height: 500px), (pointer: coarse) and (max-width: 900px) {
+  .mission-objective--collapsed {
+    top: calc(max(8px, env(safe-area-inset-top, 0px)) + 46px) !important;
+    width: min(40vw, 360px) !important; max-width: 40vw; height: 36px; min-height: 36px;
+    padding: 8px 12px; z-index: 80;
+  }
+  .mission-objective--collapsed h2 { display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; font-size: 13px; }
+  .juice-toasts { left: auto; right: max(8px, env(safe-area-inset-right, 0px)); transform: none; top: calc(max(8px, env(safe-area-inset-top, 0px)) + 88px); width: min(24vw, 240px); max-width: 24vw; z-index: 70; gap: 4px; align-items: flex-end; }
+  .juice-toast { width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 10px; font: 800 15px/1.1 var(--font-title); animation-duration: 1.5s; }
+  .touch-play .interaction-prompt { left: 50%; bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + 8px); width: min(40vw, 360px); max-width: 40vw; padding: 4px; z-index: 18; }
+  .touch-play .interaction-prompt button { min-height: 40px; padding: 4px 8px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+
 /* ---------- Pause / settings ---------- */
 .pause-panel { display: grid; gap: 10px; max-width: 100%; min-width: 0; max-height: calc(100dvh - 24px); overflow: auto; }
 /* Touch QA measures the compact menu immediately after opening; its controls
@@ -996,6 +1010,7 @@ html[data-reduced-motion='1'] .wake-progress span { transition: none; }
 .touch-play .controls-card,
 .controls-card--touch-hidden { display: none !important; }
 .touch-play .interaction-prompt { bottom: calc(var(--touch-btn, 56px) * 2.6 + 24px); }
+.touch-play:has(.touch-controls--carrying) .interaction-prompt { display: none !important; }
 .touch-play .onboarding-coach { bottom: calc(var(--touch-btn, 56px) * 3 + 36px); }
 .touch-play .network-hud { top: max(16px, env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); }
 .touch-play .active-drone-hud { top: max(16px, env(safe-area-inset-top, 0px)); }
@@ -1199,6 +1214,51 @@ html[data-reduced-motion='1'] .wake-progress span { transition: none; }
   .touch-controls--left .touch-actions > :nth-child(3) { right: calc(var(--stick-w) + 6px); left: auto; }
 }
 
+@media (orientation: landscape) and (max-height: 420px) {
+  .hack-panel { padding-block: 4px; }
+  .hack-help { display: none; }
+  .hack-grid { width: min(100%, 220px); }
+  .hack-board-shell { margin-block: 0; }
+  .hack-status { min-height: 16px; margin-bottom: 0; }
+}
+
+/* Carry adds one adjacent action without changing the rest of the touch cluster. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .touch-controls--right .touch-actions > :nth-child(4) { right: var(--s); bottom: calc(var(--s) + var(--b) + 8px); }
+  .touch-controls--right .touch-actions > :nth-child(5) { right: calc(var(--s) + var(--b) + 8px); bottom: calc(var(--s) + var(--b) + 8px); }
+  .touch-controls--right .touch-actions > :nth-child(6) { right: calc(var(--s) + var(--b) + 8px); bottom: var(--s); }
+  .touch-controls--right .touch-actions > :nth-child(7) { right: calc(var(--s) + 2 * (var(--b) + 8px)); bottom: calc(var(--s) + var(--b) + 8px); }
+  .touch-controls--right .touch-actions > :nth-child(8) { right: calc(var(--s) + 2 * (var(--b) + 8px)); bottom: calc(var(--s) + 2 * (var(--b) + 8px)); }
+  .touch-controls--right .touch-actions > :nth-child(9) { right: calc(var(--s) + 3 * (var(--b) + 8px)); bottom: calc(var(--s) + var(--b) + 8px); }
+  .touch-controls--right .touch-actions > :nth-child(10) { right: calc(var(--s) + 3 * (var(--b) + 8px)); bottom: var(--s); }
+  .touch-controls--left .touch-actions > :nth-child(4) { left: var(--s); bottom: calc(var(--s) + var(--b) + 8px); }
+  .touch-controls--left .touch-actions > :nth-child(5) { left: calc(var(--s) + var(--b) + 8px); bottom: calc(var(--s) + var(--b) + 8px); }
+  .touch-controls--left .touch-actions > :nth-child(6) { left: calc(var(--s) + var(--b) + 8px); bottom: var(--s); }
+  .touch-controls--left .touch-actions > :nth-child(7) { left: calc(var(--s) + 2 * (var(--b) + 8px)); bottom: calc(var(--s) + var(--b) + 8px); }
+  .touch-controls--left .touch-actions > :nth-child(8) { left: calc(var(--s) + 2 * (var(--b) + 8px)); bottom: calc(var(--s) + 2 * (var(--b) + 8px)); }
+  .touch-controls--left .touch-actions > :nth-child(9) { left: calc(var(--s) + 3 * (var(--b) + 8px)); bottom: calc(var(--s) + var(--b) + 8px); }
+  .touch-controls--left .touch-actions > :nth-child(10) { left: calc(var(--s) + 3 * (var(--b) + 8px)); bottom: var(--s); }
+}
+
+/* Every hack variant is a compact landscape sheet.  Controls retain 40px tap targets. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .hack-overlay { padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px)); }
+  .hack-panel { width: min(760px, 100%); max-height: 100%; overflow: auto; padding: clamp(10px, 2vh, 18px) clamp(12px, 3vw, 24px); }
+  .hack-panel h2 { margin-bottom: 4px; font-size: clamp(20px, 5vh, 28px); }
+  .hack-help { font-size: 14px; line-height: 1.2; }
+  .signal-scope { height: clamp(64px, 20vh, 100px); margin: 8px 0; }
+  .signal-controls { grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
+  .signal-controls label { grid-template-columns: 76px 1fr; font-size: 14px; }
+  .signal-controls input { height: 40px; min-width: 40px; }
+  .hack-board-shell { grid-template-columns: 54px 1fr 54px; gap: 8px; margin: 10px 0; }
+  .hack-grid { width: min(100%, 280px); margin-inline: auto; gap: 4px; padding: 6px; grid-template-columns: repeat(var(--grid-width), minmax(40px, 1fr)); }
+  .packet-node { min-width: 40px; min-height: 40px; font-size: clamp(22px, 6vh, 34px); }
+  .memory-board { gap: 6px; margin: 10px auto; max-width: 360px; }
+  .memory-node { min-width: 40px; min-height: 40px; height: clamp(40px, 12vh, 58px); font-size: 18px; }
+  .hack-status { min-height: 20px; margin-bottom: 6px; font-size: 14px; }
+  .hack-cancel { width: 120px; min-height: 42px; padding: 6px 10px; }
+}
+
 /* Landscape phones: thumb cluster in the bottom corner. Jump/Grab/Yank/Hack primary, Ping/Emote/Switch 44px. */
 @media (orientation: landscape) and (max-height: 500px) {
   .touch-actions { --b: var(--touch-btn, 56px); --s: max(8px, env(safe-area-inset-bottom, 0px)); }
@@ -1279,3 +1339,12 @@ html[data-reduced-motion='1'] .wake-progress span { transition: none; }
 .heist-report__replay[hidden] { display: none !important; }
 /* The replay is a clean cinematic: hide the play HUD while it runs. */
 body.escape-replay-on :is(.mission-objective, .onboarding-coach, .interaction-prompt, .active-drone-hud, .controls-card, .juice-toasts, .touch-controls, .network-hud, .run-hud, .floor-card, #dev-readout, #dev-controls) { visibility: hidden !important; }
+
+@media (orientation: landscape) and (max-height: 420px) {
+  .hack-panel { padding-block: 4px; }
+  .hack-panel .hack-help { display: none; }
+  .hack-panel .hack-board-shell { margin-block: 0; }
+  .hack-panel .hack-grid { width: min(100%, 220px); }
+  .hack-panel .hack-status { min-height: 16px; margin-bottom: 0; }
+  .hack-panel .hack-cancel { min-height: 42px; }
+}

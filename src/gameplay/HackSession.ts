@@ -50,6 +50,7 @@ export class HackSession {
   private doorOpen = false;
   private alarmed = false;
   private active: ActiveHack | null = null;
+  private debugView = false;
 
   constructor(
     scene: Scene,
@@ -181,7 +182,7 @@ export class HackSession {
   update(dt: number, drones: ReadonlyMap<DroneRole, Drone>): void {
     if (this.active) {
       const drone = drones.get(this.active.role);
-      if (!drone || this.active.station.distanceTo(drone.position) > this.active.station.interactionRadius + 0.8) {
+      if (!this.debugView && (!drone || this.active.station.distanceTo(drone.position) > this.active.station.interactionRadius + 0.8)) {
         this.cancelCurrent();
       }
     }
@@ -211,6 +212,15 @@ export class HackSession {
     if (this.multiplayer) return;
     for (const station of this.stations) this.setComplete(station.id, true);
     this.doorOpen = true;
+  }
+
+  debugOpenStation(id: HackStationId, role: DroneRole): void {
+    const station = this.stations.find((candidate) => candidate.id === id);
+    if (!station) return;
+    if (this.active) this.closeView();
+    this.setOwner(id, role);
+    this.debugView = true;
+    this.openPuzzle(station, role);
   }
 
   allComplete(): boolean {
@@ -273,6 +283,7 @@ export class HackSession {
   private closeView(): void {
     this.active?.view.dispose();
     this.active = null;
+    this.debugView = false;
   }
 
   private ownerFor(id: HackStationId): DroneRole | null {
