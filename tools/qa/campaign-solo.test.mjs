@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { CAMPAIGN_LEVELS, campaignLayout } from '../../shared/campaign/levels.mjs';
+import { DOORWAYS, STATIC_BLOCKERS, pointInAabb } from '../../shared/nightshift/levelGeometry.mjs';
 import { runTest, url, openPage, closePage, waitForGame } from './lib.mjs';
 
 const shotDir = '/workspace/handshake/playtest/oct25/campaign';
@@ -17,48 +18,210 @@ await runTest('campaign-solo', async (browser, notes) => {
   assert.equal(await page.locator('[data-testid^="level-card-"]').count(), 5);
   assert.equal(await page.getByTestId('level-card-l1-tethered').getAttribute('data-locked'), '0');
   assert.equal(await page.getByTestId('level-card-l2-twin-levers').getAttribute('data-locked'), '1');
+  const menuAudit = await page.evaluate(() => ({
+    cardsBottom: Math.max(...[...document.querySelectorAll('[data-testid^="level-card-"]')].map((el) => el.getBoundingClientRect().bottom)),
+    viewport: innerHeight,
+    panelScroll: document.querySelector('.campaign-select-panel')?.scrollHeight ?? 0,
+    panelClient: document.querySelector('.campaign-select-panel')?.clientHeight ?? 0,
+  }));
+  assert(menuAudit.cardsBottom <= menuAudit.viewport + 1, `desktop level cards clipped: ${JSON.stringify(menuAudit)}`);
+  assert(menuAudit.panelScroll <= menuAudit.panelClient + 1, `desktop campaign panel scrolls: ${JSON.stringify(menuAudit)}`);
+
+  // Absent and malformed progress must fall back to the safe initial state.
+  await page.evaluate(() => localStorage.removeItem('pixnee.campaign.v1'));
+  await page.reload();
+  await page.getByTestId('campaign').click();
+  assert.equal(await page.getByTestId('level-card-l1-tethered').getAttribute('data-locked'), '0');
+  assert.equal(await page.getByTestId('level-card-l2-twin-levers').getAttribute('data-locked'), '1');
+  await page.evaluate(() => localStorage.setItem('pixnee.campaign.v1', '{broken json'));
+  await page.reload();
+  await page.getByTestId('campaign').click();
+  assert.equal(await page.getByTestId('level-card-l1-tethered').getAttribute('data-locked'), '0');
+  assert.equal(await page.getByTestId('level-card-l2-twin-levers').getAttribute('data-locked'), '1');
+
+  const completed = [];
   for (const level of CAMPAIGN_LEVELS) {
-    await page.goto(url({ level: level.id, bot: '1' }));
-    await waitForGame(page);
-    await page.getByTestId('floor-card').waitFor({ state: 'visible', timeout: 30_000 });
-    const cardText = await page.getByTestId('floor-card').innerText();
-    assert(cardText.includes(level.name), `campaign card missing level name: ${cardText}`);
     const layout = campaignLayout(level.id);
-    const positions = showcasePositions(layout);
-    await page.waitForTimeout(2_500);
-    await page.evaluate(({ pix, nee }) => {
-      window.__autotest.teleport('pix', pix.x, pix.y, pix.z);
-      window.__autotest.teleport('nee', nee.x, nee.y, nee.z);
-      for (const selector of ['#dev-readout', '#dev-controls', '.onboarding-coach', '.juice-toasts', '.floor-card']) {
-        const element = document.querySelector(selector);
-        if (element instanceof HTMLElement) element.style.display = 'none';
-      }
-    }, positions);
-    await page.waitForTimeout(1_200);
-    const showcase = await page.screenshot();
-    writeFileSync(`${shotDir}/level-${level.index}-${level.id.slice(3)}.png`, showcase);
-    if (level.index === 5) {
-      writeFileSync(`${shotDir}/level-5-finale.png`, showcase);
+    await stageShowcase(page, level, layout);
+    const completion = await completeLevel(page, level, layout);
+    completed.push(completion);
+    if (level.index === 1) {
+      await page.goto(url());
+      await page.getByTestId('campaign').click();
+      assert.equal(await page.getByTestId('level-card-l1-tethered').getAttribute('data-locked'), '0');
+      assert.equal(await page.getByTestId('level-card-l2-twin-levers').getAttribute('data-locked'), '0');
+      assert.equal(await page.getByTestId('level-card-l1-tethered').locator('.campaign-star--earned').count() >= 1, true);
     }
   }
-  notes.levels = CAMPAIGN_LEVELS.map((level) => ({ id: level.id, kind: campaignLayout(level.id).plan.objective.kind }));
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('pixnee.campaign.v1') ?? 'null'));
+  assert(saved?.v === 1 && Object.keys(saved.levels).length === 5, `campaign progress not saved: ${JSON.stringify(saved)}`);
+  notes.levels = completed;
+  notes.progress = saved;
   await closePage(page);
 });
 
-function showcasePositions(layout) {
-  const objective = layout.plan.objective;
-  if (objective.levers) return pair(objective.levers[0], objective.levers[1], 0.55);
-  if (objective.pylon && objective.safe) return pair(objective.safe, objective.anchor ?? objective.pylon, 0.5);
-  if (objective.pads?.length) return pair(objective.pads[0], objective.pads[0], 0.5);
+async function stageShowcase(page, level, layout) {
+  await page.goto(url({ level: level.id, bot: '1' }));
+  await waitForGame(page);
+  await page.getByTestId('floor-card').waitFor({ state: 'visible', timeout: 30_000 });
+  await page.waitForFunction(() => Boolean(window.__floorPlan?.planHash), null, { timeout: 30_000 });
+  await page.waitForTimeout(1200);
+  const focus = showcaseFocus(layout);
+  const pair = showcasePair(layout, focus);
+  await page.evaluate(({ pair, focus }) => {
+    window.__autotest.teleport('pix', pair.pix.x, pair.pix.y, pair.pix.z);
+    window.__autotest.teleport('nee', pair.nee.x, pair.nee.y, pair.nee.z);
+    window.__autotest.photo(
+      { x: focus.x + 15, y: focus.y + 10, z: focus.z - 18 },
+      { x: focus.x, y: focus.y, z: focus.z },
+    );
+    for (const selector of ['#dev-readout', '#dev-controls', '.onboarding-coach', '.juice-toasts', '.floor-card']) {
+      const element = document.querySelector(selector);
+      if (element instanceof HTMLElement) element.style.display = 'none';
+    }
+  }, { pair, focus });
+  await page.waitForTimeout(1500);
+  const file = level.index === 5 ? `${shotDir}/level-5-staging.png` : `${shotDir}/level-${level.index}-${level.id.slice(3)}.png`;
+  await page.screenshot({ path: file });
+}
+
+async function completeLevel(page, level, layout) {
+  await page.goto(url({ level: level.id, bot: '1' }));
+  await waitForGame(page);
+  await page.waitForFunction(() => Boolean(window.__floorPlan?.planHash), null, { timeout: 30_000 });
+  // Existing variety QA uses this shortcut to skip the legacy hack; objective play remains real.
+  await page.evaluate(() => window.__autotest.debugStage('steal-prototype'));
+  const phases = layout.plan.phases ?? [layout.plan.objective];
+  for (let phase = 0; phase < phases.length; phase++) {
+    const objective = phases[phase];
+    if (objective.kind === 'grab') continue;
+    if (objective.kind === 'twin-levers') await completeTwinLevers(page, objective, layout.spawn);
+    else if (objective.kind === 'pylon-safe') await completePylonSafe(page, objective, layout.spawn);
+    else if (objective.kind === 'relay') await completeRelay(page, objective, layout.spawn);
+    else if (objective.kind === 'fragile') await completeFragileCarry(page, layout);
+    await page.waitForFunction((expected) => {
+      const state = window.__floorPlan?.objective();
+      return state?.done === true || (window.__floorPlan?.phase ?? 0) > expected;
+    }, phase, { timeout: 55_000 });
+    if (level.index === 5 && phase === 1) {
+      await page.getByText('BIG VAULT CRACKED · x2').waitFor({ state: 'visible', timeout: 8_000 });
+      await page.screenshot({ path: `${shotDir}/level-5-finale.png` });
+    }
+  }
+  if (layout.plan.objective.kind === 'grab' || layout.plan.phases?.at(-1)?.kind !== 'fragile') {
+    await carryPrototype(page, layout);
+  }
+  await page.waitForFunction(() => window.__floorPlan?.objective()?.done === true, null, { timeout: 40_000 });
+  await page.waitForSelector('[data-testid="campaign-result"]', { state: 'visible', timeout: 45_000 });
+  const result = await page.evaluate(() => ({
+    objective: window.__floorPlan?.objective(),
+    report: document.querySelector('[data-testid="campaign-result"]')?.textContent ?? '',
+    stars: document.querySelector('[data-testid="campaign-stars"]')?.textContent ?? '',
+  }));
+  assert(result.objective?.done === true, `${level.id} objective did not complete`);
+  assert(result.report.includes('CAMPAIGN COMPLETE') || level.index < 5, `${level.id} report missing campaign result`);
+  assert(result.stars.length > 0, `${level.id} stars missing`);
+  return { id: level.id, phases: phases.length, stars: result.stars };
+}
+
+async function completeTwinLevers(page, objective, spawn) {
+  const [a, b] = objective.levers;
+  await routeTo(page, spawn, a, { y: 8 });
+  await page.evaluate(({ a, b }) => {
+    window.__autotest.goto('pix', a.x, a.y, a.z, 1.2, true);
+    window.__autotest.goto('nee', b.x, b.y, b.z, 1.2, true);
+  }, { a, b });
+  await page.waitForFunction(() => window.__floorPlan?.objective()?.done === true, null, { timeout: 35_000 });
+}
+
+async function completePylonSafe(page, objective, spawn) {
+  await routeTo(page, spawn, objective.safe, { y: 7 });
+  await page.evaluate((safe) => window.__autotest.goto('pix', safe.x, safe.y, safe.z, 1.2, true), objective.safe);
+  await page.waitForFunction(() => (window.__floorPlan?.objective()?.pulls ?? 0) >= 1, null, { timeout: 35_000 });
+}
+
+async function completeRelay(page, objective, spawn) {
+  const first = objective.pads[0];
+  await routeTo(page, spawn, first, { y: 7 });
+  for (const pad of objective.pads) {
+    if (pad.role === 'pix') await gotoPoint(page, 'pix', pad, 1.2, true);
+    await page.waitForFunction((step) => (window.__floorPlan?.objective()?.step ?? 0) >= step, objective.pads.indexOf(pad) + 1, { timeout: 35_000 });
+  }
+}
+
+async function completeFragileCarry(page, layout) {
+  await gotoPoint(page, 'pix', layout.loot, 1.4, true);
+  await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
+  await page.waitForFunction(() => window.__autotest.heldObject?.('pix') === 'prototype', null, { timeout: 12_000 });
+  await carryPrototype(page, layout, true);
+}
+
+async function carryPrototype(page, layout, alreadyHolding = false) {
+  if (!alreadyHolding) {
+    await gotoPoint(page, 'pix', layout.loot, 1.4, true);
+    await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
+    await page.waitForFunction(() => window.__autotest.heldObject?.('pix') === 'prototype', null, { timeout: 12_000 });
+  }
+  for (const waypoint of extractionRoute(layout.loot, layout.extraction)) await gotoPoint(page, 'pix', waypoint, 1.7, true);
+  await gotoPoint(page, 'pix', layout.extraction, 1.4, true);
+}
+
+async function routeTo(page, from, target, options = {}) {
+  const y = options.y ?? 7;
+  const route = [
+    { x: from.x, y, z: -44 },
+    { x: from.x, y: 5.2, z: -26 },
+    { x: 0, y: 3.3, z: 2 },
+    { x: target.x, y: Math.max(2.2, target.y), z: target.z },
+  ];
+  assert(route.every((point) => isRoutePointClear(point)), `route point intersects authored blocker: ${JSON.stringify(route)}`);
+  for (const point of route) await gotoPoint(page, 'pix', point, 2, true);
+}
+
+function extractionRoute(loot, extraction) {
+  const candidates = [
+    { x: loot.x, y: 3.3, z: 2 },
+    { x: 1, y: 3.3, z: -10 },
+    { x: 1, y: 5.2, z: -26 },
+    { x: 5, y: 5.2, z: -43 },
+    { x: -5, y: 6.2, z: -43 },
+    { x: -15.5, y: 7, z: -34 },
+    { x: -15.5, y: 3, z: -9 },
+    { x: extraction.x, y: extraction.y + 1.2, z: extraction.z },
+  ];
+  assert(candidates.every((point) => isRoutePointClear(point)), `extraction route intersects authored blocker: ${JSON.stringify(candidates)}`);
+  return candidates;
+}
+
+function isRoutePointClear(point) {
+  return !STATIC_BLOCKERS.some((blocker) => pointInAabb(point, blocker, 0.35))
+    || DOORWAYS.some((doorway) => pointInAabb(point, doorway, 0.05));
+}
+
+async function gotoPoint(page, role, point, tolerance = 1.5, hold = false) {
+  await page.evaluate(({ role, point, tolerance, hold }) => window.__autotest.goto(role, point.x, point.y, point.z, tolerance, hold), { role, point, tolerance, hold });
+  await page.waitForFunction(({ role, point, tolerance }) => {
+    const current = window.__autotest.position(role);
+    return current && Math.hypot(current.x - point.x, current.y - point.y, current.z - point.z) <= Math.max(2.8, tolerance + 0.8);
+  }, { role, point, tolerance }, { timeout: 45_000 });
+}
+
+function showcaseFocus(layout) {
+  const objective = layout.plan.phases?.[0] ?? layout.plan.objective;
+  if (objective.levers) return midpoint(objective.levers[0], objective.levers[1]);
+  if (objective.pylon && objective.safe) return midpoint(objective.pylon, objective.safe);
+  if (objective.pads?.length) return objective.pads[Math.floor(objective.pads.length / 2)];
+  return layout.loot;
+}
+
+function showcasePair(layout, focus) {
+  const y = Math.max(3.4, focus.y + 0.5);
   return {
-    pix: { x: layout.loot.x - 2.5, y: 2.8, z: layout.loot.z - 2 },
-    nee: { x: layout.loot.x + 2.5, y: 2.8, z: layout.loot.z - 2 },
+    pix: { x: focus.x - 2.2, y, z: focus.z + 1.5 },
+    nee: { x: focus.x + 2.2, y, z: focus.z + 1.5 },
   };
 }
 
-function pair(a, b, side) {
-  return {
-    pix: { x: a.x - side, y: Math.max(2.8, a.y + 0.45), z: a.z + 0.9 },
-    nee: { x: b.x + side, y: Math.max(2.8, b.y + 0.45), z: b.z + 0.9 },
-  };
+function midpoint(a, b) {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
 }
