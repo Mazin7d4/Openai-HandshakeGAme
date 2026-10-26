@@ -17,6 +17,7 @@
     "verify": "node tools/verify-all.mjs",
     "verify:seeds": "node tools/verify-seeds.mjs",
     "qa": "node tools/qa/run.mjs",
+    "playtest:all": "node tools/playtest/all.mjs",
     "qa:servers": "PORT=2583 node --experimental-strip-types server/index.mjs & VITE_COLYSEUS_URL=ws://127.0.0.1:2583 npx vite --port 5183 --strictPort --host 127.0.0.1"
   },
   "devDependencies": {

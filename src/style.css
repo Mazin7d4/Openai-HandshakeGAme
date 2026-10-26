@@ -162,6 +162,7 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 .menu-kicker { color: var(--graphite); font: 800 16px/1 var(--font-title); font-stretch: 125%; letter-spacing: 0.02em; }
 .menu-panel h1 { margin-top: 10px; font-size: 34px; }
 .menu-subtitle, .lobby-status { margin-top: 10px; }
+.title-best-crew { margin: 6px 0 0; color: var(--pencil); font-size: 13px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .menu-actions, .join-form { display: grid; gap: 12px; margin-top: 24px; }
 .room-label { display: block; margin-top: 24px; }
 .room-code {
@@ -342,7 +343,7 @@ html[data-reduced-motion='1'] .mission-objective { transition: none; }
 .settings-menu--embedded > .btn--quiet,
 .settings-panel > .btn--quiet { position: sticky; bottom: 0; z-index: 1; background: var(--paper); }
 .settings-tabs {
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; min-width: 0;
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; min-width: 0;
 }
 .settings-tab {
   min-width: 0; max-width: 100%; min-height: 48px; padding: 8px 6px; font-size: 16px; overflow-wrap: anywhere;
@@ -593,15 +594,14 @@ html[data-reduced-motion='1'] *::after {
 .heist-report__player-stats { margin: 0 0 10px; min-width: 0; }
 .heist-report__player-stats-scroll { max-width: 100%; overflow-x: auto; }
 .heist-report__player-stats-table {
-  width: 100%; border-collapse: collapse; color: var(--graphite);
-  font-size: 12px; font-variant-numeric: tabular-nums;
+  width: 100%; table-layout: fixed; border-collapse: collapse; color: var(--graphite);
+  font-size: 16px; font-variant-numeric: tabular-nums;
 }
 .heist-report__player-stats-table caption { margin-bottom: 5px; text-align: left; font-weight: 800; }
 .heist-report__player-stats-table th,
-.heist-report__player-stats-table td { padding: 5px 4px; border-bottom: 1px solid var(--aluminium); text-align: right; white-space: nowrap; }
+.heist-report__player-stats-table td { padding: 5px 2px; border-bottom: 1px solid var(--aluminium); text-align: right; white-space: normal; overflow-wrap: anywhere; }
 .heist-report__player-stats-table th:first-child,
 .heist-report__player-stats-table td:first-child { text-align: left; }
-@media (max-width: 400px) { .heist-report__player-stats-table { font-size: 11px; } }
 .heist-report__leaderboard {
   width: 100%; min-width: 0; margin: 0 0 10px; padding: 10px;
   border: var(--rim); border-radius: var(--r-control); background: var(--porcelain);
@@ -679,7 +679,7 @@ html[data-reduced-motion='1'] *::after {
 .heist-report__meta { display: grid; gap: 8px; margin: 0 0 10px; }
 
 /* Short landscape (844×390): two columns so brand, grade, awards and actions stay on screen. */
-@media (max-height: 420px) and (min-width: 700px) {
+@media (max-height: 420px) and (min-width: 560px) {
   .heist-report-overlay { padding: 8px 16px; }
   .heist-report {
     width: min(780px, 100%);
@@ -969,8 +969,12 @@ html[data-reduced-motion='1'] .wake-spinner { display: none; }
   transform: translateX(-50%); width: min(320px, calc(100% - 32px));
   padding: 14px 16px; border: var(--rim); border-radius: var(--r-panel);
   background: var(--paper); box-shadow: var(--lip), var(--float-shadow);
-  text-align: center; pointer-events: auto; touch-action: manipulation;
+  isolation: isolate; text-align: center; pointer-events: auto; touch-action: manipulation;
   opacity: 0; transition: opacity var(--t-ui) var(--ease-out);
+}
+.touch-rotate-hint::before {
+  content: ''; position: fixed; inset: 0; z-index: -1;
+  background: var(--porcelain); pointer-events: none;
 }
 .touch-rotate-hint--hidden { display: none !important; }
 .touch-rotate-hint { z-index: 1000; }
@@ -1016,6 +1020,9 @@ html[data-reduced-motion='1'] .wake-spinner { display: none; }
 }
 
 @media (orientation: landscape) and (max-height: 460px) and (min-width: 560px) {
+  .pause-panel { gap: 4px; padding: 12px 20px; }
+  .settings-menu--embedded { gap: 4px; }
+  .settings-menu--embedded .settings-body { max-height: 120px; }
   .touch-play .mission-objective { width: min(35vw, 300px, calc(100% - 320px)); }
 }
 

@@ -44,6 +44,7 @@ import { titleMenuNav } from './ui/MenuNavigator.ts';
 import { enterImmersive } from './ui/fullscreen.ts';
 import { isTouchPlayDevice } from './ui/touchDetect.ts';
 import type { TitleAttract } from './ui/TitleAttract.ts';
+import { mountTitleBestCrew } from './ui/TitleBestCrew.ts';
 
 // Unlock-on-first-gesture, menu UI sounds and M to mute; sound files load lazily once the page is idle.
 audio.install();
@@ -98,6 +99,7 @@ const root: HTMLElement = rootNode;
 
 let game: GameApp | null = null;
 let titleAttract: TitleAttract | null = null;
+let titleBestCrewDispose: (() => void) | null = null;
 let quickMatchInFlight = false;
 let soloStartInFlight = false;
 
@@ -175,6 +177,8 @@ function errorMessage(error: unknown): string {
 function showMainMenu(): void {
   titleAttract?.dispose();
   titleAttract = null;
+  titleBestCrewDispose?.();
+  titleBestCrewDispose = null;
   const params = new URLSearchParams(window.location.search);
   const beatRaw = params.get('beat');
   const beatMs = beatRaw != null && /^\d+$/.test(beatRaw) ? Number(beatRaw) : NaN;
@@ -213,6 +217,7 @@ function showMainMenu(): void {
   }
   actions.append(menuButton('Settings', 'title-settings', openTitleSettings, 'btn--quiet'));
   panel.append(actions);
+  titleBestCrewDispose = mountTitleBestCrew(panel);
   shell.append(attractCanvas, panel);
   root.replaceChildren(shell);
   // PLAY NOW is first in tab order and already focused, so Enter starts it.
@@ -680,6 +685,8 @@ function showLobby(session: MultiplayerSession): void {
 async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<void> {
   titleAttract?.dispose();
   titleAttract = null;
+  titleBestCrewDispose?.();
+  titleBestCrewDispose = null;
   if (isTouchPlayDevice() && (mode === 'singleplayer' || mode === 'night-shift' || mode === 'multiplayer')) void enterImmersive();
   titleMenuNav.detach();
   try { sessionStorage.removeItem(MODE_STASH_KEY); } catch { /* private mode */ }
@@ -795,8 +802,8 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
       } else if (partnerReconnecting) {
         const left = Math.max(0, RECONNECT_GRACE_SECONDS - Math.floor((Date.now() - (partnerLostAt ?? Date.now())) / 1000));
         const name = status.localRole === 'pix' ? 'NEE' : 'PIX';
-        overlayTitle.textContent = `${name} disconnected`;
-        overlayDetail.textContent = `Waiting for them to reconnect… ${left}s`;
+        overlayTitle.textContent = 'Waiting for partner';
+        overlayDetail.textContent = `${name} disconnected. Timer paused. ${left}s to rejoin`;
       } else if (partnerLeft) {
         overlayTitle.textContent = 'Partner left';
         overlayDetail.textContent = 'They did not come back. You can return to the menu.';
