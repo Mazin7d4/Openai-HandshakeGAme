@@ -50,6 +50,13 @@ async function body(browser, notes) {
       await host.page.getByTestId('create-room').tap();
       await host.page.getByTestId('wake-overlay').waitFor({ state: 'visible' });
       assert(await host.page.getByTestId('wake-elapsed').isVisible(), 'wake elapsed is not visible');
+      assert(await host.page.getByTestId('wake-title').innerText().then((text) => /Waking the server/.test(text)), 'waking title missing');
+      const progress = host.page.getByTestId('wake-progress');
+      assert(await progress.isVisible(), 'wake progress is not visible');
+      const progressBefore = Number(await progress.getAttribute('aria-valuenow'));
+      await host.page.waitForTimeout(2_100);
+      const progressAfter = Number(await progress.getAttribute('aria-valuenow'));
+      assert(progressAfter > progressBefore, `wake progress did not increase (${progressBefore} -> ${progressAfter})`);
       const deadline = Date.now() + 30_000;
       let code = '';
       while (Date.now() < deadline) {
@@ -123,10 +130,32 @@ async function body(browser, notes) {
       await host.page.getByTestId('wake-retry').waitFor({ state: 'visible', timeout: 8_000 });
       const shownAfter = Date.now() - loadedAt;
       assert(shownAfter >= 2_900, `unreachable appeared before the 3 s budget (${shownAfter} ms after load)`);
-      assert(await host.page.getByText("Server didn't wake up").isVisible(), 'unreachable title missing');
+      assert(await host.page.getByText("The server didn't wake up").isVisible(), 'unreachable title missing');
+      assert(!await host.page.getByTestId('wake-progress').count(), 'unreachable wake progress still visible');
+      assert(await host.page.getByTestId('wake-play-solo').isVisible(), 'unreachable play-solo button missing');
+      assert(await host.page.getByTestId('back').isVisible(), 'unreachable back button missing');
+      await host.page.getByTestId('wake-play-solo').tap();
+      await host.page.getByTestId('start-singleplayer').waitFor({ state: 'visible' });
+      await host.page.getByTestId('start-singleplayer').tap();
+      await waitForGame(host.page, 120_000);
       notes.unreachableAfterMs = shownAfter;
       notes.unreachable = true;
       await closeContext(host);
+    }
+
+    phase = 'solo-during-wake';
+    {
+      const { proxy } = await setup('hang', Infinity);
+      const waking = await open({ server: proxy.url, wakeTimeout: '30000' }, 'solo-during-wake');
+      await waking.page.getByTestId('multiplayer').tap();
+      await waking.page.getByTestId('create-room').tap();
+      await waking.page.getByTestId('wake-overlay').waitFor({ state: 'visible' });
+      const tappedAt = Date.now();
+      await waking.page.getByTestId('wake-play-solo').tap();
+      await waking.page.getByTestId('start-singleplayer').waitFor({ state: 'visible' });
+      assert(Date.now() - tappedAt < 2_000, 'play solo did not open immediately during wake');
+      notes.soloDuringWake = true;
+      await closeContext(waking);
     }
 
     phase = 'reduced-motion';
