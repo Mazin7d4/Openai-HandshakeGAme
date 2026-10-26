@@ -131,44 +131,62 @@ async function completeLevel(page, level, layout) {
   const result = await page.evaluate(() => ({
     objective: window.__floorPlan?.objective(),
     report: document.querySelector('[data-testid="campaign-result"]')?.textContent ?? '',
+    reportTitle: document.querySelector('[data-testid="mission-complete"]')?.textContent ?? '',
     stars: document.querySelector('[data-testid="campaign-stars"]')?.textContent ?? '',
   }));
   assert(result.objective?.done === true, `${level.id} objective did not complete`);
-  assert(result.report.includes('CAMPAIGN COMPLETE') || level.index < 5, `${level.id} report missing campaign result`);
+  assert(result.report.length > 0 && (result.reportTitle.includes('CAMPAIGN COMPLETE') || level.index < 5), `${level.id} report missing campaign result`);
   assert(result.stars.length > 0, `${level.id} stars missing`);
   return { id: level.id, phases: phases.length, completedPhases, stars: result.stars };
 }
 
 async function completeTwinLevers(page, objective) {
   const [a, b] = objective.levers;
+  const initialPhase = await page.evaluate(() => window.__floorPlan?.phase ?? 0);
   await page.evaluate(({ a, b }) => {
     window.__autotest.teleport('pix', a.x, Math.max(1.8, a.y), a.z);
     window.__autotest.teleport('nee', (a.x + b.x) / 2, Math.max(1.8, a.y), (a.z + b.z) / 2);
     window.__autotest.goto('pix', a.x, Math.max(1.8, a.y), a.z, 0.7, true);
   }, { a, b });
-  await page.waitForFunction(() => window.__floorPlan?.objective()?.done === true, null, { timeout: 35_000 });
+  await page.waitForFunction((phase) => window.__floorPlan?.objective()?.done === true || (window.__floorPlan?.phase ?? 0) > phase, initialPhase, { timeout: 35_000 });
 }
 
 async function completePylonSafe(page, objective) {
   const { safe, anchor } = objective;
+  const initialPhase = await page.evaluate(() => window.__floorPlan?.phase ?? 0);
   await page.evaluate(({ safe, anchor }) => {
     window.__autotest.teleport('pix', safe.x, Math.max(1.8, safe.y), safe.z);
     window.__autotest.teleport('nee', (safe.x + anchor.x) / 2, Math.max(1.8, anchor.y), (safe.z + anchor.z) / 2);
     window.__autotest.goto('pix', safe.x, Math.max(1.8, safe.y), safe.z, 0.7, true);
   }, { safe, anchor });
-  await page.waitForFunction(() => (window.__floorPlan?.objective()?.pulls ?? 0) >= 1, null, { timeout: 35_000 });
+  await page.waitForFunction((phase) => (window.__floorPlan?.objective()?.pulls ?? 0) >= 1 || (window.__floorPlan?.phase ?? 0) > phase, initialPhase, { timeout: 35_000 });
 }
 
 async function completeRelay(page, objective) {
   const first = objective.pads[0];
   const second = objective.pads[1] ?? first;
+  const initialPhase = await page.evaluate(() => window.__floorPlan?.phase ?? 0);
   await page.evaluate(({ first, second }) => {
-    window.__autotest.teleport('pix', first.x, Math.max(1.8, first.y), first.z);
+    window.__autotest.teleport('pix', first.x - 1.2, Math.max(1.8, first.y), first.z + 1.2);
     window.__autotest.teleport('nee', (first.x + second.x) / 2, Math.max(1.8, second.y), (first.z + second.z) / 2);
   }, { first, second });
   for (const pad of objective.pads) {
-    if (pad.role === 'pix') await gotoPoint(page, 'pix', pad, 0.7, true);
-    await page.waitForFunction((step) => (window.__floorPlan?.objective()?.step ?? 0) >= step, objective.pads.indexOf(pad) + 1, { timeout: 35_000 });
+    if (pad.role === 'pix') {
+      await page.evaluate((point) => window.__autotest.teleport('pix', point.x - 1.2, Math.max(1.8, point.y), point.z + 1.2), pad);
+      await gotoPoint(page, 'pix', pad, 0.7, true);
+    }
+    const expected = objective.pads.indexOf(pad) + 1;
+    try {
+      await page.waitForFunction(({ step, phase }) => (window.__floorPlan?.objective()?.step ?? 0) >= step || (window.__floorPlan?.phase ?? 0) > phase, { step: expected, phase: initialPhase }, { timeout: 35_000 });
+      if (await page.evaluate((phase) => (window.__floorPlan?.phase ?? 0) > phase, initialPhase)) break;
+    } catch (error) {
+      const diagnostic = await page.evaluate(() => ({
+        objective: window.__floorPlan?.objective(),
+        pix: window.__autotest.position('pix'),
+        nee: window.__autotest.position('nee'),
+      }));
+      throw new Error(`relay pad ${expected} timeout ${JSON.stringify(diagnostic)}: ${error.message}`);
+    }
   }
 }
 
