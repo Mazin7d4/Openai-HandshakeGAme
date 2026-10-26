@@ -459,15 +459,20 @@ export class GameApp {
     // UI reads seed/floor through getRunInfo() so Netcode can swap the source without HUD changes.
     const runSeed = mode === 'night-shift' || mode === 'campaign' ? options.runSeed ?? getRunInfo() : null;
     setNightShiftLayoutGenerator(generateNightShiftRun);
-    const campaignId = mode === 'campaign' ? new URLSearchParams(window.location.search).get('level') ?? runSeed?.levelId ?? 'l1-tethered' : null;
+    const campaignId = mode === 'campaign'
+      ? new URLSearchParams(window.location.search).get('level') ?? runSeed?.levelId ?? 'l1-tethered'
+      : multiplayer?.currentStatus.run.mode === 'campaign' ? multiplayer.currentStatus.run.levelId ?? 'l1-tethered' : null;
+    let campaignGenerator: ((levelId: string) => RunLayout) | null = null;
     if (campaignId) {
       const { generateCampaignRun } = await import('../seed/campaignRun.ts');
+      campaignGenerator = generateCampaignRun;
       setCampaignLayoutGenerator(generateCampaignRun);
     }
     const runLayout = mode === 'campaign' && campaignId
-      ? (await import('../seed/campaignRun.ts')).generateCampaignRun(campaignId)
+      ? campaignGenerator?.(campaignId) ?? null
       : runSeed ? generateNightShiftRun(runSeed.seed, runSeed.floor) : null;
     if (runLayout?.plan?.campaign) applyCampaignPalette(scene, runLayout.plan.campaign.index);
+    else if (campaignId && campaignGenerator) applyCampaignPalette(scene, campaignGenerator(campaignId).plan.campaign?.index ?? 1);
     // TEST-ONLY: ?autotest&stage=escape starts local modes in the alarm escape, beside the heavy crate.
     const escapeStage = Autopilot.enabled && mode !== 'multiplayer'
       && new URLSearchParams(window.location.search).get('stage') === 'escape';

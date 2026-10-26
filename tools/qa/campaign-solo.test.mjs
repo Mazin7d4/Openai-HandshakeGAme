@@ -73,7 +73,7 @@ async function stageShowcase(page, level, layout) {
     window.__autotest.teleport('pix', pair.pix.x, pair.pix.y, pair.pix.z);
     window.__autotest.teleport('nee', pair.nee.x, pair.nee.y, pair.nee.z);
     window.__autotest.photo(
-      { x: focus.x + 15, y: focus.y + 10, z: focus.z - 18 },
+      { x: focus.x + 8, y: focus.y + 5, z: focus.z - 10 },
       { x: focus.x, y: focus.y, z: focus.z },
     );
     for (const selector of ['#dev-readout', '#dev-controls', '.onboarding-coach', '.juice-toasts', '.floor-card']) {
@@ -195,12 +195,13 @@ function extractionRoute(loot, extraction) {
   const office = doorwayCenter(-26, -1.2);
   const reception = doorwayCenter(-43, -1.2);
   const candidates = [
-    { x: vault.x, y: 2.2, z: vault.z },
-    { x: 0, y: 2.2, z: -3 },
+    { x: -1.5, y: 2.2, z: vault.z },
+    { x: -1.5, y: 2.2, z: -3 },
     { x: -6, y: 5.2, z: -10 },
     { x: -6, y: 5.2, z: -18 },
+    { x: 6, y: 5.2, z: -18 },
     { x: 6, y: 5.2, z: -24.8 },
-    { x: office.x, y: 5.2, z: office.z },
+    { x: office.x, y: 5.2, z: -24.8 },
     { x: 5, y: 5.2, z: reception.z },
     { x: 5, y: 7, z: -46 },
     { x: reception.x, y: 7, z: reception.z },
