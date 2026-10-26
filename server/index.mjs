@@ -14,7 +14,9 @@ import {
   MAX_CAPTURES,
 } from '../shared/run.ts';
 import { applyRunLayout, generateRun } from '../shared/seed/index.mjs';
+import { campaignLayout } from '../shared/campaign/levels.mjs';
 import { scoreFloorPure, dropFloorsFrom } from '../shared/nightShiftScore.mjs';
+import { scoreCampaignLevel } from '../shared/campaign/score.mjs';
 import { ObjectiveSim, shouldBroadcast as shouldBroadcastObjective } from './objectiveSim.mjs';
 import { HazardTripGate, checkHazardTrips } from '../shared/nightshift/hazards.mjs';
 import { isProfane, LeaderboardStore, RateLimiter, sanitizeName, validateRun } from './leaderboard.mjs';
@@ -203,6 +205,7 @@ const Mission = schema(
 const Run = schema(
   {
     mode: t.string().default('standard'),
+    levelId: t.string().default(''),
     seed: t.uint32().default(0),
     floor: t.uint16().default(1),
     captures: t.uint8().default(0),
@@ -291,8 +294,10 @@ class HandshakeRoom extends Room {
   nightshiftEscapedFloor = 0;
   world = createWorldSinks();
   runLayout = null;
+  campaignLevelId = '';
   floorPlan = null;
   objectiveSim = new ObjectiveSim();
+  objectivePhase = 0;
   hazardGate = new HazardTripGate();
   objectiveBroadcastSeq = -1;
   objectiveBroadcastElapsed = 0;
@@ -334,6 +339,7 @@ class HandshakeRoom extends Room {
     this.seedPinned = typeof options.seed === 'number' && Number.isFinite(options.seed)
       ? options.seed >>> 0
       : undefined;
+    this.campaignLevelId = typeof options.levelId === 'string' ? options.levelId : '';
 
     // Empty-room timeout: disconnect if nobody joins within EMPTY_ROOM_SECONDS
     this._emptyTimeout = this.clock.setTimeout(() => {
@@ -442,7 +448,7 @@ class HandshakeRoom extends Room {
       });
       this.onMessage('debug-run-floor', (_client, message) => {
         const floor = Math.max(1, Math.round(finite(message?.floor, this.state.run.floor)));
-        if (this.state.run.mode !== 'nightshift' || this.state.run.ended) return;
+        if (!['nightshift', 'campaign'].includes(this.state.run.mode) || this.state.run.ended) return;
         this.state.run.floor = floor;
         this.state.run.floorCleared = false;
         this.nightshiftEscapedFloor = 0;
@@ -582,6 +588,7 @@ class HandshakeRoom extends Room {
     const initial = createRunState({ mode, seed: seedOpt });
     const run = this.state.run;
     run.mode = initial.mode;
+    run.levelId = this.campaignLevelId;
     run.seed = initial.seed;
     run.floor = initial.floor;
     run.captures = initial.captures;
@@ -624,7 +631,7 @@ class HandshakeRoom extends Room {
 
   resultsPhase() {
     const run = this.state.run;
-    return this.state.mission.stage === 'complete' || run.ended || (run.mode === 'nightshift' && run.floorCleared);
+    return this.state.mission.stage === 'complete' || run.ended || (['nightshift', 'campaign'].includes(run.mode) && run.floorCleared);
   }
 
   clearRematchVotes() {
@@ -675,13 +682,14 @@ class HandshakeRoom extends Room {
    */
   beginFloor() {
     const { seed, floor, mode } = this.state.run;
-    if (mode === 'nightshift') {
+    if (mode === 'nightshift' || mode === 'campaign') {
       this.applySeedFloor(seed, floor);
     }
     this.broadcast('floor-start', {
       seed,
       floor,
       mode,
+      ...(this.campaignLevelId ? { levelId: this.campaignLevelId } : {}),
       score: this.state.run.score,
       streak: this.state.run.streak,
       multiplier: this.state.run.multiplier,
@@ -693,7 +701,7 @@ class HandshakeRoom extends Room {
   /** Night Shift: advance after a server-cleared floor. */
   handleEscape() {
     const run = this.state.run;
-    if (run.mode !== 'nightshift' || run.ended) return;
+    if (!['nightshift', 'campaign'].includes(run.mode) || run.ended) return;
     if (this.nightshiftEscapedFloor === run.floor) return;
     if (!run.floorCleared) return;
     this.nightshiftEscapedFloor = run.floor;
@@ -721,7 +729,7 @@ class HandshakeRoom extends Room {
 
   clearFloor() {
     const run = this.state.run;
-    if (run.mode !== 'nightshift' || run.ended || run.floorCleared) return;
+    if (!['nightshift', 'campaign'].includes(run.mode) || run.ended || run.floorCleared) return;
     const twangs = Math.min(10, Math.max(0, ...Array.from(this.nsTwangs.values(), (entry) => entry.floor === run.floor ? entry.count : 0)));
     const scored = scoreFloorPure({
       elapsedSeconds: Math.max(0, finite(this.state.mission.elapsedSeconds, 0)),
@@ -745,6 +753,22 @@ class HandshakeRoom extends Room {
       startedAt: run.startedAt,
       floorTimes: Array.from(run.floorTimes, (value) => finite(value, 0)),
     }, finite(this.state.mission.elapsedSeconds, 0));
+    const campaign = run.mode === 'campaign' ? this.floorPlan?.campaign : null;
+    if (campaign) {
+      const parSeconds = [150, 180, 210, 240, 300][campaign.index - 1] ?? 300;
+      const scoredCampaign = scoreCampaignLevel({
+        seconds: this.state.mission.elapsedSeconds,
+        parSeconds,
+        lootIntact: true,
+        timesSpotted: this.state.mission.timesSpotted,
+      });
+      this.broadcast('campaign-complete', {
+        levelId: campaign.levelId,
+        seconds: this.state.mission.elapsedSeconds,
+        stars: scoredCampaign.stars,
+      });
+      return;
+    }
     this.broadcast('floor-cleared', {
       floor: run.floor,
       seed: run.seed,
@@ -1379,7 +1403,7 @@ class HandshakeRoom extends Room {
         mission.extracted = true;
         mission.stage = 'complete';
         mission.securityActive = false;
-        if (this.state.run.mode === 'nightshift') {
+        if (this.state.run.mode === 'nightshift' || this.state.run.mode === 'campaign') {
           this.clearFloor();
         } else if (this.state.run.mode === 'daily') {
           this.recordLeaderboard('mission-complete');
@@ -1390,6 +1414,7 @@ class HandshakeRoom extends Room {
 
   stepObjective(dt) {
     if (!this.floorPlan?.objective || this.state.mission.stage === 'complete') return;
+    const activePlan = this.floorPlan.phases?.[this.objectivePhase] ?? this.floorPlan.objective;
     const events = this.objectiveSim.step(
       Math.max(0, Math.min(0.25, dt)),
       Array.from(this.state.players.values()),
@@ -1398,6 +1423,11 @@ class HandshakeRoom extends Room {
     for (const event of events) {
       if (event.type === 'shatter') this.handlePrototypeShatter(event.role);
       else this.broadcast('objective-event', event);
+    }
+    if (this.floorPlan.phases?.length && this.objectiveSim.state.done && this.objectivePhase < this.floorPlan.phases.length - 1) {
+      this.objectivePhase += 1;
+      this.objectiveSim.reset(this.floorPlan.phases[this.objectivePhase]);
+      this.broadcast('objective-event', { type: 'phase', phase: this.objectivePhase + 1 });
     }
     const elapsed = finite(this.state.mission.elapsedSeconds, 0);
     if (shouldBroadcastObjective(this.objectiveBroadcastSeq, this.objectiveSim, elapsed - this.objectiveBroadcastElapsed)) {
@@ -1410,16 +1440,17 @@ class HandshakeRoom extends Room {
       floor: this.state.run.floor,
       seed: this.state.run.seed,
       state: this.objectiveSim.snapshot(),
+      phase: this.objectivePhase + 1,
     };
   }
 
   sendObjectiveState(client) {
-    if (this.state.run.mode !== 'nightshift') return;
+    if (!['nightshift', 'campaign'].includes(this.state.run.mode)) return;
     client?.send('objective-state', this.objectivePayload());
   }
 
   broadcastObjectiveState(force = false) {
-    if (this.state.run.mode !== 'nightshift' || !this.floorPlan) return;
+    if (!['nightshift', 'campaign'].includes(this.state.run.mode) || !this.floorPlan) return;
     const elapsed = finite(this.state.mission.elapsedSeconds, 0);
     this.broadcast('objective-state', this.objectivePayload());
     this.objectiveBroadcastSeq = this.objectiveSim.state.seq;
@@ -1739,10 +1770,13 @@ class HandshakeRoom extends Room {
    * Called from beginFloor on room create and each floor advance.
    */
   applySeedFloor(seed, floor = 0) {
-    const run = generateRun(seed >>> 0, Math.max(0, floor | 0));
+    const run = this.state.run.mode === 'campaign' && this.campaignLevelId
+      ? campaignLayout(this.campaignLevelId)
+      : generateRun(seed >>> 0, Math.max(0, floor | 0));
     this.runLayout = run;
     this.floorPlan = run.plan ?? null;
-    this.objectiveSim.reset(this.floorPlan?.objective ?? null);
+    this.objectivePhase = 0;
+    this.objectiveSim.reset(this.floorPlan?.phases?.[0] ?? this.floorPlan?.objective ?? null);
     this.hazardGate = new HazardTripGate();
     this.objectiveBroadcastSeq = -1;
     this.objectiveBroadcastElapsed = 0;

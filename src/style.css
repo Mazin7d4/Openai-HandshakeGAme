@@ -1263,5 +1263,20 @@ html[data-reduced-motion='1'] .wake-spinner { display: none; }
 .escape-replay--reduced .escape-replay__rec { animation: none; }
 @media (max-height: 420px) { .escape-replay__stamp { top: 83%; padding: 8px 16px; border-width: 4px; } .escape-replay__bar { height: 10%; } .escape-replay__tag { top: calc(10% + 8px); } .escape-replay__skip { bottom: calc(10% + 8px); } }
 .heist-report__replay[hidden] { display: none !important; }
+
+.campaign-level-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; max-height: min(58vh, 500px); overflow: auto; padding: 2px; }
+.campaign-level-card { display: grid; gap: 6px; padding: 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; background: rgba(15,25,27,.72); }
+.campaign-level-card h2 { margin: 0; font: 700 18px/1.1 var(--font-title); }
+.campaign-level-card p { margin: 0; min-height: 34px; color: var(--muted); font-size: 13px; }
+.campaign-level-card[data-locked="1"] { opacity: .62; }
+.campaign-stars { display: flex; gap: 7px; color: #6b7775; }
+.heist-report__campaign { margin: 8px auto 14px; text-align: center; }
+.heist-report__campaign p { margin: 4px 0; }
+.heist-report__campaign-stars { color: #d99a2b; font-size: 1.8rem; letter-spacing: .12em; }
+.campaign-star { font-size: 20px; line-height: 1; }
+.campaign-star--earned { color: #ffd23f; }
+.campaign-level-card .menu-button { min-height: 44px; }
+.campaign-unlock { min-height: 44px; border: 0; background: none; color: var(--muted); text-decoration: underline; cursor: pointer; }
+@media (max-width: 520px) { .campaign-level-grid { grid-template-columns: 1fr; max-height: 55vh; } }
 /* The replay is a clean cinematic: hide the play HUD while it runs. */
 body.escape-replay-on :is(.mission-objective, .onboarding-coach, .interaction-prompt, .active-drone-hud, .controls-card, .juice-toasts, .touch-controls, .network-hud, .run-hud, .floor-card, #dev-readout, #dev-controls) { visibility: hidden !important; }

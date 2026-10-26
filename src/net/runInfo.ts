@@ -23,6 +23,7 @@ export interface RunInfo {
   captures: number;
   /** Challenge-link target time in milliseconds, when the run was opened from ?beat=. */
   timeToBeatMs?: number;
+  levelId?: string;
 }
 
 type RunIntent = {
@@ -87,6 +88,7 @@ export function getRunInfo(): RunInfo {
       floor: run.floor,
       captures: run.captures,
       ...(run.beatTarget != null ? { timeToBeatMs: run.beatTarget } : {}),
+      ...(run.levelId ? { levelId: run.levelId } : {}),
     };
   }
 
@@ -104,6 +106,7 @@ export function getRunInfo(): RunInfo {
   const fromUrl = runOptionsFromSearch(
     typeof window !== 'undefined' ? window.location.search : '',
   );
+  const levelId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('level') ?? undefined : undefined;
   if (fromUrl.seed != null) {
     const base = getRunSeed({ seed: fromUrl.seed, floor: 1 });
     return {
@@ -111,11 +114,12 @@ export function getRunInfo(): RunInfo {
       floor: base.floor,
       captures: 0,
       ...(fromUrl.beat != null ? { timeToBeatMs: fromUrl.beat } : {}),
+      ...(levelId ? { levelId } : {}),
     };
   }
 
   const base = getRunSeed();
-  return { seed: base.seed, floor: base.floor, captures: 0 };
+  return { seed: base.seed, floor: base.floor, captures: 0, ...(levelId ? { levelId } : {}) };
 }
 
 /** Format a millisecond challenge target for HUD chips / copy ("5:42"). */

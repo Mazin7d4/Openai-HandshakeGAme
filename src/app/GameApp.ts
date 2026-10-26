@@ -54,7 +54,7 @@ export interface GameAppOptions {
   multiplayer?: MultiplayerSession;
   onLeaveGame?: () => void;
   /** Optional override; default is getRunInfo() → getRunSeed() stub (Netcode swaps later). */
-  runSeed?: { seed: number; floor: number };
+  runSeed?: { seed: number; floor: number; levelId?: string };
 }
 
 interface LocalPlayer {
@@ -160,7 +160,7 @@ export class GameApp {
     this.multiplayer = multiplayer;
     this.gameplay = gameplay;
     this.runLayout = runLayout;
-    this.aiPartnerEnabled = (mode === 'singleplayer' || mode === 'night-shift')
+    this.aiPartnerEnabled = (mode === 'singleplayer' || mode === 'night-shift' || mode === 'campaign')
       && new URLSearchParams(window.location.search).get('bot') !== '0';
     this.botTags = new Map();
     for (const player of players) {
@@ -192,7 +192,7 @@ export class GameApp {
         })
       : null;
     this.a11y = hudParent ? new AccessibilityFeedback(hudParent) : null;
-    this.coach = hudParent ? new OnboardingCoach(hudParent, mode === 'night-shift' ? 'singleplayer' : mode) : null;
+    this.coach = hudParent ? new OnboardingCoach(hudParent, mode === 'night-shift' || mode === 'campaign' ? 'singleplayer' : mode) : null;
     this.hud?.setControlsCardSuppressed(this.coach?.isActive === true);
     if (hudParent && this.touchPlay) {
       hudParent.classList.add('touch-play');
@@ -420,7 +420,7 @@ export class GameApp {
           this.gameplay.sync(status);
         })
       : null;
-    if (mode === 'singleplayer' || mode === 'night-shift') {
+    if (mode === 'singleplayer' || mode === 'night-shift' || mode === 'campaign') {
       (window as unknown as {
         __pixBot?: () => {
           enabled: boolean;
@@ -456,9 +456,12 @@ export class GameApp {
     // Solo + Night Shift share generateRun; multiplayer waits on server applySeedFloor (prod-net sync).
     // Story/solo/co-op keep the handcrafted level; only Night Shift remixes (until Netcode syncs room seeds).
     // UI reads seed/floor through getRunInfo() so Netcode can swap the source without HUD changes.
-    const runSeed = mode === 'night-shift' ? options.runSeed ?? getRunInfo() : null;
+    const runSeed = mode === 'night-shift' || mode === 'campaign' ? options.runSeed ?? getRunInfo() : null;
     setNightShiftLayoutGenerator(generateNightShiftRun);
-    const runLayout = runSeed ? generateNightShiftRun(runSeed.seed, runSeed.floor) : null;
+    const campaignId = mode === 'campaign' ? new URLSearchParams(window.location.search).get('level') ?? runSeed?.levelId ?? 'l1-tethered' : null;
+    const runLayout = mode === 'campaign' && campaignId
+      ? (await import('../seed/campaignRun.ts')).generateCampaignRun(campaignId)
+      : runSeed ? generateNightShiftRun(runSeed.seed, runSeed.floor) : null;
     // TEST-ONLY: ?autotest&stage=escape starts local modes in the alarm escape, beside the heavy crate.
     const escapeStage = Autopilot.enabled && mode !== 'multiplayer'
       && new URLSearchParams(window.location.search).get('stage') === 'escape';
@@ -480,7 +483,7 @@ export class GameApp {
 
     // Late-bound refs so the single-player companion can perceive drones/camera created below.
     const live: { drones?: Drone[]; camera?: CinematicCamera; gameplay?: GameplayWorld } = {};
-    const companionModes: GameMode[] = ['singleplayer', 'night-shift'];
+    const companionModes: GameMode[] = ['singleplayer', 'night-shift', 'campaign'];
     const soloCompanion = companionModes.includes(mode);
     const botEnabled = soloCompanion && new URLSearchParams(window.location.search).get('bot') !== '0';
     if (soloCompanion) document.documentElement.dataset.aiPartner = botEnabled ? 'on' : 'off';

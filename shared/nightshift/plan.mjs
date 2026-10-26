@@ -1132,7 +1132,8 @@ export function validateFloorPlan(plan, layout) {
   if (!plan || plan.version !== 1 || !plan.job || !Array.isArray(plan.rooms) || plan.rooms.length !== SLOTS.length || !plan.objective || !Array.isArray(plan.hazards)) return { ok: false, reason: 'malformed floor plan' };
   const floor = layout.floor | 0;
   const boss = floor % 3 === 0;
-  if (plan.job.boss !== boss || plan.job.payoutScale !== (boss ? 2 : 1) || plan.job.tutorial !== (floor === 1)) return { ok: false, reason: 'job pacing mismatch' };
+  const campaign = plan.campaign?.index >= 1 && plan.campaign?.index <= 5;
+  if (!campaign && (plan.job.boss !== boss || plan.job.payoutScale !== (boss ? 2 : 1) || plan.job.tutorial !== (floor === 1))) return { ok: false, reason: 'job pacing mismatch' };
   if (typeof plan.job.name !== 'string' || typeof plan.job.blurb !== 'string' || !plan.job.blurb.endsWith('.')) return { ok: false, reason: 'job text invalid' };
   const roomsBySlot = new Map();
   let allPieces = [];
@@ -1152,9 +1153,18 @@ export function validateFloorPlan(plan, layout) {
 
   const objectiveReason = validateObjective(plan.objective, floor, layout);
   if (objectiveReason) return { ok: false, reason: objectiveReason };
-  if (floor === 1 && (plan.objective.kind !== 'grab' || plan.rooms.find((room) => room.slot === 'arrival').archetype !== 'classic' || plan.rooms.find((room) => room.slot === 'office').archetype !== 'classic' || plan.hazards.length > 1 || plan.hazards.some((hazard) => ['pulse-gate', 'gust'].includes(hazard.kind)))) return { ok: false, reason: 'floor one rules violated' };
-  if (boss && !['twin-levers', 'pylon-safe'].includes(plan.objective.kind)) return { ok: false, reason: 'boss objective invalid' };
-  if (floor > 1 && plan.rooms.filter((room) => room.archetype !== 'classic').length < 3) return { ok: false, reason: 'not enough room variety' };
+  if (Array.isArray(plan.phases)) {
+    if (!plan.phases.length || plan.phases.length > 5) return { ok: false, reason: 'campaign phases invalid' };
+    for (const phase of plan.phases) {
+      const phaseReason = validateObjective(phase, floor, layout);
+      if (phaseReason) return { ok: false, reason: `campaign phase: ${phaseReason}` };
+    }
+  }
+  if (!campaign) {
+    if (floor === 1 && (plan.objective.kind !== 'grab' || plan.rooms.find((room) => room.slot === 'arrival').archetype !== 'classic' || plan.rooms.find((room) => room.slot === 'office').archetype !== 'classic' || plan.hazards.length > 1 || plan.hazards.some((hazard) => ['pulse-gate', 'gust'].includes(hazard.kind)))) return { ok: false, reason: 'floor one rules violated' };
+    if (boss && !['twin-levers', 'pylon-safe'].includes(plan.objective.kind)) return { ok: false, reason: 'boss objective invalid' };
+    if (floor > 1 && plan.rooms.filter((room) => room.archetype !== 'classic').length < 3) return { ok: false, reason: 'not enough room variety' };
+  }
   const hazardIds = new Set();
   for (const hazard of plan.hazards) {
     if (hazardIds.has(hazard.id)) return { ok: false, reason: 'duplicate hazard id' };

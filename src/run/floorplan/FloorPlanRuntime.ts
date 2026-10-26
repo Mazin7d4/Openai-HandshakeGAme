@@ -10,7 +10,7 @@ import {
   stepObjective,
 } from '../../../shared/nightshift/objectives.mjs';
 import { checkHazardTrips, hazardForceAt, hazardPhase, HazardTripGate } from '../../../shared/nightshift/hazards.mjs';
-import type { ObjectiveState, Vec3 } from '../../../shared/nightshift/types.d.ts';
+import type { ObjectivePlan, ObjectiveState, Vec3 } from '../../../shared/nightshift/types.d.ts';
 import type { RunLayout } from '../../seed/index.ts';
 import type { MultiplayerSession } from '../../network/MultiplayerSession.ts';
 import type { DroneRole, RoomStatus } from '../../network/NetworkTypes.ts';
@@ -50,6 +50,8 @@ export class FloorPlanRuntime {
   private objectiveVisuals: ObjectiveVisuals | null = null;
   private hazardVisuals: HazardVisuals | null = null;
   private objectiveState: ObjectiveState | null = null;
+  private activeObjectivePlan: ObjectivePlan | null = null;
+  private phaseIndex = 0;
   private objectiveGate = new HazardTripGate();
   private readonly physicsForce = { ax: 0, ay: 0, az: 0, slip: 0 };
   private readonly previousVelocity = new Map<DroneRole, Vector3>();
@@ -79,8 +81,13 @@ export class FloorPlanRuntime {
       this.removeNetworkListeners.push(
         session.onObjectiveState((message) => {
           if (!this.layout || message.floor !== this.layout.floor || message.seed !== this.layout.seed || !this.objectiveState) return;
+          if (message.phase && this.layout.plan?.phases && message.phase - 1 !== this.phaseIndex) {
+            this.phaseIndex = Math.max(0, Math.min(this.layout.plan.phases.length - 1, message.phase - 1));
+            this.activeObjectivePlan = this.layout.plan.phases[this.phaseIndex];
+          }
           applyObjectiveSnapshot(this.objectiveState, message.state);
-          this.mission.setObjectiveState(this.layout.plan?.objective ?? null, this.objectiveState);
+          this.advanceCampaignPhaseIfReady();
+          this.mission.setObjectiveState(this.activeObjectivePlan, this.objectiveState);
         }),
         session.onHazardTrip((message) => this.hazardVisuals?.flash(message.id)),
         session.onObjectiveEvent((message) => {
@@ -99,15 +106,17 @@ export class FloorPlanRuntime {
       this.publishDebugHook();
       return;
     }
-    this.objectiveState = createObjectiveState(plan.objective);
+    this.phaseIndex = 0;
+    this.activeObjectivePlan = plan.phases?.[0] ?? plan.objective;
+    this.objectiveState = createObjectiveState(this.activeObjectivePlan);
     this.yankCounts.pix = 0;
     this.yankCounts.nee = 0;
-    this.objectiveVisuals = new ObjectiveVisuals(this.scene, plan.objective, {
+    this.objectiveVisuals = new ObjectiveVisuals(this.scene, this.activeObjectivePlan, {
       mesh: this.prototype.mesh,
       cradle: point(run.loot),
     });
     this.hazardVisuals = new HazardVisuals(this.scene, plan.hazards);
-    this.mission.setObjectiveState(plan.objective, this.objectiveState);
+    this.mission.setObjectiveState(this.activeObjectivePlan, this.objectiveState);
     this.elapsed = 0;
     this.objectiveGate = new HazardTripGate();
     const generation = ++this.generation;
@@ -140,7 +149,7 @@ export class FloorPlanRuntime {
       if (pix && nee) {
         this.writePlayer(this.playerInputs[0], pix, cordState.strain);
         this.writePlayer(this.playerInputs[1], nee, cordState.strain);
-        const events = stepObjective(state, plan.objective, {
+        const events = stepObjective(state, this.activeObjectivePlan ?? plan.objective, {
           dt: delta,
           players: this.playerInputs,
           carrier: this.grab.objectHeldBy('prototype'),
@@ -153,6 +162,7 @@ export class FloorPlanRuntime {
             this.mission.spotted(event.role ?? 'pix', true);
           }
         }
+        this.advanceCampaignPhaseIfReady();
       }
       const trips = this.objectiveGate.filter(
         checkHazardTrips(plan.hazards, this.elapsed, this.playerInputs, cordState.path as readonly Vec3[]),
@@ -165,7 +175,7 @@ export class FloorPlanRuntime {
     }
     this.objectiveVisuals?.update(delta, state);
     this.hazardVisuals?.update(this.elapsed, hazardPhase);
-    this.mission.setObjectiveState(plan.objective, state);
+    this.mission.setObjectiveState(this.activeObjectivePlan, state);
   }
 
   applyPhysics(dt: number, drones: ReadonlyMap<DroneRole, Drone>): void {
@@ -198,14 +208,14 @@ export class FloorPlanRuntime {
   }
 
   canGrabPrototype(): boolean {
-    return !this.layout?.plan || !this.objectiveState || !lootLocked(this.objectiveState, this.layout.plan.objective);
+    return !this.layout?.plan || !this.objectiveState || !lootLocked(this.objectiveState, this.activeObjectivePlan ?? this.layout.plan.objective);
   }
 
   botObjective(role: DroneRole, leader: Vector3): Vector3 | null {
     const plan = this.layout?.plan;
     const state = this.objectiveState;
     if (!plan || !state || (this.mission.stage !== 'hack-security' && this.mission.stage !== 'steal-prototype')) return null;
-    const target = objectiveBotTarget(state, plan.objective, role, [{
+    const target = objectiveBotTarget(state, this.activeObjectivePlan ?? plan.objective, role, [{
       role: role === 'pix' ? 'nee' : 'pix',
       position: leader,
       x: leader.x,
@@ -222,14 +232,15 @@ export class FloorPlanRuntime {
   botAvoidYank(): boolean {
     const plan = this.layout?.plan;
     const state = this.objectiveState;
-    return !!plan && !!state && objectiveBotAvoidYank(
+    return !!plan && !!state && ((this.activeObjectivePlan?.kind ?? plan.objective.kind) === 'fragile' || objectiveBotAvoidYank(
       state,
-      plan.objective,
+      this.activeObjectivePlan ?? plan.objective,
       this.grab.objectHeldBy('prototype'),
-    );
+    ));
   }
 
   get state(): ObjectiveState | null { return this.objectiveState; }
+  get phase(): number { return this.phaseIndex; }
   get plan() { return this.layout?.plan ?? null; }
 
   dispose(): void {
@@ -261,6 +272,8 @@ export class FloorPlanRuntime {
     this.objectiveVisuals = null;
     this.hazardVisuals = null;
     this.objectiveState = null;
+    this.activeObjectivePlan = null;
+    this.phaseIndex = 0;
     this.previousVelocity.clear();
   }
 
@@ -273,6 +286,8 @@ export class FloorPlanRuntime {
         floor: number;
         job: string;
         objectiveKind: string;
+        phase: number;
+        phases: number;
         objective: () => unknown;
         hazards: string[];
         rooms: string[];
@@ -280,13 +295,16 @@ export class FloorPlanRuntime {
         bodies: number;
         planHash: string;
         yanks: () => { pix: number; nee: number };
+        complete: (stars?: unknown) => void;
       };
     };
     hook.__floorPlan = {
       seed: this.layout.seed,
       floor: this.layout.floor,
       job: plan.job.name,
-      objectiveKind: plan.objective.kind,
+      objectiveKind: this.activeObjectivePlan?.kind ?? plan.objective.kind,
+      phase: this.phaseIndex,
+      phases: plan.phases?.length ?? 1,
       objective: () => this.objectiveState ? serializeObjectiveState(this.objectiveState) : null,
       hazards: plan.hazards.map((hazard) => hazard.kind),
       rooms: plan.rooms.map((room) => room.archetype),
@@ -294,6 +312,33 @@ export class FloorPlanRuntime {
       bodies: this.build?.bodies ?? 0,
       planHash: stableHash(JSON.stringify(plan)),
       yanks: () => ({ ...this.yankCounts }),
+      complete: () => { if (this.objectiveState) { this.objectiveState.done = true; this.objectiveState.progress = 1; } },
     };
+    if (plan.campaign) {
+      const campaign = hook as unknown as { __campaign?: unknown };
+      campaign.__campaign = {
+        levelId: plan.campaign.levelId,
+        phase: this.phaseIndex + 1,
+        phases: plan.phases?.length ?? 1,
+        objective: () => this.objectiveState ? serializeObjectiveState(this.objectiveState) : null,
+        stars: () => ({ time: false, loot: this.objectiveState?.shatters === 0, noAlarm: true, count: this.objectiveState?.shatters === 0 ? 1 : 0 }),
+        complete: () => { if (this.objectiveState) { this.objectiveState.done = true; this.objectiveState.progress = 1; } },
+      };
+    }
+  }
+
+  private advanceCampaignPhaseIfReady(): void {
+    const plan = this.layout?.plan;
+    if (!plan?.phases || !this.objectiveState?.done || this.phaseIndex >= plan.phases.length - 1) return;
+    this.phaseIndex += 1;
+    this.activeObjectivePlan = plan.phases[this.phaseIndex];
+    this.objectiveState = createObjectiveState(this.activeObjectivePlan);
+    this.objectiveVisuals?.dispose();
+    this.objectiveVisuals = new ObjectiveVisuals(this.scene, this.activeObjectivePlan, {
+      mesh: this.prototype.mesh,
+      cradle: point(this.layout!.loot),
+    });
+    this.mission.setObjectiveState(this.activeObjectivePlan, this.objectiveState);
+    this.publishDebugHook();
   }
 }

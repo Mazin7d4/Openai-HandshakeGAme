@@ -4,7 +4,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { GameMode } from '../app/GameMode.ts';
-import type { FloorClearedMessage, MultiplayerSession, RunEndedMessage } from '../network/MultiplayerSession.ts';
+import type { CampaignCompleteMessage, FloorClearedMessage, MultiplayerSession, RunEndedMessage } from '../network/MultiplayerSession.ts';
 import type { LeaderboardNameResult, LeaderboardRecordedPayload } from '../network/LeaderboardApi.ts';
 import type {
   DroneNetworkState,
@@ -36,6 +36,8 @@ import { getSettings, subscribeSettings } from '../ui/Settings.ts';
 import { isTouchPlayDevice } from '../ui/touchDetect.ts';
 import { hazardSummary } from '../../shared/nightshift/hazards.mjs';
 import { objectiveHud } from '../../shared/nightshift/objectives.mjs';
+import { scoreCampaignLevel } from '../../shared/campaign/score.mjs';
+import { load as loadCampaignProgress, record as recordCampaignLevel } from '../run/campaignProgress.ts';
 import type { ObjectivePlan, ObjectiveState } from '../../shared/nightshift/types.d.ts';
 
 export interface WarmupStep {
@@ -60,6 +62,7 @@ const NIGHT_JOBS: readonly FloorJob[] = [
   { kicker: 'Night job · Board-room bug', infiltrate: 'Duck in behind the cleaners', hack: 'Hot-wire the key terminals', steal: 'Snatch the prototype drive', escape: 'Bail through the west vent' },
   { kicker: 'Night job · Lab breach', infiltrate: 'Ghost through reception', hack: 'Override the lab locks', steal: 'Pinch the robot brain', escape: 'Scram out the west vent' },
 ];
+const CAMPAIGN_LEVEL_IDS = ['l1-tethered', 'l2-twin-levers', 'l3-wrap-and-drag', 'l4-fragile-relay', 'l5-big-vault'] as const;
 export function floorJob(floor: number | null | undefined): FloorJob {
   const f = Math.max(1, (floor ?? 1) | 0);
   return f <= 1 ? CLASSIC_JOB : NIGHT_JOBS[(f - 2) % NIGHT_JOBS.length];
@@ -98,6 +101,7 @@ export class MissionDirector {
   private lastCrateX = 0;
   private lastCrateZ = 0;
   private crateSampleReady = false;
+  private campaignCompleteMessage: CampaignCompleteMessage | null = null;
   /** Multiplayer: latest server-owned security state and pending server shoves for our drone. */
   private securityState: SecurityNetworkState | null = null;
   private readonly pendingShoves: { role: DroneRole; impulse: Vector3 }[] = [];
@@ -185,6 +189,7 @@ export class MissionDirector {
       this.yankBy.push(event.from);
     });
     const offFloorCleared = multiplayer?.onFloorCleared((message) => this.handleFloorCleared(message));
+    const offCampaignComplete = multiplayer?.onCampaignComplete((message) => this.handleCampaignComplete(message));
     const offRunEnded = multiplayer?.onRunEnded((message) => this.handleRunEnded(message));
     const offLeaderboard = multiplayer?.onLeaderboard((payload) => {
       this.leaderboardPayload = payload;
@@ -211,7 +216,7 @@ export class MissionDirector {
       this.updateReportStatus(multiplayer.currentStatus);
     });
     this.unsubscribe = () => {
-      offStun?.(); offSpotted?.(); offShove?.(); offLine(); offYank(); offFloorCleared?.(); offRunEnded?.();
+      offStun?.(); offSpotted?.(); offShove?.(); offLine(); offYank(); offFloorCleared?.(); offCampaignComplete?.(); offRunEnded?.();
       offRematchStart?.(); offRematchPartnerLeft?.(); offLeaderboard?.(); offLeaderboardSkipped?.(); offLeaderboardNameResult?.();
     };
 
@@ -251,7 +256,7 @@ export class MissionDirector {
       });
 
       // Night Shift chrome lives left of center so it clears the right-side touch / active-drone HUD.
-      if (mode === 'night-shift' || this.isCoopNightShift() || runLayout) {
+      if (mode === 'night-shift' || mode === 'campaign' || this.isCoopNightShift() || runLayout) {
         const info = getRunInfo();
         this.timeToBeatMs = info.timeToBeatMs;
         this.runChrome = document.createElement('aside');
@@ -328,6 +333,15 @@ export class MissionDirector {
           if (!this.runLayout) return;
           restartNightShift(nextFloorSeed({ seed: this.runLayout.seed, floor: this.runLayout.floor }));
         } : undefined,
+        campaign: mode === 'campaign' ? {
+          onNext: () => {
+            const index = this.runLayout?.plan?.campaign?.index ?? 1;
+            const next = CAMPAIGN_LEVEL_IDS[index];
+            if (next) window.location.search = `?level=${encodeURIComponent(next)}`;
+          },
+          onSelect: () => { window.location.search = ''; },
+          onMenu: () => onLeave?.(),
+        } : undefined,
       });
       // TEST / screenshot hook: window.__heistReport.show(stats?)
       (window as unknown as { __heistReport?: unknown }).__heistReport = {
@@ -351,7 +365,7 @@ export class MissionDirector {
     }
     if (runLayout) this.applyRunLayout(runLayout);
     this.renderObjective(0);
-    if (mode === 'night-shift') {
+    if (mode === 'night-shift' || mode === 'campaign') {
       (window as unknown as { __nightShift?: unknown }).__nightShift = {
         summary: runSummary,
         best: getBest,
@@ -378,7 +392,7 @@ export class MissionDirector {
     this.extraction.set(run.extraction.x, run.extraction.y, run.extraction.z);
     this.security.applyRunLayout(run);
     this.renderFloorHud();
-    if (this.mode === 'night-shift') {
+    if (this.mode === 'night-shift' || this.mode === 'campaign') {
       const floor = Math.max(1, run.floor | 0);
       beginFloor(floor);
       this.updateScoreHud();
@@ -666,7 +680,7 @@ export class MissionDirector {
   get stage(): string { return this.state.stage; }
 
   private isCoopNightShift(): boolean {
-    return this.mode === 'multiplayer' && this.multiplayer?.currentStatus.run.mode === 'nightshift';
+    return this.mode === 'multiplayer' && ['nightshift', 'campaign'].includes(this.multiplayer?.currentStatus.run.mode ?? '');
   }
 
   private renderObjective(hackCount: number): void {
@@ -676,7 +690,9 @@ export class MissionDirector {
     const plan = this.runLayout?.plan;
     const planJobName = plan?.job.name.replace(/^VAULT:\s*/i, '') ?? '';
     const kicker = plan
-      ? `${plan.job.boss ? 'BOSS VAULT' : 'Night job'} · ${planJobName}`
+      ? plan.campaign
+        ? `Campaign ${plan.campaign.index}/5 · ${planJobName}`
+        : `${plan.job.boss ? 'BOSS VAULT' : 'Night job'} · ${planJobName}`
       : job.kicker;
     if (this.objectiveKicker && this.objectiveKicker.textContent !== kicker) this.objectiveKicker.textContent = kicker;
     const syncedObjective = this.objectivePlan && this.objectiveState
@@ -815,7 +831,11 @@ export class MissionDirector {
     kicker.className = 'floor-card__kicker';
     kicker.style.display = 'block';
     const plan = this.runLayout?.plan;
-    kicker.textContent = plan ? `Floor ${floor} · ${plan.job.name}` : (floor > 1 ? `Floor ${floor} · ${floorJob(floor).kicker.replace('Night job · ', '')}` : `Floor ${floor}`);
+    kicker.textContent = plan?.campaign
+      ? `Campaign ${plan.campaign.index}/5 · ${plan.job.name}`
+      : plan
+        ? `Floor ${floor} · ${plan.job.name}`
+        : (floor > 1 ? `Floor ${floor} · ${floorJob(floor).kicker.replace('Night job · ', '')}` : `Floor ${floor}`);
     kicker.dataset.testid = 'floor-job';
 
     const title = document.createElement('h3');
@@ -903,6 +923,33 @@ export class MissionDirector {
     this.playReplayThen(() => this.presentReport(stats, true));
   }
 
+  private handleCampaignComplete(message: CampaignCompleteMessage): void {
+    if (this.mode !== 'multiplayer' || !this.isCoopNightShift() || !this.runLayout?.plan?.campaign) return;
+    this.campaignCompleteMessage = message;
+    this.completedPresented = true;
+    this.audio.stopAlarm();
+    const stats = { ...this.snapshotStats('win'), elapsedSeconds: message.seconds };
+    this.presentCampaignReport(stats, message.stars);
+  }
+
+  private presentCampaignReport(stats: RunStats, stars: readonly boolean[]): void {
+    const campaign = this.runLayout?.plan?.campaign;
+    if (!this.report || !campaign) return;
+    recordCampaignLevel(campaign.levelId, stars, stats.elapsedSeconds);
+    const progress = loadCampaignProgress();
+    const totalStars = Object.values(progress.levels).reduce((sum, level) => sum + level.stars.filter(Boolean).length, 0);
+    const parSeconds = [150, 180, 210, 240, 300][campaign.index - 1] ?? 300;
+    this.report.setCampaignResult({
+      index: campaign.index,
+      levelName: this.runLayout?.plan?.job.name ?? campaign.levelId,
+      stars,
+      parSeconds,
+      totalStars,
+      totalLevels: CAMPAIGN_LEVEL_IDS.length,
+    });
+    this.report.show(stats, undefined, this.coopReportState());
+  }
+
   /** Slow-mo escape replay before the report; falls straight through when there is no footage or reduced motion. */
   private playReplayThen(show: () => void): void {
     const reveal = () => {
@@ -976,7 +1023,10 @@ export class MissionDirector {
     // RunState / generateRun floors are already 1-based for Night Shift boots.
     const floor = Math.max(1, this.runLayout.floor | 0);
     const boss = this.runLayout.plan?.job.boss === true;
-    this.floorChip.textContent = boss ? `Floor ${floor} · Boss` : `Floor ${floor}`;
+    const campaign = this.runLayout.plan?.campaign;
+    this.floorChip.textContent = campaign
+      ? `Campaign ${campaign.index}/5${boss ? ' · Boss' : ''}`
+      : boss ? `Floor ${floor} · Boss` : `Floor ${floor}`;
     this.floorChip.classList.toggle('floor-chip--boss', boss);
     if (this.twistChip && this.runLayout.twist) {
       this.twistChip.textContent = this.runLayout.twist.label;
@@ -1034,6 +1084,16 @@ export class MissionDirector {
       }
       this.report.setLeaderboard(null, this.mode === 'night-shift' ? 'offline' : undefined);
       this.report.show(stats, this.lastNightShiftSummary, this.coopReportState());
+    } else if (this.mode === 'campaign' && this.runLayout?.plan?.campaign && stats.outcome === 'win') {
+      const campaign = this.runLayout.plan.campaign;
+      const parSeconds = [150, 180, 210, 240, 300][campaign.index - 1] ?? 300;
+      const scored = scoreCampaignLevel({
+        seconds: stats.elapsedSeconds,
+        parSeconds,
+        lootIntact: true,
+        timesSpotted: stats.timesSpotted,
+      });
+      this.presentCampaignReport(stats, scored.stars);
     } else {
       this.report.setLeaderboard(
         this.multiplayer ? this.leaderboardPayload : null,
