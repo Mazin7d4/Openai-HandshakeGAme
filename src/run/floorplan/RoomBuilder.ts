@@ -1,19 +1,82 @@
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
 import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.js';
+import { CreateTorus } from '@babylonjs/core/Meshes/Builders/torusBuilder.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { SpotLight } from '@babylonjs/core/Lights/spotLight.js';
+import { PointLight } from '@babylonjs/core/Lights/pointLight.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { RoomPiece, RoomPlan } from '../../../shared/nightshift/types.d.ts';
 import { addStaticBody } from '../../physics/staticBody.ts';
 import { getQuality } from '../../scene/createScene.ts';
 import { loadKitSources, placeKitAsset } from '../../level/kit/KitDressing.ts';
 import { floorMaterials, pieceMaterial } from './materials.ts';
+import { createRoundedBox } from '../../scene/roundedBox.ts';
 
 export interface FloorBuildHandle {
   dispose(): void;
   drawCalls: number;
   bodies: number;
+}
+
+function themeMat(scene: Scene, room: RoomPlan, mat: RoomPiece['mat'], low: boolean) {
+  const materials = floorMaterials(scene);
+  const themed = room.archetype === 'rack-maze' || room.archetype === 'cold-aisle'
+    ? (mat === 'rack' ? 'serverBlue' : mat === 'metal' ? 'vaultSteel' : null)
+    : room.archetype === 'cubicle-farm' || room.archetype === 'boardroom'
+      ? (mat === 'desk' ? 'officeWarm' : mat === 'partition' ? 'officeSage' : null)
+      : room.archetype === 'vent-crawl'
+        ? (mat === 'duct' || mat === 'metal' ? 'ventSteel' : null)
+        : room.archetype === 'laser-vault'
+          ? (mat === 'metal' ? 'vaultSteel' : mat === 'glass' ? 'vaultGold' : null)
+          : null;
+  return themed ? materials[themed] : pieceMaterial(scene, mat, low);
+}
+
+function bossVaultDressing(scene: Scene, low: boolean, owned: AbstractMesh[], lights: (SpotLight | PointLight)[]): void {
+  const materials = floorMaterials(scene);
+  const gold: Mesh[] = [];
+  const steel: Mesh[] = [];
+  const marks: Mesh[] = [];
+  const door = CreateCylinder('boss-vault-door', { diameter: 10.5, height: 0.42, tessellation: low ? 24 : 40 }, scene);
+  door.rotation.x = Math.PI / 2; door.position.set(0, 7, 26.45); door.material = materials.vaultGold; gold.push(door);
+  const trim = CreateTorus('boss-vault-door-trim', { diameter: 10.7, thickness: 0.32, tessellation: low ? 24 : 40 }, scene);
+  trim.rotation.x = Math.PI / 2; trim.position.set(0, 7, 26.18); trim.material = materials.vaultGoldBright; gold.push(trim);
+  const dial = CreateTorus('boss-vault-dial', { diameter: 2.15, thickness: 0.16, tessellation: 24 }, scene);
+  dial.rotation.x = Math.PI / 2; dial.position.set(0, 7, 26.0); dial.material = materials.vaultGoldBright; gold.push(dial);
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI / 4;
+    const bolt = CreateCylinder('boss-vault-bolt', { diameter: 0.42, height: 0.12, tessellation: 10 }, scene);
+    bolt.rotation.x = Math.PI / 2;
+    bolt.position.set(Math.cos(a) * 4.45, 7 + Math.sin(a) * 4.45, 25.98);
+    bolt.material = materials.vaultGoldBright; gold.push(bolt);
+  }
+  for (const x of [-13.5, 13.5]) {
+    const panel = createRoundedBox('boss-vault-wall-panel', { width: 1.4, height: 12, depth: 0.18, radius: 0.08, segments: 1 }, scene);
+    panel.position.set(x, 7, 25.9); panel.material = materials.vaultPanel; steel.push(panel);
+  }
+  for (const z of [5, 12, 19]) {
+    const stripe = createRoundedBox('boss-vault-floor-mark', { width: 0.16, height: 0.025, depth: 8, radius: 0.02, segments: 1 }, scene);
+    stripe.position.set(-9, 0.035, z); stripe.material = materials.vaultGold; marks.push(stripe);
+    const stripe2 = stripe.clone('boss-vault-floor-mark'); stripe2.position.x = 9; marks.push(stripe2);
+  }
+  const merge = (parts: Mesh[], name: string, material: AbstractMesh['material']) => {
+    if (!parts.length) return;
+    const mesh = parts.length === 1 ? parts[0] : Mesh.MergeMeshes(parts, true, true, undefined, false, false);
+    if (!mesh) return;
+    mesh.name = name; mesh.material = material; finishStatic(mesh, false); owned.push(mesh);
+  };
+  merge(gold, 'boss-vault-gold', materials.vaultGoldBright);
+  merge(steel, 'boss-vault-panels', materials.vaultPanel);
+  merge(marks, 'boss-vault-floor-marks', materials.vaultGold);
+  if (!low) {
+    const key = new SpotLight('vault-spot', new Vector3(0, 12, 14), new Vector3(0, -5, 12), Math.PI * 0.52, 2, scene);
+    key.diffuse = Color3.FromHexString('#FFD09A'); key.intensity = 1.35; key.range = 28; lights.push(key);
+    const rim = new PointLight('vault-rim', new Vector3(0, 7, 24), scene);
+    rim.diffuse = Color3.FromHexString('#83B9FF'); rim.intensity = 0.42; rim.range = 16; lights.push(rim);
+  }
 }
 
 interface TrackedBody {
@@ -41,7 +104,7 @@ function finishStatic(mesh: Mesh, occluder: boolean): void {
   mesh.doNotSyncBoundingInfo = true;
 }
 
-export async function buildRooms(scene: Scene, rooms: RoomPlan[]): Promise<FloorBuildHandle> {
+export async function buildRooms(scene: Scene, rooms: RoomPlan[], boss = false): Promise<FloorBuildHandle> {
   const quality = getQuality(scene)?.status.tier;
   const low = quality === 'low';
   const useKits = !low;
@@ -50,25 +113,24 @@ export async function buildRooms(scene: Scene, rooms: RoomPlan[]): Promise<Floor
   const ownedMeshes: AbstractMesh[] = [];
   const bodies: TrackedBody[] = [];
   const kitSources = new Set<Mesh>();
+  const accentLights: (SpotLight | PointLight)[] = [];
   let kitPlacements = 0;
 
   if (useKits) {
     await loadKitSources(scene);
   }
 
-  const addVisual = (mesh: Mesh, materialName: string, occluder: boolean): void => {
-    mesh.material = materialName === 'glass' && low
-      ? materials.glassOpaque
-      : pieceMaterial(scene, materialName as RoomPiece['mat'], low);
+  const addVisual = (mesh: Mesh, materialName: string, occluder: boolean, override?: AbstractMesh['material']): void => {
+    mesh.material = override ?? (materialName === 'glass' && low ? materials.glassOpaque : materials[materialName] ?? pieceMaterial(scene, materialName as RoomPiece['mat'], low));
     mesh.isPickable = false;
     mesh.receiveShadows = true;
-    const key = `${materialName}:${occluder ? 'occluder' : 'ordinary'}`;
+    const key = `${materialName}:${occluder ? 'occluder' : 'ordinary'}:${mesh.material?.name ?? materialName}`;
     const group = visualGroups.get(key) ?? [];
     group.push(mesh);
     visualGroups.set(key, group);
   };
 
-  const addPrimitive = (piece: RoomPiece): void => {
+  const addPrimitive = (piece: RoomPiece, room: RoomPlan): void => {
     const visualSy = visualPieceHeight(piece);
     const mesh = piece.kind === 'cyl'
       ? CreateCylinder(`room-${piece.mat}`, {
@@ -83,7 +145,7 @@ export async function buildRooms(scene: Scene, rooms: RoomPlan[]): Promise<Floor
       }, scene);
     mesh.position.set(piece.x, piece.y - (piece.sy - visualSy) * 0.5, piece.z);
     mesh.rotation.y = piece.rotY;
-    addVisual(mesh, piece.mat, piece.sy > 2.2);
+    addVisual(mesh, piece.mat, piece.sy > 2.2, themeMat(scene, room, piece.mat, low));
   };
 
   for (const room of rooms ?? []) {
@@ -143,7 +205,7 @@ export async function buildRooms(scene: Scene, rooms: RoomPlan[]): Promise<Floor
       }
 
       if (kitMeshes.length === 0) {
-        addPrimitive(piece);
+        addPrimitive(piece, room);
       }
 
       if (piece.solid) {
@@ -163,10 +225,15 @@ export async function buildRooms(scene: Scene, rooms: RoomPlan[]): Promise<Floor
     }
   }
 
+  if (boss && rooms.some((room) => room.slot === 'vault')) {
+    bossVaultDressing(scene, low, ownedMeshes, accentLights);
+  }
+
   const visualMeshes: Mesh[] = [];
   for (const [key, list] of visualGroups) {
-    const materialName = key.slice(0, key.indexOf(':'));
-    const occluder = key.endsWith(':occluder');
+    const [materialName, occluderName] = key.split(':');
+    const occluder = occluderName === 'occluder';
+    const groupMaterial = list[0].material;
     if (list.length === 1) {
       finishStatic(list[0], occluder);
       visualMeshes.push(list[0]);
@@ -182,9 +249,7 @@ export async function buildRooms(scene: Scene, rooms: RoomPlan[]): Promise<Floor
       continue;
     }
     merged.name = `room-merged-${materialName}-${occluder ? 'occluder' : 'static'}`;
-    merged.material = materialName === 'glass' && low
-      ? materials.glassOpaque
-      : pieceMaterial(scene, materialName as RoomPiece['mat'], low);
+    merged.material = groupMaterial;
     finishStatic(merged, occluder);
     visualMeshes.push(merged);
   }
@@ -206,6 +271,7 @@ export async function buildRooms(scene: Scene, rooms: RoomPlan[]): Promise<Floor
       for (const mesh of ownedMeshes) {
         mesh.dispose(false, false);
       }
+      for (const light of accentLights) light.dispose();
     },
   };
   scene.onDisposeObservable.addOnce(() => handle.dispose());

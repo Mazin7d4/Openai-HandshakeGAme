@@ -54,6 +54,8 @@ export class ObjectiveVisuals {
   private readonly safe?: AbstractMesh;
   private readonly door?: AbstractMesh;
   private readonly pillar?: AbstractMesh;
+  private readonly pylonCore?: AbstractMesh;
+  private readonly pylonBeacon?: AbstractMesh;
   private readonly stretch?: AbstractMesh;
   private readonly cage?: AbstractMesh;
   private lastSeq = -1;
@@ -189,6 +191,18 @@ export class ObjectiveVisuals {
 
     if (plan.pylon) {
       const pylon = point(plan.pylon);
+      const core = CreateSphere('objective-pylon-core', { diameter: 0.38, segments: 12 }, scene);
+      core.position.set(pylon.x, pylon.y + 1.7, pylon.z);
+      core.material = this.materials.objectiveMint;
+      core.isPickable = false;
+      this.pylonCore = core;
+      this.nodes.push(core);
+      const beacon = CreateCylinder('objective-pylon-beacon', { diameter: 0.24, height: 0.55, tessellation: 12 }, scene);
+      beacon.position.set(pylon.x, pylon.y + 2.35, pylon.z);
+      beacon.material = this.materials.warn;
+      beacon.isPickable = false;
+      this.pylonBeacon = beacon;
+      this.nodes.push(beacon);
       this.safeDirection.copyFrom(pylon).subtractInPlace(this.safeBase);
       this.safeDirection.y = 0;
       if (this.safeDirection.lengthSquared() > 0.001) {
@@ -342,15 +356,24 @@ export class ObjectiveVisuals {
     }
 
     for (const plate of this.plates) {
-      plate.material = state.done ? this.materials.done : state.progress > 0 ? this.materials.goal : this.materials.goalDim;
+      plate.material = state.done ? this.materials.done : state.progress > 0 ? this.materials.objectiveMint : this.materials.goalDim;
       plate.scaling.setAll(this.eventPulse > 0 ? 1.08 : 1);
     }
     for (const handle of this.handles) {
+      handle.material = state.done ? this.materials.done : state.progress > 0 ? this.materials.objectiveMint : this.materials.goal;
       handle.rotation.z = state.done || state.progress > 0.99 ? -0.78 : 0;
     }
     if (this.stretch) {
-      this.stretch.material = state.done || state.progress > 0.9 ? this.materials.goalBright : this.materials.goalDim;
+      this.stretch.material = state.done ? this.materials.done : state.progress > 0 ? this.materials.objectiveMint : this.materials.goalDim;
       this.stretch.visibility = 0.55 + state.progress * 0.45;
+    }
+    if (this.pylonCore) {
+      this.pylonCore.material = state.done ? this.materials.done : state.progress > 0 ? this.materials.objectiveMint : this.materials.goalDim;
+      const pulse = state.done ? 1 : 1 + Math.sin(this.pulseTime * 4) * 0.08;
+      this.pylonCore.scaling.setAll(pulse);
+    }
+    if (this.pylonBeacon) {
+      this.pylonBeacon.material = state.done ? this.materials.done : this.materials.warn;
     }
 
     for (let i = 0; i < this.pads.length; i++) {
