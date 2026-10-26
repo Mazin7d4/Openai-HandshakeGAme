@@ -125,12 +125,13 @@ async function completeLevel(page, level, layout) {
         window.__autotest.teleport('pix', focus.x - 2.2, Math.max(3.4, focus.y + 0.5), focus.z + 2.5);
         window.__autotest.teleport('nee', focus.x + 2.2, Math.max(3.4, focus.y + 0.5), focus.z + 2.5);
         window.__autotest.photo({ x: focus.x - 10, y: focus.y + 8, z: focus.z + 12 }, focus);
-        for (const selector of ['#dev-readout', '#dev-controls', '.onboarding-coach', '.juice-toasts']) {
-          const element = document.querySelector(selector);
-          if (element instanceof HTMLElement) element.style.display = 'none';
+        for (const selector of ['#dev-readout', '#dev-controls', '.onboarding-coach', '.juice-toasts', '.floor-card', '[data-testid="floor-card"]']) {
+          for (const element of document.querySelectorAll(selector)) if (element instanceof HTMLElement) element.style.visibility = 'hidden';
         }
       }, { focus: finaleFocus });
+      await page.waitForTimeout(400);
       await page.screenshot({ path: `${shotDir}/level-5-finale.png` });
+      await page.evaluate(() => { for (const element of document.querySelectorAll('.floor-card, [data-testid="floor-card"]')) if (element instanceof HTMLElement) element.style.visibility = ''; });
     }
   }
   if (level.index >= 3 || (phases.at(-1)?.kind !== 'grab' && phases.at(-1)?.kind !== 'fragile')) {
