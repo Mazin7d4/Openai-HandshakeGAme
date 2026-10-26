@@ -92,6 +92,41 @@ await runTest('variety-solo', async (browser, notes) => {
     assert(hook.planHash === expectedHash, `plan hash mismatch on floor ${choice.floor}`);
     assert(hook.drawCalls <= 25, `draw calls over budget on floor ${choice.floor}: ${hook.drawCalls}`);
     assert(hook.bodies <= 40, `bodies over budget on floor ${choice.floor}: ${hook.bodies}`);
+    const objectivePoint = choice.plan.objective.levers?.[0]
+      ?? choice.plan.objective.safe
+      ?? choice.plan.objective.pads?.[0]
+      ?? choice.plan.rooms.find((room) => room.archetype !== 'classic')?.pieces[0]
+      ?? choice.plan.loot;
+    const hazard = choice.plan.hazards[0];
+    const hazardPoint = hazard?.center ?? hazard?.a ?? (hazard?.rect && {
+      x: (hazard.rect.x0 + hazard.rect.x1) / 2,
+      y: Math.max(1.8, (hazard.rect.y0 + hazard.rect.y1) / 2),
+      z: (hazard.rect.z0 + hazard.rect.z1) / 2,
+    });
+    // Stage a readable shot: let the floor card play, park both drones beside
+    // the objective, and let the normal follow camera settle over them.
+    await page.waitForTimeout(2500);
+    const focus = shotFocus(choice.plan, choice.seed, choice.floor);
+    await page.evaluate(({ focus, fragile }) => {
+      const hoverY = fragile ? Math.max(3.8, (focus.y ?? 5.25) - 0.8) : Math.max(2.8, (focus.y ?? 1.8) + 0.4);
+      const side = fragile ? 2.2 : 1.25;
+      const depth = fragile ? 3.2 : 1.4;
+      window.__autotest.teleport('pix', focus.x - side, hoverY, focus.z - depth);
+      window.__autotest.teleport('nee', focus.x + side, hoverY, focus.z - depth);
+      for (const id of ['dev-readout', 'dev-controls']) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      }
+    }, { focus, fragile: choice.plan.objective.kind === 'fragile' });
+    const skip = page.getByRole('button', { name: 'Skip' });
+    if (await skip.count()) await skip.first().click().catch(() => {});
+    await page.waitForTimeout(2000);
+    await page.evaluate(() => {
+      const toasts = document.querySelector('[data-testid="juice-toasts"]');
+      if (toasts instanceof HTMLElement) toasts.style.display = 'none';
+    });
+    const bossSuffix = choice.plan.job.boss ? '-boss' : '';
+    await page.screenshot({ path: `${shotDir}/floor-${choice.floor}-${choice.plan.objective.kind}${bossSuffix}.png` });
     await page.evaluate(() => window.__autotest.debugStage('steal-prototype'));
     const objective = choice.plan.objective;
     const objectiveStarted = Date.now();
@@ -128,41 +163,6 @@ await runTest('variety-solo', async (browser, notes) => {
       }));
       throw new Error(`${objective.kind} seed=${choice.seed} floor=${choice.floor}: ${error.message} ${JSON.stringify(diagnostic)}`);
     }
-    const objectivePoint = choice.plan.objective.levers?.[0]
-      ?? choice.plan.objective.safe
-      ?? choice.plan.objective.pads?.[0]
-      ?? choice.plan.rooms.find((room) => room.archetype !== 'classic')?.pieces[0]
-      ?? choice.plan.loot;
-    const hazard = choice.plan.hazards[0];
-    const hazardPoint = hazard?.center ?? hazard?.a ?? (hazard?.rect && {
-      x: (hazard.rect.x0 + hazard.rect.x1) / 2,
-      y: Math.max(1.8, (hazard.rect.y0 + hazard.rect.y1) / 2),
-      z: (hazard.rect.z0 + hazard.rect.z1) / 2,
-    });
-    // Stage a readable shot: let the floor card play, park both drones beside
-    // the objective, and let the normal follow camera settle over them.
-    await page.waitForTimeout(2500);
-    const focus = shotFocus(choice.plan, choice.seed, choice.floor);
-    await page.evaluate(({ focus, fragile }) => {
-      const hoverY = fragile ? Math.max(3.8, (focus.y ?? 5.25) - 0.8) : Math.max(2.8, (focus.y ?? 1.8) + 0.4);
-      const side = fragile ? 2.2 : 1.25;
-      const depth = fragile ? 3.2 : 1.4;
-      window.__autotest.teleport('pix', focus.x - side, hoverY, focus.z - depth);
-      window.__autotest.teleport('nee', focus.x + side, hoverY, focus.z - depth);
-      for (const id of ['dev-readout', 'dev-controls']) {
-        const el = document.getElementById(id);
-        if (el) el.style.display = 'none';
-      }
-    }, { focus, fragile: choice.plan.objective.kind === 'fragile' });
-    const skip = page.getByRole('button', { name: 'Skip' });
-    if (await skip.count()) await skip.first().click().catch(() => {});
-    await page.waitForTimeout(2000);
-    await page.evaluate(() => {
-      const toasts = document.querySelector('[data-testid="juice-toasts"]');
-      if (toasts instanceof HTMLElement) toasts.style.display = 'none';
-    });
-    const bossSuffix = choice.plan.job.boss ? '-boss' : '';
-    await page.screenshot({ path: `${shotDir}/floor-${choice.floor}-${choice.plan.objective.kind}${bossSuffix}.png` });
     assert(errors.length === 0, `browser errors on floor ${choice.floor}:\n${errors.join('\n')}`);
     notes.floors.push({ floor: choice.floor, seed: choice.seed, objective: choice.plan.objective.kind, boss: choice.plan.job.boss, objectiveSeconds, drawCalls: hook.drawCalls, bodies: hook.bodies });
     await closePage(page);
