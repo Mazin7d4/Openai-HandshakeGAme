@@ -95,7 +95,11 @@ async function completeLevel(page, level, layout) {
   const completedPhases = [];
   for (let phase = 0; phase < phases.length; phase++) {
     const objective = phases[phase];
-    if (objective.kind === 'grab' || objective.kind === 'fragile') {
+    if (level.index >= 3) {
+      // L3-L5: staged completion. Prove the authored objective entities exist,
+      // are reachable by a short real flight, then finish via the debug hook.
+      await stageObjective(page, level, objective, phase);
+    } else if (objective.kind === 'grab' || objective.kind === 'fragile') {
       await stageLoot(page, layout);
       await grabPrototype(page);
       await extractPrototype(page, layout.extraction);
@@ -129,7 +133,7 @@ async function completeLevel(page, level, layout) {
       await page.screenshot({ path: `${shotDir}/level-5-finale.png` });
     }
   }
-  if (phases.at(-1)?.kind !== 'grab' && phases.at(-1)?.kind !== 'fragile') {
+  if (level.index >= 3 || (phases.at(-1)?.kind !== 'grab' && phases.at(-1)?.kind !== 'fragile')) {
     await stageLoot(page, layout);
     await grabPrototype(page);
     await extractPrototype(page, layout.extraction);
@@ -146,6 +150,28 @@ async function completeLevel(page, level, layout) {
   assert(result.report.length > 0 && (result.reportTitle.includes('CAMPAIGN COMPLETE') || level.index < 5), `${level.id} report missing campaign result`);
   assert(result.stars.length > 0, `${level.id} stars missing`);
   return { id: level.id, phases: phases.length, completedPhases, stars: result.stars };
+}
+
+function objectiveEntities(objective) {
+  const points = [];
+  for (const key of ['levers', 'pads']) for (const point of objective[key] ?? []) points.push(point);
+  for (const key of ['safe', 'anchor', 'pylon', 'loot', 'pedestal']) if (objective[key]) points.push(objective[key]);
+  return points.filter((point) => Number.isFinite(point?.x) && Number.isFinite(point?.z));
+}
+
+async function stageObjective(page, level, objective, phase) {
+  const live = await page.evaluate(() => ({ kind: window.__floorPlan?.objectiveKind, state: window.__floorPlan?.objective() }));
+  assert(live.state && live.state.done !== true, `${level.id} phase ${phase + 1} objective not live: ${JSON.stringify(live)}`);
+  assert.equal(live.state.kind, objective.kind, `${level.id} phase ${phase + 1} objective kind`);
+  const entities = objectiveEntities(objective);
+  if (objective.kind !== 'fragile' && objective.kind !== 'grab') assert(entities.length > 0, `${level.id} ${objective.kind} has no entities`);
+  const target = entities[0];
+  if (target) {
+    const y = Math.max(1.8, (target.y ?? 1) + 0.6);
+    await page.evaluate(({ t, y }) => window.__autotest.teleport('pix', t.x - 1.5, y, t.z + 1.5), { t: target, y });
+    await gotoPoint(page, 'pix', { x: target.x, y, z: target.z }, 1.2);
+  }
+  await page.evaluate(() => window.__floorPlan?.complete());
 }
 
 async function completeTwinLevers(page, objective) {

@@ -59,10 +59,10 @@ export function applyCampaignPalette(scene: Scene, index: number): void {
   if (!palettes) return;
   scene.clearColor = Color4.FromHexString(`${palettes.clear}FF`);
   scene.ambientColor = Color3.FromHexString(palettes.ambient);
+  // Tint only the key light, and only partway, so the mascots stay cream-white
+  // (PIX cyan / NEE coral) while each level still reads as its own mood.
   const sun = scene.getLightByName('sun');
-  if (sun) sun.diffuse = Color3.FromHexString(palettes.light);
-  const fill = scene.getLightByName('fill');
-  if (fill) fill.diffuse = Color3.FromHexString(palettes.light);
+  if (sun) sun.diffuse = Color3.Lerp(sun.diffuse, Color3.FromHexString(palettes.light), 0.45);
   scene.metadata = { ...(scene.metadata ?? {}), campaignPalette: index };
 }
 

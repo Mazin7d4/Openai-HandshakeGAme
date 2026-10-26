@@ -12,6 +12,9 @@ const pick = args.filter((a) => a !== '--own-servers' && all.includes(a));
 const tests = pick.length ? pick : all;
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const timeoutMs = Number(process.env.QA_TIMEOUT_MS ?? 300_000);
+// Long browser playthroughs get a larger budget.
+const slowTests = { 'campaign-solo': 540_000 };
+const testTimeout = (test) => Math.max(timeoutMs, slowTests[test] ?? 0);
 
 function parseResult(test, stdout, stderr, error) {
   const line = (stdout ?? '').split('\n').find((entry) => entry.startsWith('QA_RESULT '));
@@ -109,7 +112,7 @@ function runTestAsync(test, env) {
       forceTimer = setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
       }, 1_000);
-    }, timeoutMs);
+    }, testTimeout(test));
     const finish = (error) => {
       if (settled) return;
       settled = true;
@@ -123,7 +126,7 @@ function runTestAsync(test, env) {
     child.once('error', (error) => finish(error.message));
     child.once('close', (code, signal) => {
       const error = timedOut
-        ? `test timed out after ${timeoutMs}ms`
+        ? `test timed out after ${testTimeout(test)}ms`
         : (code === 0 || signal == null ? undefined : `test exited with code ${code ?? '?'} signal ${signal}`);
       finish(error);
     });
@@ -137,7 +140,7 @@ async function runDefault() {
     const result = spawnSync(process.execPath, [`tools/qa/${test}.test.mjs`], {
       cwd: root,
       encoding: 'utf8',
-      timeout: timeoutMs,
+      timeout: testTimeout(test),
       env: process.env,
     });
     const res = parseResult(test, result.stdout, result.stderr, result.error?.message);
