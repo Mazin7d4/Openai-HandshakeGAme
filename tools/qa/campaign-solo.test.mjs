@@ -74,7 +74,7 @@ async function stageShowcase(page, level, layout) {
     window.__autotest.teleport('pix', pair.pix.x, pair.pix.y, pair.pix.z);
     window.__autotest.teleport('nee', pair.nee.x, pair.nee.y, pair.nee.z);
     window.__autotest.photo(
-      { x: focus.x + 8, y: focus.y + 5, z: focus.z - 10 },
+      { x: focus.x + 8, y: focus.y + 6, z: focus.z - 12 },
       { x: focus.x, y: focus.y, z: focus.z },
     );
     for (const selector of ['#dev-readout', '#dev-controls', '.onboarding-coach', '.juice-toasts', '.floor-card']) {
@@ -244,8 +244,8 @@ function showcaseFocus(layout) {
 function showcasePair(layout, focus) {
   const y = Math.max(3.4, focus.y + 0.5);
   return {
-    pix: { x: focus.x - 2.2, y, z: focus.z + 1.5 },
-    nee: { x: focus.x + 2.2, y, z: focus.z + 1.5 },
+    pix: { x: focus.x - 2.2, y, z: focus.z - 2.5 },
+    nee: { x: focus.x + 2.2, y, z: focus.z - 2.5 },
   };
 }
 

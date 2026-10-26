@@ -794,9 +794,12 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   }, 1400);
 
   let removeStatus: (() => void) | null = null;
-  const runHud = element('aside', 'network-hud');
-  runHud.dataset.testid = 'run-hud';
+  // MissionDirector owns the solo Night Shift/campaign HUD. Keep this small
+  // status chip only for joined rooms, where it carries the room and role.
+  const runHud = session ? element('aside', 'network-hud') : null;
+  runHud?.setAttribute('data-testid', 'run-hud');
   const paintRunHud = (base = '') => {
+    if (!runHud) return;
     const run = getRunState();
     if (!run) {
       runHud.textContent = base;
@@ -806,10 +809,10 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
     if (run.mode !== 'standard') parts.push(run.mode.toUpperCase());
     runHud.textContent = parts.join(' · ');
   };
-  root.append(runHud);
+  if (runHud) root.append(runHud);
   paintRunHud();
 
-  if (session) {
+  if (session && runHud) {
     const networkHud = runHud;
     networkHud.dataset.testid = 'network-hud';
     const updateHud = (status: RoomStatus) => {
