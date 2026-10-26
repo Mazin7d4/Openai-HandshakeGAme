@@ -3,12 +3,13 @@ import { generateRun, validateRunLayout, validateFloorPlan } from '../../shared/
 
 const started = Date.now();
 const result = { test: 'floorplan-sweep', pass: false, notes: {}, error: undefined };
+// Pins re-cut for seed format v2 (floor-1 loading-dock escape).
 const pinned = new Map([
-  ['1/1', 'f4af07592f9829f8d74d32762b2a504e8cfca451'],
-  ['12345/2', '488346dec06fb333de178f26707176bc83ecdd79'],
-  ['4294967295/3', 'eaef8c17bab9b144eabd37adfddeb276b84a44ed'],
-  ['2654435761/4', 'c88b6d73707c9708142068ce62ccdd5d27ef75fd'],
-  ['42/9', '67091f5b498ebc9f90f1f187e3d281930dd61425'],
+  ['1/1', '9991c737d796f0b8cca80586afebfeca5bb24bba'],
+  ['12345/2', '3bd17b8839d6e3759b21f2251ac028f70182d402'],
+  ['4294967295/3', 'f6acd0cb2817351efd92ed9ae7eb86de4f418427'],
+  ['2654435761/4', '6aaa614b452edcfe2ac3fcca2ad18118bb766c7e'],
+  ['42/9', '9cdae8c6557d294a8977a70b932f0ab275233ae1'],
 ]);
 function assert(ok, message) { if (!ok) throw new Error(message); }
 function count(into, key) { into[key] = (into[key] ?? 0) + 1; }

@@ -312,6 +312,8 @@ function roomPieces(slot, archetype, rand, layout, objective) {
     const wanted = Math.min(candidates.length, 4 + intRange(rand, 0, 3));
     for (let i = 0; i < wanted; i++) {
       const cell = candidates[(i * 3 + intRange(rand, 0, candidates.length)) % candidates.length];
+      // Without the old service spine more desks fit; keep the room within the 12-piece budget.
+      if (pieces.length + 3 > 12) break;
       const desk = addAt('desk', cell, { sx: 2.8, sy: 1.8, sz: 1.5 }, true, 'Desk');
       if (pieces.includes(desk)) {
         addAt('partition', { x: cell.x, z: cell.z + 1.2 }, { sx: 2.5, sy: 1.8, sz: 0.12 }, true, 'GlassPartition');
@@ -379,11 +381,12 @@ function roomPieces(slot, archetype, rand, layout, objective) {
 
   if (archetype === 'vent-crawl') {
     const count = intRange(rand, 2, 5);
-    const zValues = [-56, -43, -27, -15, 3];
+    // West half of the loading dock only: clear of the conveyor, cages, patrol
+    // waypoints, and the east-side run from the vault doors to the extraction pad.
+    const spots = [{ x: -11, z: 30 }, { x: -11, z: 37.5 }, { x: -4.5, z: 30.5 }, { x: -4, z: 43.5 }];
     for (let i = 0; i < count; i++) {
-      const z = zValues[(i + intRange(rand, 0, zValues.length)) % zValues.length] + randomJitter(rand, 0.7);
-      const x = rand() < 0.5 ? -16 : -11;
-      addAt('duct', { x, z }, { sx: 0.9, sy: 2.2, sz: 2.2 }, true, 'GlassPartition');
+      const spot = spots[(i + intRange(rand, 0, spots.length)) % spots.length];
+      addAt('duct', { x: spot.x + randomJitter(rand, 0.3), z: spot.z + randomJitter(rand, 0.3) }, { sx: 0.9, sy: 2.2, sz: 2.2 }, true, 'GlassPartition');
     }
   }
 
