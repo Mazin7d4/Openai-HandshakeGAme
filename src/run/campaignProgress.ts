@@ -33,6 +33,7 @@ export function record(id: string, stars: readonly boolean[], seconds: number): 
 }
 export function isUnlocked(indexOrId: number | string, progress = load()): boolean {
   const index = typeof indexOrId === 'number' ? indexOrId : ['l1-tethered', 'l2-twin-levers', 'l3-wrap-and-drag', 'l4-fragile-relay', 'l5-big-vault'].indexOf(indexOrId) + 1;
+  if (index <= 0) return false;
   if (index <= 1) return true;
   const previous = ['l1-tethered', 'l2-twin-levers', 'l3-wrap-and-drag', 'l4-fragile-relay'][index - 2];
   return Boolean(previous && progress.levels[previous]);

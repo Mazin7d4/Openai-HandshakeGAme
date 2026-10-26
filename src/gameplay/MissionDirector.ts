@@ -101,7 +101,6 @@ export class MissionDirector {
   private lastCrateX = 0;
   private lastCrateZ = 0;
   private crateSampleReady = false;
-  private campaignCompleteMessage: CampaignCompleteMessage | null = null;
   /** Multiplayer: latest server-owned security state and pending server shoves for our drone. */
   private securityState: SecurityNetworkState | null = null;
   private readonly pendingShoves: { role: DroneRole; impulse: Vector3 }[] = [];
@@ -925,7 +924,6 @@ export class MissionDirector {
 
   private handleCampaignComplete(message: CampaignCompleteMessage): void {
     if (this.mode !== 'multiplayer' || !this.isCoopNightShift() || !this.runLayout?.plan?.campaign) return;
-    this.campaignCompleteMessage = message;
     this.completedPresented = true;
     this.audio.stopAlarm();
     const stats = { ...this.snapshotStats('win'), elapsedSeconds: message.seconds };

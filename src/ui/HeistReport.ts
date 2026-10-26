@@ -99,6 +99,7 @@ export class HeistReport {
   private readonly nav = new MenuNavigator();
   private stats: RunStats | null = null;
   private replayBtn: HTMLButtonElement | null = null;
+  private campaignNextBtn: HTMLButtonElement | null = null;
   private lastShow: [RunStats, NightShiftSummary | undefined, CoopReportState | undefined] | null = null;
   private leaderboardPayload: LeaderboardRecordedPayload | null = null;
   private leaderboardSkipReason: string | undefined;
@@ -233,6 +234,7 @@ export class HeistReport {
     actions.append(challenge, save);
     if (handlers.campaign) {
       const next = button('Next level', 'btn btn--primary', 'campaign-next');
+      this.campaignNextBtn = next;
       next.addEventListener('click', () => handlers.campaign?.onNext?.());
       actions.append(next);
       const select = button('Level select', 'btn', 'campaign-level-select');
@@ -308,6 +310,7 @@ export class HeistReport {
       : 'Heist Report';
     kicker!.textContent = campaign ? 'Campaign result' : 'Case closed';
     this.campaignEl.hidden = !campaign;
+    if (this.campaignNextBtn) this.campaignNextBtn.hidden = !campaign || campaign.index >= campaign.totalLevels;
     if (campaign) {
       this.campaignEl.replaceChildren();
       const heading = document.createElement('p');

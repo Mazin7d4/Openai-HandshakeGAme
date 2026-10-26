@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { CAMPAIGN_LEVELS, campaignLayout } from '../../shared/campaign/levels.mjs';
 import { runTest, url, openPage, closePage, waitForGame } from './lib.mjs';
 
@@ -35,8 +35,11 @@ await runTest('campaign-solo', async (browser, notes) => {
       }
     }, positions);
     await page.waitForTimeout(1_200);
-    await page.screenshot({ path: `${shotDir}/level-${level.index}-${level.id.slice(3)}.png` });
-    if (level.index === 5) await page.screenshot({ path: `${shotDir}/level-5-finale.png` });
+    const showcase = await page.screenshot();
+    writeFileSync(`${shotDir}/level-${level.index}-${level.id.slice(3)}.png`, showcase);
+    if (level.index === 5) {
+      writeFileSync(`${shotDir}/level-5-finale.png`, showcase);
+    }
   }
   notes.levels = CAMPAIGN_LEVELS.map((level) => ({ id: level.id, kind: campaignLayout(level.id).plan.objective.kind }));
   await closePage(page);
@@ -48,8 +51,8 @@ function showcasePositions(layout) {
   if (objective.pylon && objective.safe) return pair(objective.safe, objective.anchor ?? objective.pylon, 0.5);
   if (objective.pads?.length) return pair(objective.pads[0], objective.pads[0], 0.5);
   return {
-    pix: { x: layout.loot.x - 2.5, y: Math.max(2.8, layout.loot.y - 0.4), z: layout.loot.z },
-    nee: { x: layout.loot.x + 2.5, y: Math.max(2.8, layout.loot.y - 0.4), z: layout.loot.z },
+    pix: { x: layout.loot.x - 2.5, y: 2.8, z: layout.loot.z - 2 },
+    nee: { x: layout.loot.x + 2.5, y: 2.8, z: layout.loot.z - 2 },
   };
 }
 
