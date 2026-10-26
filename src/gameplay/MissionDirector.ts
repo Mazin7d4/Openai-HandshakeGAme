@@ -1043,7 +1043,9 @@ export class MissionDirector {
       this.twistChip.textContent = campaign
         ? ['Warm vault', 'Glass lock', 'Warm metal', 'Lights out', 'Alarm red'][campaign.index - 1] ?? ''
         : this.runLayout.twist.label;
-      this.twistChip.hidden = !this.twistChip.textContent;
+      // Campaign identity already lives in the floor chip. Keeping the twist
+      // chip would repeat the level label and crowd the short landscape HUD.
+      this.twistChip.hidden = Boolean(campaign) || !this.twistChip.textContent;
     }
     this.updateScoreHud();
   }
