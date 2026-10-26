@@ -22,7 +22,9 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
+    "jsqr": "^1.4.0",
     "playwright": "^1.63.0",
+    "pngjs": "^7.0.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
   },
@@ -31,6 +33,7 @@
     "@babylonjs/havok": "^1.3.14",
     "@babylonjs/loaders": "^9.29.0",
     "@colyseus/sdk": "^0.18.5",
-    "colyseus": "^0.18.9"
+    "colyseus": "^0.18.9",
+    "uqr": "^0.1.3"
   }
 }

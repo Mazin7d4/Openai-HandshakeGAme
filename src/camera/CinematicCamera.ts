@@ -384,7 +384,9 @@ export class CinematicCamera {
           if (this.segmentIntersectsBounds(mesh, this.occlusionRay.length)) { obscures = true; break; }
         }
       }
-      mesh.visibility = smooth(mesh.visibility, obscures ? 0.10 : 1, obscures ? 12 : 5, dt);
+      // Cut fully through a blocking wall; a stack of translucent panels still reads as a
+      // grey foreground slab on the long service-spine sightline.
+      mesh.visibility = smooth(mesh.visibility, obscures ? 0 : 1, obscures ? 16 : 5, dt);
     }
   }
 
