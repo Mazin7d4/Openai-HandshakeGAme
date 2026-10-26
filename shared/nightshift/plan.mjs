@@ -611,8 +611,8 @@ function lineCandidates(slot) {
       [{ x: 8, y: 2, z: 4 }, { x: 8, y: 2, z: 10 }],
     ],
     escape: [
-      [{ x: -16, y: 2, z: -57 }, { x: -16, y: 2, z: -50 }],
-      [{ x: -11, y: 2, z: -25 }, { x: -11, y: 2, z: -18 }],
+      [{ x: -15, y: 2, z: 30 }, { x: -8, y: 2, z: 30 }],
+      [{ x: 8, y: 2, z: 38 }, { x: 14, y: 2, z: 38 }],
     ],
   };
   return lines[slot];
@@ -624,7 +624,7 @@ function rectCandidates(slot) {
     office: [{ x: -11, z: -38, sx: 4, sz: 3 }, { x: 9, z: -38, sx: 4, sz: 3 }],
     server: [{ x: 8, z: -7, sx: 4, sz: 3 }, { x: 8, z: -2, sx: 4, sz: 3 }],
     vault: [{ x: -9, z: 4.5, sx: 4, sz: 3 }, { x: 9, z: 4.5, sx: 4, sz: 3 }],
-    escape: [{ x: -16, z: -51, sx: 3, sz: 4 }, { x: -11, z: -20, sx: 3, sz: 4 }],
+    escape: [{ x: -15, z: 30, sx: 3, sz: 3 }, { x: 9, z: 39, sx: 3, sz: 3 }],
   };
   return rects[slot];
 }
@@ -862,7 +862,7 @@ function buildPlan(seed, floor, layout, rand, options = {}) {
     ? 'Warm up: the cord is your tool. Grab the prototype together.'
     : `${boss ? 'Boss lock: ' : ''}Work together to ${objectiveText} before the night shift notices.`;
   return {
-    version: 1,
+    version: 2,
     job: {
       id: `job-${floor}`,
       name,
@@ -899,7 +899,7 @@ function safeFallbackObjective(floor, layout) {
 function classicFallback(floor, layout) {
   const boss = floor % 3 === 0;
   return {
-    version: 1,
+    version: 2,
     job: {
       id: `job-${floor}`,
       name: floor === 1 ? 'The Night Shift Tryout' : `${boss ? 'VAULT: ' : ''}The Quiet Job`,
@@ -1104,7 +1104,7 @@ function validateHazard(hazard, floor, layout, objective, hazards) {
 }
 
 export function validateFloorPlan(plan, layout) {
-  if (!plan || plan.version !== 1 || !plan.job || !Array.isArray(plan.rooms) || plan.rooms.length !== SLOTS.length || !plan.objective || !Array.isArray(plan.hazards)) return { ok: false, reason: 'malformed floor plan' };
+  if (!plan || plan.version !== 2 || !plan.job || !Array.isArray(plan.rooms) || plan.rooms.length !== SLOTS.length || !plan.objective || !Array.isArray(plan.hazards)) return { ok: false, reason: 'malformed floor plan; regenerate this run' };
   const floor = layout.floor | 0;
   const boss = floor % 3 === 0;
   if (plan.job.boss !== boss || plan.job.payoutScale !== (boss ? 2 : 1) || plan.job.tutorial !== (floor === 1)) return { ok: false, reason: 'job pacing mismatch' };

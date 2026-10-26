@@ -84,6 +84,7 @@ export interface CameraPlacement {
 
 export interface RunLayout {
   seed: number;
+  formatVersion: number;
   floor: number;
   variants: Record<string, RoomVariant>;
   spawn: Vec3;
@@ -145,6 +146,7 @@ export declare const TERMINAL_CANDIDATE_SETS: readonly Array<{
 }>;
 export declare const PATROL_ROUTE_CANDIDATES: readonly Array<{ id: string; waypoints: readonly Vec3[] }>;
 export declare const CAMERA_CANDIDATES: readonly CameraPlacement[];
+export declare const SEED_FORMAT_VERSION: number;
 
 export declare const TWISTS: readonly TwistParams[];
 export declare const BASE_CORD: { readonly restLength: number; readonly maxLength: number };
