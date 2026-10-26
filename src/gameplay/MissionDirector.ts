@@ -1039,6 +1039,7 @@ export class MissionDirector {
       ? campaign.index === 5 ? 'BOSS VAULT' : `Campaign ${campaign.index}/5 · ${this.runLayout.plan?.job.name ?? ''}`
       : boss ? `Floor ${floor} · Boss` : `Floor ${floor}`;
     this.floorChip.classList.toggle('floor-chip--boss', boss);
+    this.floorChip.classList.toggle('floor-chip--campaign', Boolean(campaign));
     if (this.twistChip && this.runLayout.twist) {
       this.twistChip.textContent = campaign
         ? ['Warm vault', 'Glass lock', 'Warm metal', 'Lights out', 'Alarm red'][campaign.index - 1] ?? ''

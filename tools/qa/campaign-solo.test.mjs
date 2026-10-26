@@ -70,18 +70,16 @@ async function stageShowcase(page, level, layout) {
   await page.waitForTimeout(1200);
   const focus = showcaseFocus(layout);
   const pair = showcasePair(layout, focus);
-  await page.evaluate(({ pair, focus }) => {
+  const view = showcaseView(layout, focus);
+  await page.evaluate(({ pair, focus, view }) => {
     window.__autotest.teleport('pix', pair.pix.x, pair.pix.y, pair.pix.z);
     window.__autotest.teleport('nee', pair.nee.x, pair.nee.y, pair.nee.z);
-    window.__autotest.photo(
-      { x: focus.x + 8, y: focus.y + 6, z: focus.z - 12 },
-      { x: focus.x, y: focus.y, z: focus.z },
-    );
+    window.__autotest.photo(view.eye, { x: focus.x, y: focus.y, z: focus.z });
     for (const selector of ['#dev-readout', '#dev-controls', '.onboarding-coach', '.juice-toasts', '.floor-card']) {
       const element = document.querySelector(selector);
       if (element instanceof HTMLElement) element.style.display = 'none';
     }
-  }, { pair, focus });
+  }, { pair, focus, view });
   await page.waitForTimeout(1500);
   const file = `${shotDir}/level-${level.index}-${level.id.slice(3)}.png`;
   await page.screenshot({ path: file });
@@ -118,6 +116,16 @@ async function completeLevel(page, level, layout) {
     }
     if (level.index === 5 && phase === 1) {
       await page.getByText('BIG VAULT CRACKED · x2').waitFor({ state: 'visible', timeout: 8_000 });
+      const finaleFocus = midpoint(phases[1].pylon, phases[1].safe);
+      await page.evaluate(({ focus }) => {
+        window.__autotest.teleport('pix', focus.x - 2.2, Math.max(3.4, focus.y + 0.5), focus.z + 2.5);
+        window.__autotest.teleport('nee', focus.x + 2.2, Math.max(3.4, focus.y + 0.5), focus.z + 2.5);
+        window.__autotest.photo({ x: focus.x - 10, y: focus.y + 8, z: focus.z + 12 }, focus);
+        for (const selector of ['#dev-readout', '#dev-controls', '.onboarding-coach', '.juice-toasts']) {
+          const element = document.querySelector(selector);
+          if (element instanceof HTMLElement) element.style.display = 'none';
+        }
+      }, { focus: finaleFocus });
       await page.screenshot({ path: `${shotDir}/level-5-finale.png` });
     }
   }
@@ -243,10 +251,18 @@ function showcaseFocus(layout) {
 
 function showcasePair(layout, focus) {
   const y = Math.max(3.4, focus.y + 0.5);
+  const pylonView = Boolean(layout.plan.phases?.[0]?.pylon ?? layout.plan.objective.pylon);
   return {
-    pix: { x: focus.x - 2.2, y, z: focus.z - 2.5 },
-    nee: { x: focus.x + 2.2, y, z: focus.z - 2.5 },
+    pix: { x: focus.x - 2.2, y, z: focus.z + (pylonView ? 2.5 : -2.5) },
+    nee: { x: focus.x + 2.2, y, z: focus.z + (pylonView ? 2.5 : -2.5) },
   };
+}
+
+function showcaseView(layout, focus) {
+  if (layout.plan.phases?.[0]?.pylon ?? layout.plan.objective.pylon) {
+    return { eye: { x: focus.x + 4, y: focus.y + 14, z: focus.z + 8 } };
+  }
+  return { eye: { x: focus.x + 8, y: focus.y + 6, z: focus.z - 12 } };
 }
 
 function midpoint(a, b) {
