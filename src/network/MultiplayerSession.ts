@@ -447,6 +447,9 @@ export class MultiplayerSession {
   private manualReconnectInFlight = false;
   /** Last applied floor key so reconnect / first sync still fires the layout hook once. */
   private lastFloorKey: string | null = null;
+  /** Prevent a delayed floor-start for an older floor or seed from rewinding layout. */
+  private lastAppliedFloor: number | null = null;
+  private lastAppliedSeed: number | null = null;
   lastLeaderboard: LeaderboardRecordedPayload | null = null;
 
   private constructor(room: Room<unknown, SchemaRoomState>, beat?: number) {
@@ -887,7 +890,11 @@ export class MultiplayerSession {
       if (role) for (const listener of this.spottedListeners) listener(role);
     });
     room.onMessage('objective-state', (message: ObjectiveStateMessage) => {
-      if (message?.state && Number.isFinite(message.floor) && Number.isFinite(message.seed)) {
+      const run = this.status.run;
+      const key = Number.isFinite(message?.floor) && Number.isFinite(message?.seed)
+        ? `${message.seed >>> 0}:${message.floor}:nightshift` : null;
+      const runMatches = run.mode === 'nightshift' && message?.floor === run.floor && (message?.seed >>> 0) === run.seed;
+      if (message?.state && key && (runMatches || this.lastFloorKey === key)) {
         for (const listener of this.objectiveStateListeners) listener(message);
       }
     });
@@ -903,7 +910,10 @@ export class MultiplayerSession {
       this.handleFloorStart(message);
     });
     room.onMessage('floor-cleared', (message: FloorClearedMessage) => {
-      for (const listener of this.floorClearedListeners) listener(message);
+      const run = this.status.run;
+      if (message?.next && run.mode === 'nightshift' && message.floor === run.floor && (message.seed >>> 0) === run.seed) {
+        for (const listener of this.floorClearedListeners) listener(message);
+      }
     });
     room.onMessage('campaign-complete', (message: CampaignCompleteMessage) => {
       if (typeof message?.levelId !== 'string' || !Number.isFinite(message.seconds) || !Array.isArray(message.stars)) return;
@@ -931,6 +941,8 @@ export class MultiplayerSession {
       // A pinned Night Shift seed can reuse the same seed/floor key; rematch still needs
       // the normal floor-start layout reset to run for the new mission.
       this.lastFloorKey = null;
+      this.lastAppliedFloor = null;
+      this.lastAppliedSeed = null;
       this.lastLeaderboard = null;
       for (const listener of this.rematchStartListeners) listener(message);
     });
@@ -1136,10 +1148,18 @@ export class MultiplayerSession {
   private handleFloorStart(message: FloorStartPayload, _fromState = false): void {
     if (!message || !Number.isFinite(message.seed) || !Number.isFinite(message.floor)) return;
     const mode = message.mode ?? this.status.run?.mode ?? 'standard';
-    const key = `${message.seed >>> 0}:${message.floor}:${mode}`;
+    const seed = message.seed >>> 0;
+    if (mode === 'nightshift' && this.lastAppliedFloor !== null
+      && (message.floor < this.lastAppliedFloor
+        || (message.floor === this.lastAppliedFloor && seed !== this.lastAppliedSeed))) return;
+    const key = `${seed}:${message.floor}:${mode}`;
     if (this.lastFloorKey === key) return;
     this.lastFloorKey = key;
-    applyFloorStart({ seed: message.seed >>> 0, floor: message.floor, mode, levelId: message.levelId });
+    if (mode === 'nightshift') {
+      this.lastAppliedFloor = message.floor;
+      this.lastAppliedSeed = seed;
+    }
+    applyFloorStart({ seed, floor: message.floor, mode, levelId: message.levelId });
     for (const listener of this.floorStartListeners) listener({ ...message, mode });
   }
 

@@ -49,6 +49,22 @@ await runTest('gamepad', async (browser, notes) => {
   await pauseMenu.waitFor({ state: 'visible', timeout: 5000 });
   await pressStart();
   await pauseMenu.waitFor({ state: 'hidden', timeout: 5000 });
+  assert(!(await pauseMenu.isVisible()), 'second Start press did not close the pause menu');
+
+  // The menu's traditional back paths must remain available after Start toggles.
+  await pressStart();
+  await pauseMenu.waitFor({ state: 'visible', timeout: 5000 });
+  await page.evaluate(() => { window.__fakePad.buttons[1].pressed = true; window.__fakePad.buttons[1].value = 1; });
+  await page.waitForTimeout(150);
+  await page.evaluate(() => { window.__fakePad.buttons[1].pressed = false; window.__fakePad.buttons[1].value = 0; });
+  await pauseMenu.waitFor({ state: 'hidden', timeout: 5000 });
+  assert(!(await pauseMenu.isVisible()), 'B did not close the pause menu');
+
+  await pressStart();
+  await pauseMenu.waitFor({ state: 'visible', timeout: 5000 });
+  await page.keyboard.press('Escape');
+  await pauseMenu.waitFor({ state: 'hidden', timeout: 5000 });
+  assert(!(await pauseMenu.isVisible()), 'Escape did not close the pause menu');
   notes.errors = errors;
   assert(errors.length === 0, `errors:\n${errors.join('\n')}`);
   await ctx.close();

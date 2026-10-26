@@ -567,7 +567,8 @@ class HandshakeRoom extends Room {
         this.stepObjective(deltaMs / 1000);
         this.updateMission();
         this.updateHeldObjects(deltaMs / 1000);
-        this.updateSecurity(deltaMs / 1000);
+        // Patrols share the paused mission clock (client interpolation is keyed on elapsedSeconds).
+        if (!this.humanDropped()) this.updateSecurity(deltaMs / 1000);
       } catch (error) {
         const now = Date.now();
         if (this.lastTickErrorAt === null || now - this.lastTickErrorAt >= 5_000) {
@@ -1055,6 +1056,7 @@ class HandshakeRoom extends Room {
       const bot = this.state.players.get('bot');
       if (bot) bot.connected = true;
       if (this.quickMatch && this.quickMatchAllowed && [...this.state.players.values()].filter((candidate) => !candidate.bot && candidate.connected).length < 2) this.unlock();
+      this.sendObjectiveState(client);
     }
   }
 
@@ -1379,9 +1381,17 @@ class HandshakeRoom extends Room {
     this.state.mission.prototypeHeldBy = role;
   }
 
+  humanDropped() {
+    return [...this.state.players.values()].some((player) => player.bot !== true && player.connected === false);
+  }
+
   updateMission() {
     const mission = this.state.mission;
-    mission.elapsedSeconds = (Date.now() - this.missionStartedAt) / 1000;
+    const now = Date.now();
+    // A human seat in the reconnect window pauses the mission clock (hazards and objectives key off it).
+    if (this.humanDropped() && this.missionClockAt && mission.stage !== 'complete') this.missionStartedAt += now - this.missionClockAt;
+    this.missionClockAt = now;
+    mission.elapsedSeconds = (now - this.missionStartedAt) / 1000;
     const players = Array.from(this.state.players.values());
     if (mission.stage === 'infiltrate' && players.some((player) => player.position.z > this.world.infiltrationZ)) {
       mission.stage = 'hack-security';
@@ -1414,6 +1424,7 @@ class HandshakeRoom extends Room {
 
   stepObjective(dt) {
     if (!this.floorPlan?.objective || this.state.mission.stage === 'complete') return;
+    if (this.humanDropped()) return;
     const activePlan = this.floorPlan.phases?.[this.objectivePhase] ?? this.floorPlan.objective;
     const events = this.objectiveSim.step(
       Math.max(0, Math.min(0.25, dt)),
@@ -1501,7 +1512,7 @@ class HandshakeRoom extends Room {
       this.markSpotted(role);
     }
     if (this.floorPlan?.hazards && this.state.mission.stage !== 'complete') {
-      const hazardPlayers = players.map((player) => ({
+      const hazardPlayers = players.filter((player) => player.connected).map((player) => ({
         role: player.role,
         x: player.position.x,
         y: player.position.y,
