@@ -1,6 +1,6 @@
 // (c) Reconnect: (1) guest WebSocket drops abnormally -> auto-reconnect, overlay clears, state agrees.
 //                (2) guest reloads the page -> seat resumes (overlay and/or auto-rejoin).
-import { runTest, url, assert, collectErrors, shot, waitForGame, createAndJoin, joinRoom, worldState, compareWorld } from './lib.mjs';
+import { runTest, url, assert, collectErrors, tryShot, until, waitForGame, createAndJoin, joinRoom, worldState, compareWorld } from './lib.mjs';
 
 const TRACK_WS = () => {
   const Native = window.WebSocket; window.__qaSockets = [];
@@ -18,7 +18,13 @@ await runTest('reconnect', async (browser, notes) => {
   const code = await createAndJoin(host, guest);
   notes.room = code;
   await Promise.all([waitForGame(host), waitForGame(guest)]);
-  await host.waitForTimeout(1500);
+  await until('initial multiplayer state', async () => {
+    const [hostWorld, guestWorld] = await Promise.all([worldState(host), worldState(guest)]);
+    const hostHud = await host.getByTestId('network-hud').innerText({ timeout: 5_000 }).catch(() => '');
+    const players = ['player-1', 'player-2'];
+    const ok = players.every((id) => hostWorld.players[id] && guestWorld.players[id]) && !hostHud.includes('disconnected');
+    return { ok, info: { hostPlayers: Object.keys(hostWorld.players), guestPlayers: Object.keys(guestWorld.players), hostHud } };
+  }, 20_000);
 
   // --- 1. transient drop (QA closes the game socket with 4999; reconnect code must reclaim the seat) ---
   const dropped = await guest.evaluate(() => { const s = window.__qaSockets.filter((w) => w.readyState === 1 && !/vite|token=/.test(w.url) && !w.protocol.includes('vite')); s.forEach((w) => w.close(4999, 'qa-drop')); return s.length; });
@@ -27,17 +33,34 @@ await runTest('reconnect', async (browser, notes) => {
   assert(dropped >= 1, 'no game WebSocket was open to drop');
   const sawOverlay = await guest.getByTestId('partner-overlay').and(guest.locator('.visible')).waitFor({ timeout: 5_000 }).then(() => true, () => false);
   notes.guestOverlayDuringDrop = sawOverlay ? await guest.getByTestId('partner-overlay').innerText() : null;
-  await shot(guest, 'reconnect-drop-guest');
+  await tryShot(guest, 'reconnect-drop-guest');
   const recovered = await guest.waitForFunction(() => !document.querySelector('[data-testid=partner-overlay]')?.classList.contains('visible'), null, { timeout: 20_000 }).then(() => true, () => false);
   notes.dropRecovered = recovered;
   assert(recovered, 'guest did not auto-reconnect after socket drop (4999)');
-  await host.waitForTimeout(1500);
-  const hudAfterDrop = await host.getByTestId('network-hud').innerText();
-  notes.hostHudAfterDrop = hudAfterDrop;
+  notes.hostHudAfterDrop = await until('host reconnect HUD', async () => {
+    const hud = await host.getByTestId('network-hud').innerText({ timeout: 5_000 }).catch(() => '');
+    return { ok: !hud.includes('disconnected'), info: hud };
+  }, 20_000);
+  await until('guest reconnect HUD', async () => {
+    const hud = await guest.getByTestId('network-hud').innerText({ timeout: 5_000 }).catch(() => '');
+    return { ok: hud.includes('NEE'), info: hud };
+  }, 20_000);
   await guest.getByTestId('game-canvas').focus();
   await guest.keyboard.down('w'); await guest.waitForTimeout(800); await guest.keyboard.up('w');
-  await host.waitForTimeout(1200);
-  const agree1 = compareWorld(await worldState(host), await worldState(guest));
+  let agree1 = [];
+  try {
+    await until('world agreement after drop reconnect', async () => {
+      try {
+        agree1 = compareWorld(await worldState(host), await worldState(guest));
+        return { ok: agree1.length === 0, info: agree1 };
+      } catch (e) {
+        agree1 = [String(e?.message ?? e)];
+        throw e;
+      }
+    }, 15_000);
+  } catch {
+    // Assert below with the last issues observed by the poll.
+  }
   notes.agreementAfterDrop = agree1;
   assert(agree1.length === 0, `clients disagreed after drop reconnect: ${agree1.join('; ')}`);
   notes.dropFixme = { name: 'auto-reconnect-after-drop', status: 'pass' };
@@ -46,48 +69,68 @@ await runTest('reconnect', async (browser, notes) => {
   await guest.reload();
   const overlayShown = await host.waitForFunction(() => document.querySelector('[data-testid=partner-overlay]')?.classList.contains('visible'), null, { timeout: 8_000 }).then(() => true, () => false);
   notes.hostOverlayAfterGuestReload = (await host.getByTestId('partner-overlay').innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
-  await shot(host, 'reconnect-reload-host-waiting');
+  await tryShot(host, 'reconnect-reload-host-waiting');
   notes.reloadLandsOn = await guest.getByRole('heading').first().innerText().catch(() => '?');
   // Fast resume via sessionStorage + ?room= can beat the host overlay paint; either is success.
-  const guestBackInGame = await guest.getByTestId('game-canvas').isVisible().catch(() => false);
+  const guestBackInGame = await guest.getByTestId('game-canvas').waitFor({ state: 'visible', timeout: overlayShown ? 3_000 : 15_000 }).then(() => true, () => false);
   notes.reloadGuestInGame = guestBackInGame;
   assert(overlayShown || guestBackInGame, 'after guest reload: expected host overlay or guest already back in-game');
 
   // --- 3. rejoin after reload (sessionStorage token + ?room= / join UI) ---
   const REJOIN_EXPECTED = process.env.QA_EXPECT_REJOIN !== '0';
   const fixme = { name: 'rejoin-after-reload', expected: REJOIN_EXPECTED ? 'pass' : 'fail' };
+  let rejoinedInGame = guestBackInGame;
   try {
-    let inGame = guestBackInGame;
-    if (!inGame) {
+    if (!rejoinedInGame) {
       const invite = new URL(url());
       invite.searchParams.set('room', code);
       await guest.goto(invite.toString());
-      await guest.waitForTimeout(3000);
       fixme.immediateRejoinStatus = (await guest.locator('.lobby-status').first().innerText().catch(() => '')).slice(0, 200);
-      inGame = await guest.getByTestId('game-canvas').isVisible().catch(() => false);
+      rejoinedInGame = await guest.getByTestId('game-canvas').waitFor({ state: 'visible', timeout: 10_000 }).then(() => true, () => false);
     }
-    if (!inGame) {
+    if (!rejoinedInGame) {
       await joinRoom(guest, code);
-      await guest.waitForTimeout(3000);
-      inGame = await guest.getByTestId('game-canvas').isVisible().catch(() => false);
+      rejoinedInGame = await guest.getByTestId('game-canvas').waitFor({ state: 'visible', timeout: 10_000 }).then(() => true, () => false);
     }
-    if (!inGame) {
+    if (!rejoinedInGame) {
       await guest.waitForTimeout(16_000);
       await joinRoom(guest, code);
-      inGame = await guest.getByTestId('game-canvas').waitFor({ state: 'visible', timeout: 20_000 }).then(() => true, () => false);
+      rejoinedInGame = await guest.getByTestId('game-canvas').waitFor({ state: 'visible', timeout: 20_000 }).then(() => true, () => false);
       fixme.retriedAfterSeconds = 16;
     }
-    fixme.rejoined = inGame;
-    if (inGame) {
+    fixme.rejoined = rejoinedInGame;
+    if (rejoinedInGame) {
       await waitForGame(guest);
-      await host.waitForTimeout(2500);
-      fixme.guestHud = await guest.getByTestId('network-hud').innerText();
-      fixme.hostHud = await host.getByTestId('network-hud').innerText();
-      fixme.agreement = compareWorld(await worldState(host), await worldState(guest));
-      await shot(guest, 'reconnect-rejoined-guest'); await shot(host, 'reconnect-rejoined-host');
+      let rejoinWaitTimedOut = false;
+      fixme.guestHud = '';
+      fixme.hostHud = '';
+      fixme.agreement = [];
+      try {
+        await until('rejoin state', async () => {
+          fixme.guestHud = await guest.getByTestId('network-hud').innerText({ timeout: 5_000 }).catch(() => '');
+          fixme.hostHud = await host.getByTestId('network-hud').innerText({ timeout: 5_000 }).catch(() => '');
+          try {
+            fixme.agreement = compareWorld(await worldState(host), await worldState(guest));
+          } catch (e) {
+            fixme.agreement = [String(e?.message ?? e)];
+            throw e;
+          }
+          const ok = fixme.guestHud.includes('NEE') && !fixme.hostHud.includes('disconnected') && fixme.agreement.length === 0;
+          return { ok, info: { guestHud: fixme.guestHud, hostHud: fixme.hostHud, agreement: fixme.agreement } };
+        }, 20_000);
+      } catch (e) {
+        rejoinWaitTimedOut = true;
+        fixme.error = String(e.message).slice(0, 300);
+      }
+      fixme.ok = !rejoinWaitTimedOut && fixme.guestHud.includes('NEE') && !fixme.hostHud.includes('disconnected') && fixme.agreement.length === 0;
+    } else {
+      fixme.ok = false;
     }
-    fixme.ok = inGame && fixme.guestHud.includes('NEE') && !fixme.hostHud.includes('disconnected') && fixme.agreement.length === 0;
   } catch (e) { fixme.ok = false; fixme.error = String(e.message).slice(0, 300); }
+  if (rejoinedInGame) {
+    await tryShot(guest, 'reconnect-rejoined-guest');
+    await tryShot(host, 'reconnect-rejoined-host');
+  }
   fixme.status = fixme.ok ? (REJOIN_EXPECTED ? 'pass' : 'XPASS') : (REJOIN_EXPECTED ? 'FAIL' : 'xfail');
   notes.fixme = fixme;
   assert(!(REJOIN_EXPECTED && !fixme.ok), `rejoin expected but failed: ${JSON.stringify(fixme)}`);

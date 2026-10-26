@@ -1,8 +1,12 @@
-import { DynamicTexture, Texture, type Color3, type Scene } from '@babylonjs/core';
+import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
+import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
+import type { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 
 export type Expression =
   | 'neutral' | 'happy' | 'focused' | 'strained' | 'shocked' | 'stunned'
-  | 'yanked' | 'panic' | 'dizzy' | 'proud' | 'sheepish';
+  | 'yanked' | 'panic' | 'dizzy' | 'proud' | 'sheepish'
+  | 'star-eyes' | 'heart' | 'sunglasses' | 'sleepy' | 'wink' | 'determined';
 
 export type EmoteFace = 'here' | 'wait' | 'go' | 'yay';
 
@@ -32,6 +36,7 @@ export class DroneFace {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly color: Color3;
   private expression: Expression = 'neutral';
+  private cosmetic: Expression | null = null;
   private override: Expression | null = null;
   private overrideTimer = 0;
   private blinkTimer = 2 + Math.random() * 3;
@@ -55,6 +60,12 @@ export class DroneFace {
   /** Base expression derived from movement; overrides (stun) win while active. */
   setExpression(expression: Expression): void {
     this.expression = expression;
+  }
+
+  /** Optional unlockable face treatment; gameplay reactions still take priority. */
+  setCosmetic(expression: Expression | null): void {
+    this.cosmetic = expression;
+    this.lastKey = '';
   }
 
   /** Temporary expression, e.g. stunned after a hit. */
@@ -83,7 +94,7 @@ export class DroneFace {
       const t = Math.max(0, this.blinkPhase) / 0.16;
       open = Math.max(0.1, Math.abs(t * 2 - 1));
     }
-    const active = this.override ?? this.expression;
+    const active = this.override ?? this.cosmetic ?? this.expression;
     if (active === 'stunned' || ANIMATED.has(active)) {
       open = 1;
     }
@@ -95,7 +106,7 @@ export class DroneFace {
   }
 
   private draw(open: number): void {
-    const active = this.override ?? this.expression;
+    const active = this.override ?? this.cosmetic ?? this.expression;
     const quantised = Math.round(open * 12);
     const frame = ANIMATED.has(active) ? Math.floor(this.time * 12) : 0;
     const key = `${active}:${quantised}:${frame}`;
@@ -152,6 +163,24 @@ export class DroneFace {
           break;
         case 'sheepish':
           this.drawSheepish(ctx, side);
+          break;
+        case 'star-eyes':
+          this.drawStarEyes(ctx);
+          break;
+        case 'heart':
+          this.drawHeart(ctx);
+          break;
+        case 'sunglasses':
+          this.drawSunglasses(ctx);
+          break;
+        case 'sleepy':
+          this.drawSleepy(ctx);
+          break;
+        case 'wink':
+          side === 1 ? this.drawWink(ctx) : this.drawHappy(ctx);
+          break;
+        case 'determined':
+          this.drawDetermined(ctx, side);
           break;
         default:
           this.drawNeutral(ctx);
@@ -288,5 +317,39 @@ export class DroneFace {
       ctx.fill();
       ctx.restore();
     }
+  }
+
+  private drawStarEyes(ctx: CanvasRenderingContext2D): void {
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 === 0 ? 25 : 9;
+      const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+      if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    ctx.closePath(); ctx.fill();
+  }
+
+  private drawHeart(ctx: CanvasRenderingContext2D): void {
+    ctx.beginPath();
+    ctx.moveTo(0, 24); ctx.bezierCurveTo(-36, 2, -25, -27, 0, -9); ctx.bezierCurveTo(25, -27, 36, 2, 0, 24);
+    ctx.fill();
+  }
+
+  private drawSunglasses(ctx: CanvasRenderingContext2D): void {
+    ctx.lineWidth = 9;
+    ctx.beginPath(); ctx.roundRect(-25, -17, 50, 30, 8); ctx.fill();
+    ctx.fillRect(-44, -5, 17, 8); ctx.fillRect(27, -5, 17, 8);
+  }
+
+  private drawSleepy(ctx: CanvasRenderingContext2D): void {
+    ctx.lineWidth = 12; ctx.beginPath(); ctx.arc(0, 4, 22, Math.PI * 1.08, Math.PI * 1.92); ctx.stroke();
+  }
+
+  private drawWink(ctx: CanvasRenderingContext2D): void {
+    ctx.lineWidth = 12; ctx.beginPath(); ctx.moveTo(-20, 4); ctx.lineTo(20, -7); ctx.stroke();
+  }
+
+  private drawDetermined(ctx: CanvasRenderingContext2D, side: number): void {
+    ctx.rotate(side * -0.2); ctx.lineWidth = 11; ctx.beginPath(); ctx.moveTo(-16, 5); ctx.lineTo(16, -5); ctx.stroke();
   }
 }

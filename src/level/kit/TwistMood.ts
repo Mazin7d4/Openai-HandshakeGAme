@@ -1,11 +1,9 @@
-import {
-  Color3,
-  type GlowLayer,
-  type Light,
-  type Observer,
-  PBRMaterial,
-  type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import type { GlowLayer } from '@babylonjs/core/Layers/glowLayer.js';
+import type { Light } from '@babylonjs/core/Lights/light.js';
+import type { Observer } from '@babylonjs/core/Misc/observable.js';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { TwistId } from '../../seed/index.ts';
 
 export function applyTwistMood(scene: Scene, twist: TwistId | string): { dispose(): void } {
@@ -29,6 +27,14 @@ export function applyTwistMood(scene: Scene, twist: TwistId | string): { dispose
         fill.intensity *= 0.35;
         disposers.push(() => {
           fill.intensity = origFillIntensity;
+        });
+      }
+      const heroLights = scene.lights.filter((light) => light.name.startsWith('hero-'));
+      const originalHeroIntensities = heroLights.map((light) => ({ light, intensity: light.intensity }));
+      for (const item of originalHeroIntensities) item.light.intensity *= 0.35;
+      if (originalHeroIntensities.length > 0) {
+        disposers.push(() => {
+          for (const item of originalHeroIntensities) item.light.intensity = item.intensity;
         });
       }
       if (glow) {
@@ -209,4 +215,26 @@ export function applyTwistMood(scene: Scene, twist: TwistId | string): { dispose
       disposers.length = 0;
     },
   };
+}
+
+/** Night Shift floor 2+ tint: each later floor reads as a later hour (dusk amber, night blue, late violet). */
+const FLOOR_TINTS: readonly [number, number, number][] = [
+  [1.0, 0.86, 0.72],
+  [0.8, 0.88, 1.0],
+  [0.9, 0.82, 1.0],
+];
+
+export function applyFloorTint(scene: Scene, floor: number): { dispose(): void } {
+  const f = floor | 0;
+  if (f <= 1) return { dispose() {} };
+  const [r, g, b] = FLOOR_TINTS[(f - 2) % FLOOR_TINTS.length];
+  const restores: (() => void)[] = [];
+  for (const name of ['sun', 'fill']) {
+    const light = scene.getLightByName(name) as (Light & { diffuse?: Color3 }) | null;
+    if (!light?.diffuse) continue;
+    const original = light.diffuse.clone();
+    light.diffuse = new Color3(original.r * r, original.g * g, original.b * b);
+    restores.push(() => { light.diffuse = original; });
+  }
+  return { dispose() { for (const restore of restores) restore(); } };
 }

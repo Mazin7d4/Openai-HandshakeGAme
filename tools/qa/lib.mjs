@@ -22,7 +22,9 @@ export function url(extra = {}) {
   const u = new URL(BASE_URL);
   u.searchParams.set('debug', '1');
   u.searchParams.set('autotest', '1');
-  if (IS_LOCAL || process.env.QA_SERVER_URL) u.searchParams.set('server', SERVER_URL);
+  if (IS_LOCAL || process.env.QA_SERVER_URL || Object.prototype.hasOwnProperty.call(extra, 'server')) {
+    u.searchParams.set('server', SERVER_URL);
+  }
   for (const [k, v] of Object.entries(extra)) u.searchParams.set(k, v);
   return u.toString();
 }
@@ -66,6 +68,34 @@ export async function shot(page, name) {
   const path = `${SHOTS}/${name}.png`;
   await page.screenshot({ path });
   return path;
+}
+
+export async function tryShot(page, name, timeout = 10_000) {
+  try {
+    const path = `${SHOTS}/${name}.png`;
+    await page.screenshot({ path, timeout });
+    return path;
+  } catch {
+    return null;
+  }
+}
+
+export async function until(label, fn, timeout = 15_000, interval = 250) {
+  const deadline = Date.now() + timeout;
+  let lastInfo = null;
+  while (true) {
+    try {
+      const result = await fn();
+      lastInfo = result?.info ?? null;
+      if (result?.ok) return result.info;
+    } catch (e) {
+      lastInfo = String(e?.message ?? e);
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(interval, remaining)));
+  }
+  throw new Error(`${label}: ${JSON.stringify(lastInfo).slice(0, 400)}`);
 }
 
 export async function waitForGame(page, timeout = 120_000) {

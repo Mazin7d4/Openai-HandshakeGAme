@@ -1,5 +1,6 @@
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { DroneRole } from '../network/NetworkTypes.ts';
+import type { LeaderboardNameResult, LeaderboardRecordedPayload } from '../network/LeaderboardApi.ts';
 import { challengeUrl as buildChallengeUrl } from '../../shared/run.ts';
 import {
   awardAccent,
@@ -12,15 +13,39 @@ import {
 import { createFaceGlyph, drawFaceGlyph, type FaceMood } from './FaceGlyph.ts';
 import { MenuNavigator } from './MenuNavigator.ts';
 import { effectiveReducedMotion, getSettings } from './Settings.ts';
+import { cosmeticDefinition, recordRunUnlocks } from '../player/Cosmetics.ts';
+import { renderLeaderboardRows } from './LeaderboardPanel.ts';
 
 export interface HeistReportHandlers {
   onPlayAgain: () => void;
+  onRematchVote?: (want: boolean) => void;
   onLeave?: () => void;
   /** Night Shift only: advance to the next seeded floor. */
   onNextFloor?: () => void;
   /** Night Shift: restart with a fresh random seed. */
   onNewSeed?: () => void;
+  /** Re-watch the slow-mo escape replay (button shown only when footage exists). */
+  onReplay?: () => void;
+  onLeaderboardName?: (name: string, team: boolean) => void;
   audio?: GameAudio | null;
+}
+
+export interface CoopReportPlayer {
+  role: DroneRole;
+  rematchVote: boolean;
+  lootDelivered: number;
+  lootCarrySeconds: number;
+  passes: number;
+  rescues: number;
+  capturedCount: number;
+  grabs: number;
+  hacks: number;
+}
+
+export interface CoopReportState {
+  localRole: DroneRole | null;
+  players: ReadonlyMap<DroneRole, CoopReportPlayer>;
+  partnerLeft?: boolean;
 }
 
 export interface NightShiftSummary {
@@ -51,9 +76,20 @@ export class HeistReport {
   private readonly nightShiftEl: HTMLElement;
   private readonly challengeHint: HTMLElement;
   private readonly live: HTMLDivElement;
-  private readonly playAgainBtn: HTMLButtonElement;
+  private readonly playAgainBtn: HTMLButtonElement | null;
+  private readonly rematchBtn: HTMLButtonElement | null;
+  private readonly rematchStatusEl: HTMLElement | null;
+  private readonly playerStatsEl: HTMLElement | null;
+  private readonly leaderboardSection: HTMLElement;
   private readonly nav = new MenuNavigator();
   private stats: RunStats | null = null;
+  private replayBtn: HTMLButtonElement | null = null;
+  private lastShow: [RunStats, NightShiftSummary | undefined, CoopReportState | undefined] | null = null;
+  private leaderboardPayload: LeaderboardRecordedPayload | null = null;
+  private leaderboardSkipReason: string | undefined;
+  private leaderboardName = '';
+  private leaderboardTeam = false;
+  private leaderboardNameStatus = '';
   private gradeTimers: number[] = [];
   private readonly onKey = (event: KeyboardEvent) => this.handleKey(event);
   private readonly handlers: HeistReportHandlers;
@@ -115,13 +151,49 @@ export class HeistReport {
 
     const actions = this.panel.querySelector('.heist-report__actions')!;
     const nightShift = Boolean(handlers.onNewSeed || handlers.onNextFloor);
-    this.playAgainBtn = button(
+    const cooperative = Boolean(handlers.onRematchVote);
+    this.playAgainBtn = cooperative ? null : button(
       nightShift ? 'Play again, same seed' : 'Play again',
       'btn btn--primary heist-report__play',
       'retry-mission',
     );
-    this.playAgainBtn.title = nightShift ? 'Play again, same seed (R)' : 'Play again (R)';
-    this.playAgainBtn.addEventListener('click', () => this.handlers.onPlayAgain());
+    if (this.playAgainBtn) {
+      this.playAgainBtn.title = nightShift ? 'Play again, same seed (R)' : 'Play again (R)';
+      this.playAgainBtn.addEventListener('click', () => this.handlers.onPlayAgain());
+    }
+    this.rematchBtn = cooperative ? button('Rematch', 'btn btn--primary heist-report__rematch', 'rematch') : null;
+    this.rematchBtn?.setAttribute('aria-pressed', 'false');
+    this.rematchBtn?.addEventListener('click', () => {
+      const current = this.currentCoopState?.players.get(this.currentCoopState.localRole ?? 'pix')?.rematchVote === true;
+      this.handlers.onRematchVote?.(!current);
+    });
+
+    this.rematchStatusEl = cooperative ? document.createElement('p') : null;
+    if (this.rematchStatusEl) {
+      this.rematchStatusEl.className = 'heist-report__rematch-status';
+      this.rematchStatusEl.dataset.testid = 'rematch-status';
+      this.rematchStatusEl.setAttribute('aria-live', 'polite');
+      this.rematchStatusEl.textContent = 'Rematch?';
+      // Sticky bar: on phones the report scrolls, but the vote state + Rematch stay in view.
+      const bar = document.createElement('div');
+      bar.className = 'heist-report__rematch-bar';
+      bar.append(this.rematchStatusEl, this.rematchBtn!);
+      actions.before(bar);
+    }
+    this.playerStatsEl = cooperative ? document.createElement('div') : null;
+    if (this.playerStatsEl) {
+      this.playerStatsEl.className = 'heist-report__player-stats';
+      this.playerStatsEl.dataset.testid = 'player-stats';
+      this.playerStatsEl.setAttribute('role', 'region');
+      this.playerStatsEl.setAttribute('aria-label', 'Player statistics');
+      this.nightShiftEl.after(this.playerStatsEl);
+    }
+
+    this.leaderboardSection = document.createElement('section');
+    this.leaderboardSection.className = 'heist-report__leaderboard';
+    this.leaderboardSection.dataset.testid = 'report-leaderboard';
+    this.leaderboardSection.hidden = true;
+    actions.before(this.leaderboardSection);
 
     const challenge = button('Copy challenge link', 'btn', 'challenge-friend');
     challenge.addEventListener('click', () => void this.copyChallengeLink());
@@ -129,7 +201,14 @@ export class HeistReport {
     const save = button('Save card', 'btn', 'save-card');
     save.addEventListener('click', () => void this.saveCard());
 
-    actions.append(this.playAgainBtn, challenge, save);
+    if (this.playAgainBtn) actions.append(this.playAgainBtn);
+    if (handlers.onReplay) {
+      this.replayBtn = button('Watch replay', 'btn heist-report__replay', 'report-replay');
+      this.replayBtn.hidden = true;
+      this.replayBtn.addEventListener('click', () => handlers.onReplay?.());
+      actions.append(this.replayBtn);
+    }
+    actions.append(challenge, save);
     if (handlers.onNewSeed) {
       const fresh = button('New seed', 'btn', 'new-seed');
       fresh.addEventListener('click', () => handlers.onNewSeed?.());
@@ -157,8 +236,29 @@ export class HeistReport {
     parent.append(this.root);
   }
 
-  show(stats: RunStats, nightShift?: NightShiftSummary): void {
+  private currentCoopState: CoopReportState | null = null;
+  private statsKey = '';
+
+  /** Show or hide the "Watch replay" button (only when the replay has footage). */
+  setReplayAvailable(available: boolean): void {
+    if (this.replayBtn) this.replayBtn.hidden = !available;
+  }
+
+  /** Hide for the replay; resume() brings the same report back. */
+  suspend(): void {
+    this.hide();
+  }
+
+  resume(): void {
+    if (!this.lastShow) return;
+    const [stats, nightShift, coop] = this.lastShow;
+    this.show(stats, nightShift, this.currentCoopState ?? coop);
+  }
+
+  show(stats: RunStats, nightShift?: NightShiftSummary, coop?: CoopReportState): void {
+    this.lastShow = [stats, nightShift, coop];
     this.stats = stats;
+    if (coop) this.currentCoopState = coop;
     this.clearGradeTimers();
     this.timeEl.textContent = formatRunTime(stats.elapsedSeconds);
     this.quipEl.textContent = quipFor(stats);
@@ -166,6 +266,22 @@ export class HeistReport {
     this.stampEl.classList.toggle('heist-report__stamp--fail', stats.outcome !== 'win');
     this.challengeHint.hidden = true;
     this.challengeHint.textContent = '';
+
+    this.panel.querySelector('.heist-report__unlock-toast')?.remove();
+    const unlocked = recordRunUnlocks({
+      outcome: stats.outcome,
+      timesSpotted: stats.timesSpotted,
+      nightShiftScore: nightShift?.total,
+      nightShiftFloor: nightShift?.floor,
+      cooperative: Boolean(coop && coop.players.size > 1),
+    });
+    if (unlocked.length) {
+      const toast = document.createElement('p');
+      toast.className = 'heist-report__unlock-toast';
+      toast.setAttribute('role', 'status');
+      toast.textContent = `New unlock${unlocked.length > 1 ? 's' : ''}: ${unlocked.map((id) => cosmeticDefinition(id)?.label ?? id).join(', ')}`;
+      this.panel.append(toast);
+    }
 
     if (stats.seed != null) {
       this.seedEl.hidden = false;
@@ -220,6 +336,9 @@ export class HeistReport {
       this.awardsEl.append(li);
     }
 
+    this.renderCoop();
+    this.renderLeaderboard();
+
     this.gradeEl.replaceChildren();
     const faces = gradeFaces(stats);
     const reduced = effectiveReducedMotion(getSettings());
@@ -259,8 +378,46 @@ export class HeistReport {
     });
     this.nav.attach(this.root, {
       onBack: this.handlers.onLeave,
-      initialFocus: this.playAgainBtn,
+      initialFocus: this.rematchBtn ?? this.playAgainBtn,
     });
+  }
+
+  updateCoopStatus(state: CoopReportState): void {
+    this.currentCoopState = state;
+    this.renderCoop();
+    // Coop status ticks often; only rebuild the board when co-op-ness flips, so the name form stays stable.
+    const isCoop = state.players.size > 1;
+    if (isCoop !== this.leaderboardRenderedCoop) this.renderLeaderboard();
+  }
+
+  setLeaderboard(payload: LeaderboardRecordedPayload | null, skipReason?: string): void {
+    const oldInput = this.leaderboardSection.querySelector<HTMLInputElement>('[data-testid="leaderboard-name-input"]');
+    const oldTeam = this.leaderboardSection.querySelector<HTMLInputElement>('[data-testid="leaderboard-team"]');
+    if (oldInput) this.leaderboardName = oldInput.value;
+    if (oldTeam) this.leaderboardTeam = oldTeam.checked;
+    this.leaderboardPayload = payload;
+    this.leaderboardSkipReason = skipReason;
+    if (!payload && !skipReason) {
+      this.leaderboardNameStatus = '';
+      this.leaderboardName = '';
+      this.leaderboardTeam = false;
+    }
+    this.renderLeaderboard();
+  }
+
+  setLeaderboardNameResult(result: LeaderboardNameResult): void {
+    this.leaderboardNameStatus = result.ok
+      ? 'Saved'
+      : result.reason === 'profanity'
+        ? 'Please pick another name'
+        : result.reason === 'empty'
+          ? 'Name is empty'
+          : 'Too many changes';
+    if (result.name) this.leaderboardName = result.name;
+    const input = this.leaderboardSection.querySelector<HTMLInputElement>('[data-testid="leaderboard-name-input"]');
+    if (input && result.name) input.value = result.name;
+    const status = this.leaderboardSection.querySelector<HTMLElement>('[data-testid="leaderboard-name-status"]');
+    if (status) status.textContent = this.leaderboardNameStatus;
   }
 
   hide(): void {
@@ -289,8 +446,163 @@ export class HeistReport {
     if (event.key === 'r' || event.key === 'R' || event.key === 'Enter') {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
       event.preventDefault();
-      this.handlers.onPlayAgain();
+      if (this.rematchBtn) this.rematchBtn.click();
+      else this.handlers.onPlayAgain();
     }
+  }
+
+  private renderCoop(): void {
+    if (!this.rematchBtn || !this.rematchStatusEl || !this.playerStatsEl) return;
+    const state = this.currentCoopState;
+    const local = state?.localRole ? state.players.get(state.localRole) : undefined;
+    const partnerRole = state?.localRole === 'pix' ? 'nee' : 'pix';
+    const partner = state?.players.get(partnerRole);
+    const localVoted = local?.rematchVote === true;
+    const partnerVoted = partner?.rematchVote === true;
+    const partnerLeft = state?.partnerLeft === true;
+    this.rematchBtn.disabled = partnerLeft;
+    this.rematchBtn.textContent = localVoted ? 'Cancel rematch' : 'Rematch';
+    this.rematchBtn.setAttribute('aria-label', this.rematchBtn.textContent);
+    this.rematchBtn.setAttribute('aria-pressed', String(localVoted));
+    const statusText = partnerLeft
+      ? 'Partner left the room'
+      : localVoted && partnerVoted
+        ? 'Rematch?'
+        : localVoted
+          ? 'Waiting for partner…'
+          : partnerVoted
+            ? 'Partner wants a rematch!'
+            : 'Rematch?';
+    if (this.rematchStatusEl.textContent !== statusText) this.rematchStatusEl.textContent = statusText;
+
+    const stats = [
+      state?.players.get('pix'),
+      state?.players.get('nee'),
+    ];
+    // Room status ticks often; only rebuild the table when a shown value changed.
+    const key = JSON.stringify(stats.map((p) => p && [p.lootDelivered, Math.round(p.lootCarrySeconds * 10), p.passes, p.rescues, p.capturedCount, p.grabs, p.hacks]));
+    if (key === this.statsKey) return;
+    this.statsKey = key;
+    this.playerStatsEl.replaceChildren();
+    const scroll = document.createElement('div');
+    scroll.className = 'heist-report__player-stats-scroll';
+    const table = document.createElement('table');
+    table.className = 'heist-report__player-stats-table';
+    table.innerHTML = '<caption>Player statistics</caption><thead><tr><th scope="col">Player</th><th scope="col" title="Loot delivered">Loot</th><th scope="col" title="Time carrying the loot">Carry</th><th scope="col" title="Passes made">Pass</th><th scope="col" title="Rescues">Save</th><th scope="col" title="Times captured">Caught</th><th scope="col" title="Grabs">Grab</th><th scope="col" title="Hacks">Hack</th></tr></thead>';
+    const body = document.createElement('tbody');
+    for (const [index, role] of (['pix', 'nee'] as const).entries()) {
+      const player = stats[index];
+      const row = document.createElement('tr');
+      row.dataset.testid = `player-stats-${role}`;
+      const values = [
+        role.toUpperCase(),
+        String(player?.lootDelivered ?? 0),
+        `${(player?.lootCarrySeconds ?? 0).toFixed(1)}s`,
+        String(player?.passes ?? 0),
+        String(player?.rescues ?? 0),
+        String(player?.capturedCount ?? 0),
+        String(player?.grabs ?? 0),
+        String(player?.hacks ?? 0),
+      ];
+      for (const [valueIndex, value] of values.entries()) {
+        const cell = document.createElement(valueIndex === 0 ? 'th' : 'td');
+        cell.textContent = value;
+        if (valueIndex === 0) cell.setAttribute('scope', 'row');
+        row.append(cell);
+      }
+      body.append(row);
+    }
+    table.append(body);
+    scroll.append(table);
+    this.playerStatsEl.append(scroll);
+  }
+
+  private leaderboardRenderedCoop: boolean | null = null;
+
+  private renderLeaderboard(): void {
+    const section = this.leaderboardSection;
+    const coop = this.currentCoopState;
+    const isCoop = Boolean(coop && coop.players.size > 1);
+    this.leaderboardRenderedCoop = isCoop;
+    if (this.leaderboardSkipReason === 'offline') {
+      section.hidden = false;
+      section.replaceChildren();
+      const note = document.createElement('p');
+      note.className = 'heist-report__leaderboard-muted';
+      note.dataset.testid = 'leaderboard-unranked';
+      note.textContent = 'Unranked (offline)';
+      section.append(note);
+      return;
+    }
+    if (!isCoop || (!this.leaderboardPayload && !this.leaderboardSkipReason)) {
+      section.hidden = true;
+      section.replaceChildren();
+      return;
+    }
+    const existingInput = section.querySelector<HTMLInputElement>('[data-testid="leaderboard-name-input"]');
+    const existingTeam = section.querySelector<HTMLInputElement>('[data-testid="leaderboard-team"]');
+    if (existingInput) this.leaderboardName = existingInput.value;
+    if (existingTeam) this.leaderboardTeam = existingTeam.checked;
+    section.hidden = false;
+    section.replaceChildren();
+
+    if (this.leaderboardSkipReason) {
+      const note = document.createElement('p');
+      note.className = 'heist-report__leaderboard-muted';
+      note.textContent = `This run is not on the board — ${leaderboardSkipText(this.leaderboardSkipReason)}`;
+      section.append(note);
+      return;
+    }
+
+    const payload = this.leaderboardPayload;
+    const board = payload?.boards.find((candidate) => candidate.key.startsWith('daily:') || candidate.key.startsWith('solo:daily:') || candidate.key === 'nightshift:all' || candidate.key === 'solo:nightshift:all');
+    if (!payload || !board) {
+      section.hidden = true;
+      return;
+    }
+    const heading = document.createElement('h2');
+    heading.className = 'heist-report__leaderboard-title';
+    const solo = board.key.startsWith('solo:');
+    heading.textContent = board.key.includes('daily:')
+      ? (solo ? 'Solo + AI daily board' : 'Daily board')
+      : (solo ? 'Solo + AI board' : 'Night Shift board');
+    section.append(heading);
+    const list = renderLeaderboardRows(board.entries, board.key, payload.id);
+    list.dataset.testid = 'leaderboard-list';
+    section.append(list);
+    const rank = document.createElement('p');
+    rank.className = 'heist-report__leaderboard-rank';
+    rank.dataset.testid = 'leaderboard-rank';
+    rank.textContent = board.rank == null ? 'Outside the top 10' : `You placed #${board.rank}`;
+    section.append(rank);
+
+    const form = document.createElement('form');
+    form.className = 'heist-report__leaderboard-form';
+    form.addEventListener('submit', (event) => event.preventDefault());
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.dataset.testid = 'leaderboard-name-input';
+    input.maxLength = 16;
+    input.placeholder = 'Your name';
+    input.autocomplete = 'off';
+    input.enterKeyHint = 'done';
+    input.value = this.leaderboardName;
+    input.addEventListener('input', () => { this.leaderboardName = input.value; });
+    const label = document.createElement('label');
+    const team = document.createElement('input');
+    team.type = 'checkbox';
+    team.dataset.testid = 'leaderboard-team';
+    team.checked = this.leaderboardTeam;
+    team.addEventListener('change', () => { this.leaderboardTeam = team.checked; });
+    label.append(team, document.createTextNode('Team name'));
+    const save = button('Save', 'btn', 'leaderboard-name-save');
+    save.addEventListener('click', () => this.handlers.onLeaderboardName?.(input.value, team.checked));
+    const status = document.createElement('small');
+    status.dataset.testid = 'leaderboard-name-status';
+    status.setAttribute('role', 'status');
+    status.textContent = this.leaderboardNameStatus;
+    form.append(input, label, save, status);
+    section.append(form);
   }
 
   /** Builds `?seed=<code>&beat=<ms>` via shared/run.ts challengeUrl. */
@@ -387,6 +699,15 @@ function cordDivider(): HTMLElement {
   cord.className = 'heist-report__crew-cord';
   cord.setAttribute('aria-hidden', 'true');
   return cord;
+}
+
+function leaderboardSkipText(reason: string): string {
+  if (reason === 'bot' || reason === 'solo') return 'bot runs and solo runs are not ranked.';
+  if (reason === 'players') return 'only co-op and solo-with-AI server runs are ranked.';
+  if (reason === 'tainted') return 'tainted runs are not ranked.';
+  if (reason === 'too-fast' || reason === 'daily-time' || reason === 'duration') return 'runs under the minimum time are not ranked.';
+  if (reason === 'rate-limit') return 'too many submissions were made.';
+  return 'this run was not eligible.';
 }
 
 /** 1200×630 share PNG: wordmark, time, grade faces, awards. */
