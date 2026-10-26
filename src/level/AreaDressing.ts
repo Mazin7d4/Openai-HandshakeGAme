@@ -74,7 +74,6 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   // on all apron wall faces, skipping the doorway gap.
   // South wall (inner face z=-66.7):
   box(0, 0.25, -66.62, 37.4, 0.5, 0.12, p.wood);
-  box(0, 4.2, -66.62, 37.4, 0.12, 0.12, p.metal);
   // East wall (inner face x=18.7):
   box(18.62, 0.25, -60.975, 0.12, 0.5, 11.45, p.wood);
   box(18.62, 4.2, -60.975, 0.12, 0.12, 11.45, p.metal);
@@ -96,10 +95,10 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   const southGapW = 0.1;
   for (let i = 0; i < 6; i++) {
     const px = -15.525 + i * (southPanelW + southGapW);
-    box(px, 2.1, -66.65, southPanelW, 4.2, 0.06, apronWainscot);
+    box(px, 1.2, -66.65, southPanelW, 2.4, 0.06, apronWainscot);
     if (i < 5) {
       const gx = -12.42 + i * (southPanelW + southGapW);
-      box(gx, 2.1, -66.655, southGapW, 4.2, 0.05, p.dark);
+      box(gx, 1.2, -66.655, southGapW, 2.4, 0.05, p.dark);
     }
   }
   // East wall: 2 panels across 11.37 span (-66.62 to -55.25), 1 shadow gap of 0.1.
@@ -114,25 +113,7 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   }
 
   // Wall-mounted everyday props:
-  // Round wall clock on south wall high (y≈10):
-  const clockRim = CreateTorus('dress', { diameter: 1.6, thickness: 0.12, tessellation: 32 }, scene);
-  clockRim.position.set(0, 8.1, -66.62); clockRim.rotation.x = Math.PI / 2; add(clockRim, p.dark);
-  cyl(0, 8.1, -66.64, 0.04, 1.48, 1.48, white, 32).rotation.x = Math.PI / 2;
-  const hHand = box(0.12, 8.22, -66.60, 0.04, 0.36, 0.02, p.dark);
-  hHand.rotation.z = -Math.PI / 4;
-  const mHand = box(-0.16, 8.3, -66.59, 0.03, 0.52, 0.02, p.dark);
-  mHand.rotation.z = Math.PI / 3;
-  cyl(0, 8.1, -66.58, 0.04, 0.08, 0.08, p.dark, 12).rotation.x = Math.PI / 2;
-
-  // Two wall sconces with p.light diffusers on the south wall (symmetric at x=±8):
-  for (const sx of [-8, 8]) {
-    box(sx, 7.5, -66.66, 0.5, 0.8, 0.04, p.metal);
-    box(sx, 7.5, -66.52, 0.1, 0.1, 0.24, p.metal);
-    box(sx, 7.5, -66.35, 0.5, 0.6, 0.16, p.metal);
-    box(sx, 7.81, -66.35, 0.46, 0.04, 0.14, p.light);
-    box(sx, 7.19, -66.35, 0.46, 0.04, 0.14, p.light);
-    box(sx, 7.5, -66.26, 0.46, 0.28, 0.03, p.light);
-  }
+  // (South wall is the low camera-side dollhouse cut: no wall clock or sconces on it.)
 
   // Fire extinguisher on alu bracket beside the entry (north wall, east of doorway at x=3.8):
   box(3.8, 3.0, -55.28, 0.3, 1.2, 0.04, p.metal);

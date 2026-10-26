@@ -114,9 +114,12 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   box('east-wall', 19, 4.5, -10, 0.6, 9, 114, p.paint);
   box('west-wall', -19, 4.5, -10, 0.6, 9, 114, p.sage);
   box('north-wall', 0, 4.5, 47, 38, 9, 0.6, p.paint);
-  box('south-boundary', 0, 4.5, -67, 38, 9, 0.6, p.sage);
+  // The camera sits south of the crew, so the camera-side exterior wall is cut low (classic
+  // dollhouse section); an invisible collider keeps the drones inside up to the roof line.
+  box('south-boundary', 0, 1.25, -67, 38, 2.5, 0.6, p.sage);
+  box('south-boundary-collider', 0, 4.6, -67, 38, 9.2, 0.6).isVisible = false;
   wallCap('east-wall', 19, -10, 0.8, 114); wallCap('west-wall', -19, -10, 0.8, 114);
-  wallCap('north-wall', 0, 47, 38, 0.8); wallCap('south-boundary', 0, -67, 38, 0.8);
+  wallCap('north-wall', 0, 47, 38, 0.8); box('south-boundary-cap', 0, 2.85, -67, 38, 0.7, 0.8, p.dark, false);
   const rollerLeaf = box('loading-roller-door', 11, 4.5, 46.62, 10, 8, 0.18, p.dark);
   wallCap('loading-roller-door', 11, 46.62, 10.5, 0.8);
   const daylight = new StandardMaterial('roller-door-daylight', scene);
@@ -156,7 +159,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   partitionTrim('entry-partition', -55, [[-12.5, 13], [11, 16]]);
   desk('reception', -4.5, -49, 11);
   sign('reception-sign', '02 RECEPTION', '', 2, 2.6, -54.6, 6);
-  sign('apron-sign', '01 APRON', '', -14, 2.6, -66.6, 5);
+  sign('apron-sign', '01 APRON', '', -12.5, 2.6, -55.35, 5);
   exitStrip('G0', -1.5, -55.35, 9, true);
   // A crawl route under furniture leads to a mandatory ascent, with a broad alternate opening.
   box('office-divider-low-west', -13.25, 2.35, -43, 11.5, 4.7, 0.6, p.sage); wallCap('office-divider-low-west', -13.25, -43, 11.5, 0.9);
