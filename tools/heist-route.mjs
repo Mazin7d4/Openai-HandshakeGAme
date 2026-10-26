@@ -9,27 +9,33 @@ export const arrival = [
 ];
 export const toNee = [
   { x: 0, y: 5.4, z: -36 }, { x: 4.7, y: 2.2, z: -34.5 },
-  { x: 4.7, y: 2.2, z: -32.8, tolerance: 0.6 },
+  // PIX parks first and can take the exact spot; the patch bay's 3.2 m reach covers a 1 m arrival.
+  { x: 4.7, y: 2.2, z: -32.8 },
 ];
 export const servers = [
+  // Leave the under-desk patch bay east of the console, then north clear of the shutter jamb.
+  { x: 7.5, y: 2.2, z: -32.8 }, { x: 7.5, y: 2.2, z: -27.5 }, { x: 0, y: 2.2, z: -27.5 },
   { x: 0, y: 2.2, z: -24 }, { x: 0, y: 2.2, z: -16 }, { x: 0, y: 2.2, z: -10 },
-  { x: -3, y: 4.6, z: -8.9 }, { x: -3, y: 5.8, z: -7.9 },
-  { x: -3, y: 7, z: -6.9 }, { x: -4, y: 7.1, z: -5.8, tolerance: 0.55 },
+  // Climb east of the ramp steps, then cross above them onto the catwalk (waypoints stay clear of the step slabs).
+  { x: 0, y: 6.8, z: -10 }, { x: -3, y: 6.8, z: -9.5 },
+  // Park beside the memory console (its body fills the station point), inside its 3.2 m reach.
+  { x: -3, y: 7, z: -6.9 }, { x: -2.6, y: 7.1, z: -5.8 },
 ];
 export const vault = [
-  { x: -4, y: 7.1, z: -5.8, tolerance: 0.55 }, { x: 0, y: 7.1, z: -2 },
+  { x: -2.6, y: 7.1, z: -5.8 }, { x: 0, y: 7.1, z: -2 },
   { x: 0, y: 2.3, z: 2 }, { x: 0, y: 2.3, z: 9 },
   { x: 0, y: 3.5, z: 13 }, { x: 0, y: 5.25, z: 18, tolerance: 0.45 },
 ];
 export const clearCrate = {
   approach: [
     { x: 0, y: 3, z: 20 }, { x: 0, y: 3, z: 30 },
-    { x: 8, y: 3, z: 32 }, { x: 8, y: 3, z: 37, tolerance: 0.8 },
+    // Stop south of the crate (it rests at z 37): flying onto it shoves it out of reach.
+    { x: 8, y: 3, z: 32 }, { x: 8, y: 3, z: 35, tolerance: 0.8 },
   ],
   drag: [
     { x: 8, y: 3, z: 37, tolerance: 1.0 },
     { x: 10, y: 3, z: 38, tolerance: 1.0 },
-    { x: 10, y: 3, z: 40, tolerance: 1.0 },
+    { x: 10, y: 3, z: 41, tolerance: 1.0 },
   ],
 };
 

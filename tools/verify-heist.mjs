@@ -196,6 +196,10 @@ try {
   await page.locator('#dev-readout').filter({ hasText: 'mission:escape' }).waitFor({ timeout: 10000 });
   // A drone parked on the lab threshold must keep the sinking door's collision open
   // while the alarm closes it, rather than being trapped or squashed.
+  // Bring NEE within tether rest length (7 m) of the threshold first, so the check measures the door
+  // rather than the tether snapping PIX back toward a partner 17 m away at the pedestal.
+  await page.evaluate(() => window.__autotest.goto('nee', 0, 3.2, 8, 0.6, true));
+  await page.waitForFunction(() => window.__autotest.arrived('nee'), null, { timeout: 30_000, polling: 250 });
   await page.evaluate(() => window.__autotest.teleport('pix', 0, 2.2, 1.2));
   await page.waitForFunction(() => {
     const p = window.__autotest.position('pix');
@@ -207,6 +211,7 @@ try {
   if (!thresholdAfter || thresholdAfter.y < 1.2 || Math.hypot(thresholdAfter.x - thresholdBefore.x, thresholdAfter.z - thresholdBefore.z) > 1.2) {
     throw new Error(`Lab threshold door trapped/squashed drone: ${JSON.stringify({ thresholdBefore, thresholdAfter })}`);
   }
+  await page.evaluate(() => window.__autotest.stop('nee'));
   await assertCameraInvariants();
   await shot('p4-pickup-alarm', 400);
   const initialCrate = await cratePosition();
