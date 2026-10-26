@@ -58,6 +58,7 @@ export class FloorPlanRuntime {
     { role: 'nee' as const, x: 0, y: 0, z: 0, tetherPull: 0 },
   ];
   private readonly yanks: DroneRole[] = [];
+  private readonly yankCounts = { pix: 0, nee: 0 };
   private elapsed = 0;
   private generation = 0;
   private removeNetworkListeners: (() => void)[] = [];
@@ -99,6 +100,8 @@ export class FloorPlanRuntime {
       return;
     }
     this.objectiveState = createObjectiveState(plan.objective);
+    this.yankCounts.pix = 0;
+    this.yankCounts.nee = 0;
     this.objectiveVisuals = new ObjectiveVisuals(this.scene, plan.objective, {
       mesh: this.prototype.mesh,
       cradle: point(run.loot),
@@ -190,6 +193,7 @@ export class FloorPlanRuntime {
   }
 
   notifyYank(role: DroneRole): void {
+    this.yankCounts[role] += 1;
     if (!this.session) this.yanks.push(role);
   }
 
@@ -275,6 +279,7 @@ export class FloorPlanRuntime {
         drawCalls: number;
         bodies: number;
         planHash: string;
+        yanks: () => { pix: number; nee: number };
       };
     };
     hook.__floorPlan = {
@@ -288,6 +293,7 @@ export class FloorPlanRuntime {
       drawCalls: (this.build?.drawCalls ?? 0) + (this.objectiveVisuals?.drawCalls ?? 0) + (this.hazardVisuals?.drawCalls ?? 0),
       bodies: this.build?.bodies ?? 0,
       planHash: stableHash(JSON.stringify(plan)),
+      yanks: () => ({ ...this.yankCounts }),
     };
   }
 }

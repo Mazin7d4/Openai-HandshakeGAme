@@ -5,7 +5,10 @@ export const OBJECTIVE_TUNING = Object.freeze({
   leverRadius: 3,
   leverHoldSeconds: 1,
   pylonHookRadius: 2.5,
-  pylonPullStrain: 0.7,
+  // The bot intentionally settles just inside its 1.2 m hold radius. A
+  // qualifying wrap therefore needs to begin below the visual redline so the
+  // safe remains inside its hook radius while the first pull lands.
+  pylonPullStrain: 0.35,
   pylonPullSeconds: 0.6,
   pylonCooldown: 0.8,
   pylonWrapRadius: 2,

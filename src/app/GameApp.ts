@@ -644,6 +644,8 @@ export class GameApp {
       },
       /** Current seed/mode/floor/captures for UI + seed-sync checks. */
       runState: () => getRunState(),
+      /** TEST-ONLY: current held object for carry/objective verification. */
+      heldObject: (role: DroneRole) => this.gameplay.heldObjectId(role),
       /** TEST-ONLY Night Shift floor advance (HANDSHAKE_TEST_HOOKS=1). */
       debugRunEscape: () => this.multiplayer?.debugRunEscape(),
       /** TEST-ONLY: force the authoritative room into the results phase. */
