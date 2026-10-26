@@ -59,6 +59,16 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     if (solid) addStaticBody(mesh, scene);
     return mesh;
   };
+  const wallCap = (name: string, x: number, z: number, w: number, d: number, material: Material = p.dark) =>
+    box(`${name}-cap`, x, 9.35, z, w, 0.7, d, material, true);
+  const partitionTrim = (name: string, z: number, segments: [number, number][]) => {
+    for (const [x, width] of segments) {
+      box(`${name}-frosted-band`, x, 7.85, z, width, 0.3, 0.2, p.glass, false);
+      for (let mx = x - width / 2 + 2; mx < x + width / 2; mx += 4) {
+        box(`${name}-mullion`, mx, 6.85, z, 0.08, 4.3, 0.24, p.metal, false);
+      }
+    }
+  };
   const signGlow = new StandardMaterial('sign-lip-glow', scene);
   signGlow.diffuseColor = new Color3(1, 0.86, 0.62); signGlow.emissiveColor = new Color3(1, 0.8, 0.52);
   signGlow.specularColor = Color3.Black();
@@ -77,13 +87,6 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     frame.parent = mesh; frame.position.z = 0.08; frame.material = p.metal; frame.isPickable = false;
     const lip = CreateBox(`${name}-lip`, { width: width * 0.92, height: 0.07, depth: 0.16 }, scene);
     lip.parent = mesh; lip.position.set(0, h / 2 + 0.1, -0.06); lip.material = signGlow; lip.isPickable = false;
-    if (y > 5) {
-      const drop = Math.max(0.4, 14.2 - (y + h / 2));
-      for (const dx of [-width * 0.38, width * 0.38]) {
-        const rod = CreateCylinder(`${name}-hanger`, { diameter: 0.05, height: drop, tessellation: 6 }, scene);
-        rod.parent = mesh; rod.position.set(dx, h / 2 + drop / 2, 0.08); rod.material = p.metal; rod.isPickable = false;
-      }
-    }
     return mesh;
   };
   const desk = (name: string, x: number, z: number, width = 9) => {
@@ -96,40 +99,55 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     box(`${name}-screen-stem`, x + 1.5, 4.4, z + 0.8, 0.2, 1.3, 0.2, p.metal, false);
   };
   // Entire building: 8 x 18 m at the established drone scale. Roof is a collision-only cutaway.
-  box('foundation', 0, -0.4, -20, 40, 0.8, 96, p.floor);
-  box('east-wall', 19, 7, -18, 0.6, 14, 92, p.paint, true, true);
-  box('west-wall', -19, 7, -18, 0.6, 14, 92, p.sage, true, true);
-  box('north-wall', 0, 7, 27, 38, 14, 0.6, p.paint, true, true);
-  box('south-boundary', 0, 7, -67, 38, 14, 0.6, p.sage, true, true);
-  const roof = box('cutaway-roof-collider', 0, 14.4, -19, 38, 0.5, 94); roof.isVisible = false;
-  // Continuous service spine is isolated until the alarm vents it at the north end.
-  box('service-spine-south', -12, 7, -28, 0.5, 14, 58, p.sage, true, true);
-  box('service-spine-north', -12, 7, 5, 0.5, 14, 8, p.sage, true, true);
-  box('service-spine-vault', -12, 7, 22, 0.5, 14, 10, p.sage, true, true);
-  box('service-entry-header', -12, 10, 13, 0.5, 8, 8, p.paint, true, true);
+  box('foundation', 0, -0.4, -10, 40, 0.8, 114, p.floor);
+  box('east-wall', 19, 4.5, -10, 0.6, 9, 114, p.paint);
+  box('west-wall', -19, 4.5, -10, 0.6, 9, 114, p.sage);
+  box('north-wall', 0, 4.5, 47, 38, 9, 0.6, p.paint);
+  box('south-boundary', 0, 4.5, -67, 38, 9, 0.6, p.sage);
+  wallCap('east-wall', 19, -10, 0.8, 114); wallCap('west-wall', -19, -10, 0.8, 114);
+  wallCap('north-wall', 0, 47, 38, 0.8); wallCap('south-boundary', 0, -67, 38, 0.8);
+  const rollerLeaf = box('loading-roller-door', 11, 4.5, 46.62, 10, 8, 0.18, p.dark);
+  wallCap('loading-roller-door', 11, 46.62, 10.5, 0.8);
+  const rollerFrame = box('loading-roller-door-frame', 6, 4.5, 46.58, 0.35, 9, 0.9, p.metal, false);
+  box('loading-roller-door-frame', 16, 4.5, 46.58, 0.35, 9, 0.9, p.metal, false);
+  wallCap('loading-roller-door-frame', 6, 46.58, 0.8, 1.0, p.metal);
+  wallCap('loading-roller-door-frame', 16, 46.58, 0.8, 1.0, p.metal);
+  rollerLeaf.isPickable = false;
+  rollerFrame.isPickable = false;
+  const roof = box('cutaway-roof-collider', 0, 9.2, -10, 38, 0.5, 114); roof.isVisible = false;
   // Arrival: delivery apron, human reception and a visible high service vent.
-  box('entry-wall-left', -9, 7, -55, 6, 14, 0.5, p.paint, true, true);
-  box('entry-wall-right', 11, 7, -55, 16, 14, 0.5, p.paint, true, true);
-  box('entry-header', -1.5, 10, -55, 9, 8, 0.5, p.wood, true, true);
+  box('entry-wall-left', -12.5, 2.35, -55, 13, 4.7, 0.5, p.paint); wallCap('entry-wall-left', -12.5, -55, 13, 0.8);
+  box('entry-wall-right', 11, 2.35, -55, 16, 4.7, 0.5, p.paint); wallCap('entry-wall-right', 11, -55, 16, 0.8);
+  box('entry-glass-left', -12.5, 6.85, -55, 13, 4.3, 0.16, p.glass); wallCap('entry-glass-left', -12.5, -55, 13, 0.3, p.metal);
+  box('entry-glass-right', 11, 6.85, -55, 16, 4.3, 0.16, p.glass); wallCap('entry-glass-right', 11, -55, 16, 0.3, p.metal);
+  box('entry-header', -1.5, 8.5, -55, 9, 1, 0.6, p.wood); wallCap('entry-header', -1.5, -55, 9, 0.8, p.wood);
+  partitionTrim('entry-partition', -55, [[-12.5, 13], [11, 16]]);
   desk('reception', -4.5, -49, 11);
-  sign('reception-sign', 'MORROW / ROBOTICS', '01   RESEARCH ANNEX     /     DELIVERIES BELOW', 2, 9, -54.6, 12);
-  sign('tiny-route', 'STAFF ACCESS  ↑', 'Under the desk. Up through the service vent.', -4, 2.1, -51.25, 5);
+  sign('reception-sign', '02 RECEPTION', '', 2, 2.6, -54.6, 6);
+  sign('apron-sign', '01 APRON', '', -14, 2.6, -66.6, 5);
   // A crawl route under furniture leads to a mandatory ascent, with a broad alternate opening.
-  box('office-divider-low', 3, 2.35, -43, 30, 4.7, 0.6, p.sage, true, true);
-  box('office-divider-high', 3, 11, -43, 30, 6, 0.6, p.paint, true, true);
+  box('office-divider-low-west', -13.25, 2.35, -43, 11.5, 4.7, 0.6, p.sage); wallCap('office-divider-low-west', -13.25, -43, 11.5, 0.9);
+  box('office-divider-low-east', 8.25, 2.35, -43, 21.5, 4.7, 0.6, p.sage); wallCap('office-divider-low-east', 8.25, -43, 21.5, 0.9);
+  box('office-divider-glass-west', -13.25, 6.85, -43, 11.5, 4.3, 0.16, p.glass);
+  box('office-divider-glass-east', 8.25, 6.85, -43, 21.5, 4.3, 0.16, p.glass);
+  box('vent-glass-top', -5, 8.55, -43, 5, 0.9, 0.16, p.glass);
+  wallCap('office-divider-glass-west', -13.25, -43, 11.5, 0.3, p.metal); wallCap('office-divider-glass-east', 8.25, -43, 21.5, 0.3, p.metal);
+  partitionTrim('vent-partition', -43, [[-13.25, 11.5], [8.25, 21.5]]);
   box('vent-sill', -5, 4.8, -43, 5, 0.22, 5, p.metal);
   box('vent-left', -7.6, 6.4, -43, 0.2, 3.4, 5, p.metal, true, true);
   box('vent-right', -2.4, 6.4, -43, 0.2, 3.4, 5, p.metal, true, true);
-  sign('vent-sign', '↑  SERVICE VENT', 'Rise together • keep the cord loose', -5, 8.8, -46, 6);
   // Office cooperative pocket: PIX on the desktop; NEE at the under-desk patch bay.
   desk('office-pix', -5, -33, 9);
   desk('office-nee', 7, -31, 8);
   box('office-rug', 1, 0.025, -35, 20, 0.04, 12, p.blue, false);
   box('office-glass', 13, 7, -35, 0.14, 14, 15, p.glass, true);
-  sign('office-sign', '02 / TWO KEYS', 'PIX: desk console    /    NEE: patch bay below', 1, 10, -27.4, 11);
-  // A full-height partition prevents simply flying over the access shutter.
-  for (const x of [-8, 10.5]) box('office-wall', x, 7, -26, x < 0 ? 8 : 17, 14, 0.6, p.paint, true, true);
-  box('office-door-header', -1, 10, -26, 6, 8, 0.6, p.wood, true, true);
+  sign('office-sign', '03 OFFICE', '', 1, 2.6, -27.4, 5.5);
+  box('office-wall-west', -11.5, 2.35, -26, 15, 4.7, 0.6, p.paint); wallCap('office-wall-west', -11.5, -26, 15, 0.9);
+  box('office-wall-east', 10.5, 2.35, -26, 17, 4.7, 0.6, p.paint); wallCap('office-wall-east', 10.5, -26, 17, 0.9);
+  box('office-glass-west', -11.5, 6.85, -26, 15, 4.3, 0.16, p.glass); box('office-glass-east', 10.5, 6.85, -26, 17, 4.3, 0.16, p.glass);
+  wallCap('office-glass-west', -11.5, -26, 15, 0.3, p.metal); wallCap('office-glass-east', 10.5, -26, 17, 0.3, p.metal);
+  partitionTrim('office-partition', -26, [[-11.5, 15], [10.5, 17]]);
+  box('office-door-header', -1, 8.5, -26, 6, 1, 0.6, p.wood); wallCap('office-door-header', -1, -26, 6, 0.8, p.wood);
   // Server gallery: alternating aisle ends and a high maintenance shelf. All flight gaps ≥ 2.4 units.
   for (const [z, x, width] of [[-21, -4, 16], [-13, 7, 22]] as const) {
     box(`rack-bank-${z}`, x, 3.9, z, width, 7.8, 2.6, p.dark, true, true);
@@ -142,12 +160,16 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     }
   }
   box('server-maintenance-shelf', -5, 5.7, -5.8, 10, 0.25, 5, p.metal);
-  sign('server-sign', '03 / MEMORY ARRAY', 'Follow the cable trays ↑  Authorize the vault', -3, 10.6, -4.8, 10);
-  // Main lab door retains the existing replicated all-hacks-complete condition.
-  box('lab-door-left', -7.4, 7, 2, 9.2, 14, 0.7, p.paint, true, true);
-  box('lab-door-right', 10.4, 7, 2, 15.2, 14, 0.7, p.paint, true, true);
-  box('lab-door-header', 0, 9.2, 2, 5.6, 9.6, 0.7, p.wood, true, true);
-  sign('lab-sign', '04 / ROBOTICS', 'MORROW     /     SMALL THINGS. BIG IDEAS.', 3, 11.3, 2.5, 12);
+  sign('server-sign', '04 SERVERS', '', -3, 2.6, -4.8, 5.5);
+  // Main lab partition: the replicated HackSession door occupies the central opening.
+  box('lab-door-left', -10.9, 2.35, 2, 16.2, 4.7, 0.7, p.paint); wallCap('lab-door-left', -10.9, 2, 16.2, 1.0);
+  box('lab-door-right', 10.4, 2.35, 2, 15.2, 4.7, 0.7, p.paint); wallCap('lab-door-right', 10.4, 2, 15.2, 1.0);
+  box('lab-glass-left', -10.9, 6.85, 2, 16.2, 4.3, 0.16, p.glass); box('lab-glass-right', 10.4, 6.85, 2, 15.2, 4.3, 0.16, p.glass);
+  wallCap('lab-glass-left', -10.9, 2, 16.2, 0.3, p.metal); wallCap('lab-glass-right', 10.4, 2, 15.2, 0.3, p.metal);
+  partitionTrim('lab-partition', 2, [[-10.9, 16.2], [10.4, 15.2]]);
+  box('lab-door-header', 0, 8.5, 2, 5.6, 1, 0.7, p.wood); wallCap('lab-door-header', 0, 2, 5.6, 0.9, p.wood);
+  sign('lab-sign', '05 LAB', '', 3, 2.6, 2.5, 5);
+  sign('dock-sign', '06 DOCK', '', 11, 2.6, 46.5, 5);
   // Hero lab: real-scale benches, clear central floor and a display at human worktop height.
   box('hero-oak-wall', 2, 6, 26.55, 28, 12, 0.18, p.wood, false);
   for (let x = -10; x <= 16; x += 1.2) box('oak-batten', x, 6, 26.35, 0.12, 12, 0.2, p.wood, false);
@@ -271,35 +293,13 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     box('pendant-diffuser', x, 11.52, z, 6.7, 0.04, 0.95, p.light, false);
     for (const dx of [-2.6, 2.6]) box('pendant-wire', x + dx, 13, z, 0.025, 2.5, 0.025, p.dark, false);
   }
-  // Escape: a fast west spine, two altitude changes and a final dive onto the delivery pad.
-  box('escape-low-obstacle', -15.5, 1.6, -9, 6.4, 3.2, 0.7, p.wood);
-  box('escape-low-obstacle-cap', -15.5, 3.24, -9, 6.5, 0.08, 0.8, p.metal, false);
-  box('escape-high-obstacle', -15.5, 10.6, -34, 6.4, 6.8, 0.7, p.sage, true, true);
-  const strips: Mesh[] = [];
-  for (let z = 13; z > -60; z -= 6) {
-    const strip = box('escape-route-light', -15.5, 0.055, z, 0.5, 0.06, 2.8, p.escape, false);
-    strips.push(strip);
-  }
-  const exitSign = sign('exit-sign', '←  PRESSURE RELIEF', 'Automatic evacuation route', -11.6, 7.3, 13, 6);
-  exitSign.rotation.y = -Math.PI / 2;
-  const pickupSign = sign('extraction-sign', 'PICKUP / 01', 'Both drones + the core. Then we go home.', -15, 5.5, -65.5, 7);
-  pickupSign.rotation.y = Math.PI;
-  box('extraction-pad', -15, 0.08, -61, 6.5, 0.16, 7, p.dark);
-  for (const dx of [-2.8, 2.8]) box('extraction-lamp', -15 + dx, 0.22, -61, 0.15, 0.1, 6, p.escape, false);
-
   const plugin = scene.getPhysicsEngine()!.getPhysicsPlugin() as HavokPlugin;
-  const officeDoor = new Door(scene, plugin, { name: 'office-access-shutter', x: -1, y: 3, z: -26, width: 6, height: 6, depth: 0.5, travel: 7 });
-  officeDoor.mesh.material = p.sage; officeDoor.mesh.metadata = { cameraOccluder: true };
-  const escapeDoor = new Door(scene, plugin, { name: 'pressure-relief-shutter', x: -12, y: 3, z: 13, width: 0.5, height: 6, depth: 8, travel: 7 });
-  escapeDoor.mesh.material = p.metal; escapeDoor.mesh.metadata = { cameraOccluder: true }; // aluminium roller shutter (coral is NEE's)
-  // Readability: graphite jamb frames make each doorway read at camera distance; the escape jambs carry exit-green strips.
+  const officeDoor = new Door(scene, plugin, { name: 'office-access-shutter', x: -1, y: 3, z: -26, width: 6, height: 6, depth: 0.5, travel: -6.2 });
+  officeDoor.mesh.material = p.sage;
+  // Chunk C hook: vault-backdrop-doors will replace the removed escapeDoor wiring.
+  // Readability: graphite jamb frames make each doorway read at camera distance.
   for (const dx of [-3.25, 3.25]) box('door-jamb', -1 + dx, 3, -26, 0.5, 6.2, 1.0, p.dark, false);
   for (const dx of [-3.05, 3.05]) box('door-jamb', dx, 2.2, 2, 0.5, 4.6, 1.1, p.dark, false);
-  box('door-jamb', -12, 6.25, 13, 1.0, 0.5, 9, p.dark, false);
-  for (const dz of [-4.25, 4.25]) {
-    box('door-jamb', -12, 3, 13 + dz, 1.0, 6.2, 0.5, p.dark, false);
-    for (const sx of [-0.52, 0.52]) box('exit-jamb-strip', -12 + sx, 3, 13 + dz, 0.05, 5.4, 0.16, p.escape, false);
-  }
   // Objective beacons: a slowly spinning diamond and a breathing floor ring above the next goal(s).
   // Purely presentational and driven from replicated mission state, so they are identical for both players.
   const beaconMat = new StandardMaterial('objective-beacon', scene);
@@ -346,10 +346,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   levels.set(scene, { update(dt, state) {
     elapsed += dt;
     officeDoor.setOpen(state.officeOpen); officeDoor.update(dt);
-    escapeDoor.setOpen(state.alarm || state.complete); escapeDoor.update(dt);
     p.escape.emissiveColor.set(state.alarm ? 0.22 : 0.06, state.alarm ? 0.8 : 0.17, state.alarm ? 0.43 : 0.1);
-    strips.forEach((mesh, i) => { mesh.visibility = state.alarm ? 0.65 + 0.35 * Math.sin(elapsed * 5 + i * 0.8) : 0.18; });
-    exitSign.scaling.setAll(state.alarm ? 1.04 : 1);
 
     // ── Vault reveal ──
     const wantOpen = !!state.vaultOpen;

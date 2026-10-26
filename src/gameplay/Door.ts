@@ -46,6 +46,8 @@ export class Door {
   update(dt: number): void {
     const target = this.open ? this.openY : this.closedY;
     this.mesh.position.y += (target - this.mesh.position.y) * (1 - Math.exp(-5 * dt));
+    // Some doors open by sinking into the floor; hide the leaf once its top is below it.
+    this.mesh.isVisible = this.mesh.position.y + this.mesh.getBoundingInfo().boundingBox.extendSize.y > 0;
     this.plugin.setPhysicsBodyTransformation(this.aggregate.body, this.mesh);
   }
 

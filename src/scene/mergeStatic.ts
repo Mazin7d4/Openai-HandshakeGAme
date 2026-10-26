@@ -109,16 +109,13 @@ export function isDynamicOrInteractive(mesh: AbstractMesh): boolean {
   const n = mesh.name;
   if (mesh.metadata?.cameraOccluder) return true;
   if (isMascotMesh(mesh)) return true;
-  return n.startsWith('escape-route-light')
-    || n.startsWith('exit-sign') // scales on alarm
-    || n.startsWith('vault-belljar')
+  return n.startsWith('vault-belljar')
     || n.startsWith('vault-halo')
     || n.startsWith('vault-beam') // alarm/vault reveal alpha
     || n.startsWith('plinth-ring')
     || n.startsWith('alarm-beacon')
     || n.includes('beacon')
     || n.startsWith('office-access-shutter')
-    || n.startsWith('pressure-relief-shutter')
     || n.startsWith('p01-')
     || n.startsWith('labcrate-')
     || n.startsWith('terminal-')

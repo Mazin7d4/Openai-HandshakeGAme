@@ -385,7 +385,7 @@ export class CinematicCamera {
         }
       }
       // Cut fully through a blocking wall; a stack of translucent panels still reads as a
-      // grey foreground slab on the long service-spine sightline.
+      // Keep the camera clear of foreground geometry on the long north sightline.
       mesh.visibility = smooth(mesh.visibility, obscures ? 0 : 1, obscures ? 16 : 5, dt);
     }
   }

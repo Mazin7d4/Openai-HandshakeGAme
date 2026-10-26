@@ -12,7 +12,7 @@ import type { PropPlacement } from './PropKit.ts';
 type Palette = ReturnType<typeof createLabPalette>;
 
 /**
- * Decorative, collision-free set dressing for reception, vent, office, server gallery and escape spine.
+ * Decorative, collision-free set dressing for reception, vent, office and server gallery.
  * Everything is batched per material and merged into a handful of static meshes, so the extra detail
  * costs roughly one draw call per material. Nothing here owns physics, mission or network state, and
  * all props sit outside the authored flight routes (under-desk crawl, vent, office door, rack aisles).
@@ -64,9 +64,9 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
     box(faceX ? x + (x > 0 ? -0.08 : 0.08) : x, y, faceX ? z : z + (z > 0 ? -0.08 : 0.08), faceX ? 0.06 : w, h, faceX ? w : 0.06, art);
   };
   const pendant = (x: number, z: number, len = 6) => {
-    box(x, 13.3, z, len, 0.28, 1.1, p.metal);
-    box(x, 13.14, z, len - 0.3, 0.04, 0.85, p.light);
-    for (const dx of [-len / 2 + 0.6, len / 2 - 0.6]) box(x + dx, 13.8, z, 0.03, 0.9, 0.03, cable);
+    box(x, 8.25, z, len, 0.28, 1.1, p.metal);
+    box(x, 8.09, z, len - 0.3, 0.04, 0.85, p.light);
+    for (const dx of [-len / 2 + 0.6, len / 2 - 0.6]) box(x + dx, 8.7, z, 0.03, 0.9, 0.03, cable);
   };
 
   // ---------- 00 DELIVERY APRON ----------
@@ -116,13 +116,13 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   // Wall-mounted everyday props:
   // Round wall clock on south wall high (y≈10):
   const clockRim = CreateTorus('dress', { diameter: 1.6, thickness: 0.12, tessellation: 32 }, scene);
-  clockRim.position.set(0, 10, -66.62); clockRim.rotation.x = Math.PI / 2; add(clockRim, p.dark);
-  cyl(0, 10, -66.64, 0.04, 1.48, 1.48, white, 32).rotation.x = Math.PI / 2;
-  const hHand = box(0.12, 10.12, -66.60, 0.04, 0.36, 0.02, p.dark);
+  clockRim.position.set(0, 8.1, -66.62); clockRim.rotation.x = Math.PI / 2; add(clockRim, p.dark);
+  cyl(0, 8.1, -66.64, 0.04, 1.48, 1.48, white, 32).rotation.x = Math.PI / 2;
+  const hHand = box(0.12, 8.22, -66.60, 0.04, 0.36, 0.02, p.dark);
   hHand.rotation.z = -Math.PI / 4;
-  const mHand = box(-0.16, 10.20, -66.59, 0.03, 0.52, 0.02, p.dark);
+  const mHand = box(-0.16, 8.3, -66.59, 0.03, 0.52, 0.02, p.dark);
   mHand.rotation.z = Math.PI / 3;
-  cyl(0, 10, -66.58, 0.04, 0.08, 0.08, p.dark, 12).rotation.x = Math.PI / 2;
+  cyl(0, 8.1, -66.58, 0.04, 0.08, 0.08, p.dark, 12).rotation.x = Math.PI / 2;
 
   // Two wall sconces with p.light diffusers on the south wall (symmetric at x=±8):
   for (const sx of [-8, 8]) {
@@ -206,16 +206,15 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   frame(18.65, 8.5, -50, 4, 3, p.blue, true); frame(18.65, 8.5, -45, 2.8, 3.6, p.coral, true);
   frame(18.65, 5.5, -42.6, 2.2, 1.6, yellow, true);
   pendant(4, -49); pendant(12, -46);
-  // Floor: oak entry mat and a soft wayfinding stripe toward the staff vent.
+  // Floor: oak entry mat.
   box(-1.5, 0.02, -53, 8, 0.03, 3, p.dark);
-  for (let i = 0; i < 4; i++) box(-4.8, 0.035, -51 + i * 1.6, 0.9, 0.03, 0.5, yellow);
 
   // ---------- VENT / OFFICE DIVIDER ----------
-  // Louvre slats left and right of the opening, a duct climbing to the ceiling and hazard chevrons.
+  // Louvre slats left and right of the opening, with a duct kept below the cutaway.
   for (let y = 5.4; y < 8; y += 0.45) {
     for (const x of [-9.6, -0.6]) box(x, y, -43.35, 3.6, 0.1, 0.2, p.metal);
   }
-  kit.place({ prop: 'Duct', x: -5, y: 12, z: -43, ry: Math.PI / 2, scale: 0.9 });
+  kit.place({ prop: 'Duct', x: -5, y: 8.2, z: -43, ry: Math.PI / 2, scale: 0.9 });
   for (let i = 0; i < 5; i++) box(-7.2 + i * 1.1, 4.64, -45.7, 0.5, 0.06, 0.35, yellow, 0.6);
   box(-5, 4.66, -45.7, 5.2, 0.03, 0.08, cable);
   kit.place({ prop: 'Plant', x: 14, z: -44.8, scale: 0.7 });
@@ -242,11 +241,11 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   pendant(-4, -34); pendant(7, -32);
 
   // ---------- 03 SERVER GALLERY ----------
-  // Overhead cable trays (wayfinding: "follow the cable trays") lead north toward the maintenance shelf.
+  // Overhead cable trays stay below the cutaway cap.
   for (const x of [-9, 14]) {
-    box(x, 12.4, -14, 2, 0.12, 22, p.metal);
-    for (const dx of [-0.95, 0.95]) box(x + dx, 12.65, -14, 0.08, 0.5, 22, p.metal);
-    for (let i = 0; i < 4; i++) cyl(x - 0.6 + i * 0.4, 12.62, -14, 22, 0.24, 0.24, i % 2 ? p.blue : cable, 6).rotation.x = Math.PI / 2;
+    box(x, 8.25, -14, 2, 0.12, 22, p.metal);
+    for (const dx of [-0.95, 0.95]) box(x + dx, 8.5, -14, 0.08, 0.5, 22, p.metal);
+    for (let i = 0; i < 4; i++) cyl(x - 0.6 + i * 0.4, 8.47, -14, 22, 0.24, 0.24, i % 2 ? p.blue : cable, 6).rotation.x = Math.PI / 2;
   }
   // Glowing LED bars on the rack faces (cold aisle) and amber backs, all one merged mesh per colour.
   for (const [z, x, width] of [[-21, -4, 16], [-13, 7, 22]] as const) {
@@ -264,43 +263,8 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
     kit.place({ prop: 'Cooling', x: 17.4, z });
 
   }
-  for (const y of [11.2, 11.7]) cyl(18.3, y, -15.5, 20, 0.3, 0.3, copper, 8).rotation.x = Math.PI / 2;
+  for (const y of [7.8, 8.3]) cyl(18.3, y, -15.5, 20, 0.3, 0.3, copper, 8).rotation.x = Math.PI / 2;
   pendant(-4, -17, 8); pendant(8, -9, 8);
-
-  // ---------- ESCAPE SPINE / SERVICE ----------
-  // Exposed services along the west wall: copper and blue pipes, storage shelving with colourful bins.
-  for (const [y, m] of [[12.2, copper], [11.6, p.blue], [11.0, copper]] as const) {
-    cyl(-18.4, y, -20, 80, 0.35, 0.35, m, 8).rotation.x = Math.PI / 2;
-  }
-  for (const z of [-46, -24, -2]) {
-    kit.place({ prop: 'Shelving', x: -18.2, z });
-
-  }
-  // Robotics-lab finish for the spine: oak wainscot + aluminium rail on both walls, warm wall washers,
-  // a ceiling cable tray, and two planters at the pickup end. All merged; nothing enters the flight lane.
-  const glow = make('wall-washer', '#FFF1D6', 0.6, 0, '#FFD9A0');
-  for (const [x0, z0, z1] of [[-12.32, -56, 0.5], [-12.32, 1.5, 8.6], [-18.62, -60, 10]] as const) {
-    const dir = x0 > -15 ? -1 : 1;
-    for (let z = z0; z < z1 - 0.5; z += 4) {
-      const len = Math.min(3.85, z1 - z);
-      box(x0, 1.5, z + len / 2, 0.12, 2.9, len - 0.1, p.wood);
-    }
-    box(x0 + dir * 0.06, 3.05, (z0 + z1) / 2, 0.14, 0.12, z1 - z0, p.metal);
-    box(x0 + dir * 0.04, 0.12, (z0 + z1) / 2, 0.12, 0.24, z1 - z0, p.dark);
-  }
-  for (let z = -52; z <= 6; z += 12) {
-    box(-12.45, 8.2, z, 0.12, 0.45, 2.6, glow);
-    box(-12.33, 8.2, z, 0.1, 0.7, 2.9, p.metal);
-  }
-  box(-13, 12.6, -24, 0.9, 0.08, 72, p.metal);
-  for (const dx of [-0.25, 0, 0.22]) cyl(-13 + dx, 12.72, -24, 72, 0.12, 0.12, cable, 6).rotation.x = Math.PI / 2;
-  for (const z of [-58, -50]) kit.place({ prop: 'Plant', x: -18, z });
-  // Painted chevrons on the escape floor, pointing toward pickup.
-  for (let z = 10; z > -58; z -= 12) {
-    for (const s of [-1, 1]) box(-15.5 + s * 1.2, 0.03, z, 2, 0.02, 0.35, yellow, s * 0.7);
-  }
-  // Extraction pad: hazard border.
-  for (let i = 0; i < 6; i++) box(-17.6 + i * 1.05, 0.18, -64.7, 0.5, 0.04, 0.4, yellow, 0.6);
 
   const merged: Mesh[] = [];
   for (const [material, meshes] of groups) {
@@ -311,7 +275,7 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
     merged.push(m);
   }
   // Freeze static dressing materials whose properties do not change at runtime.
-  for (const mat of [mustard, teal, pink, yellow, white, cyanLed, amberLed, copper, cable, glow, apronWainscot, cork]) mat.freeze();
+  for (const mat of [mustard, teal, pink, yellow, white, cyanLed, amberLed, copper, cable, apronWainscot, cork]) mat.freeze();
   return merged;
 }
 
