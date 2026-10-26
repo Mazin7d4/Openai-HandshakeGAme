@@ -472,7 +472,7 @@ export class GameApp {
       ? campaignGenerator?.(campaignId) ?? null
       : runSeed ? generateNightShiftRun(runSeed.seed, runSeed.floor) : null;
     if (runLayout?.plan?.campaign) applyCampaignPalette(scene, runLayout.plan.campaign.index);
-    else if (campaignId && campaignGenerator) applyCampaignPalette(scene, campaignGenerator(campaignId).plan.campaign?.index ?? 1);
+    else if (campaignId && campaignGenerator) applyCampaignPalette(scene, campaignGenerator(campaignId).plan?.campaign?.index ?? 1);
     // TEST-ONLY: ?autotest&stage=escape starts local modes in the alarm escape, beside the heavy crate.
     const escapeStage = Autopilot.enabled && mode !== 'multiplayer'
       && new URLSearchParams(window.location.search).get('stage') === 'escape';
