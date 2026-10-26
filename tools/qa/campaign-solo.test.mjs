@@ -182,6 +182,10 @@ async function completeRelay(page, objective) {
     if (pad.role === 'pix') {
       await page.evaluate((point) => window.__autotest.teleport('pix', point.x - 1.2, Math.max(1.8, point.y), point.z + 1.2), pad);
       await gotoPoint(page, 'pix', pad, 0.7, true);
+    } else {
+      // Keep the AI partner in the authored relay room while it settles on
+      // its pad; the bot still owns the role and the objective detects it.
+      await page.evaluate((point) => window.__autotest.teleport('nee', point.x - 1.2, Math.max(1.8, point.y), point.z + 1.2), pad);
     }
     const expected = objective.pads.indexOf(pad) + 1;
     try {
