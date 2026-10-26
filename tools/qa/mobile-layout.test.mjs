@@ -69,7 +69,7 @@ await runTest('mobile-layout', async (browser, notes) => {
   notes.pause = await audit(page, 'pause');
   await page.getByTestId('pause-settings').tap();
   notes.settings = await audit(page, 'settings');
-  for (const tab of ['visuals', 'accessibility', 'controls']) {
+  for (const tab of ['visuals', 'accessibility', 'controls', 'cosmetics']) {
     await page.getByTestId(`settings-tab-${tab}`).tap();
     await audit(page, `settings ${tab}`);
   }
@@ -97,7 +97,7 @@ await runTest('mobile-layout', async (browser, notes) => {
     notes[`pause${size.width}`] = await audit(extra, `pause ${size.width}x${size.height}`);
     await extra.getByTestId('pause-settings').tap();
     notes[`settings${size.width}`] = await audit(extra, `settings ${size.width}x${size.height}`);
-    for (const tab of ['visuals', 'accessibility', 'controls']) {
+    for (const tab of ['visuals', 'accessibility', 'controls', 'cosmetics']) {
       await extra.getByTestId(`settings-tab-${tab}`).tap();
       await audit(extra, `settings ${tab} ${size.width}x${size.height}`);
     }
