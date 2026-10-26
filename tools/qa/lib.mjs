@@ -31,7 +31,13 @@ export function url(extra = {}) {
 
 export function assert(cond, msg) { if (!cond) throw new Error(msg); }
 
-export async function launch() { return chromium.launch({ headless: true, args: GL_ARGS }); }
+export async function launch() {
+  // Headless Chromium must not inherit a stale Xvfb DISPLAY. On this box the
+  // display can disappear under load while SwiftShader itself is still usable;
+  // inheriting that dead display makes ANGLE fail before WebGL context creation.
+  const { DISPLAY: _display, WAYLAND_DISPLAY: _waylandDisplay, ...headlessEnv } = process.env;
+  return chromium.launch({ headless: true, args: GL_ARGS, env: headlessEnv });
+}
 export { devices };
 
 /**

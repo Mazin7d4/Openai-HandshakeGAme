@@ -242,7 +242,7 @@ export class MissionDirector {
       uiParent.append(objective);
       objective.addEventListener('click', () => {
         if (objective.dataset.collapsed !== '1') return;
-        this.expandObjective();
+        this.expandObjective(true);
       });
       this.colourBlindSafe = getSettings().colourBlindSafe;
       this.unsubSettings = subscribeSettings((s) => {
@@ -746,9 +746,14 @@ export class MissionDirector {
     return true;
   }
 
-  private expandObjective(): void {
+  private expandObjective(fromUser = false): void {
     if (!this.objective || !this.compactObjective()) return;
     if (this.objectiveCollapseTimer !== null) window.clearTimeout(this.objectiveCollapseTimer);
+    if (isTouchPlayDevice() && !fromUser) {
+      this.objective.classList.add('mission-objective--collapsed');
+      this.objective.dataset.collapsed = '1';
+      return;
+    }
     this.objective.classList.remove('mission-objective--collapsed');
     this.objective.dataset.collapsed = '0';
     this.objectiveCollapseTimer = window.setTimeout(() => {
