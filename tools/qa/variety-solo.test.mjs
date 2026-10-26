@@ -1,5 +1,6 @@
 import { mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import { generateRun } from '../../shared/seed/index.mjs';
+import { estimateFloorDrawCalls } from '../../shared/nightshift/drawBudget.mjs';
 import { runTest, url, assert, collectErrors, openPage, closePage, waitForNightShiftHud } from './lib.mjs';
 
 const shotDir = '/workspace/handshake/playtest/oct25/nightshift';
@@ -91,6 +92,7 @@ await runTest('variety-solo', async (browser, notes) => {
     }, choice.plan);
     assert(hook.planHash === expectedHash, `plan hash mismatch on floor ${choice.floor}`);
     assert(hook.drawCalls <= 25, `draw calls over budget on floor ${choice.floor}: ${hook.drawCalls}`);
+    assert(hook.drawCalls <= estimateFloorDrawCalls(choice.plan), `draw-call estimate too low on floor ${choice.floor}: ${hook.drawCalls} > ${estimateFloorDrawCalls(choice.plan)}`);
     assert(hook.bodies <= 40, `bodies over budget on floor ${choice.floor}: ${hook.bodies}`);
     const objectivePoint = choice.plan.objective.levers?.[0]
       ?? choice.plan.objective.safe

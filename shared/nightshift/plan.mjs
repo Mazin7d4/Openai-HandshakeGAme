@@ -1,4 +1,5 @@
 import { intRange, mixSeed, mulberry32, pick } from '../seed/prng.mjs';
+import { DRAW_CALL_BUDGET, MAX_HAZARDS_ALL_DRESSED, estimateFloorDrawCalls } from './drawBudget.mjs';
 import {
   ANCHOR_POOLS,
   ROOM_BOUNDS,
@@ -794,6 +795,8 @@ function hazardCount(floor, rand) {
 
 function buildHazards(rand, floor, layout, objective, rooms) {
   let count = hazardCount(floor, rand);
+  // Every room dressed is the heaviest build; keep its hazards light so the floor fits the draw budget.
+  if (rooms.every((roomPlan) => roomPlan.archetype !== 'classic')) count = Math.min(count, MAX_HAZARDS_ALL_DRESSED);
   const unlocked = ['tripwire', 'sweeper'];
   if (floor >= 2 && layout.twist?.id !== 'slippery_floor') unlocked.push('ice');
   if (floor >= 3) unlocked.push('gust');
@@ -859,6 +862,8 @@ function buildPlan(seed, floor, layout, rand, options = {}) {
     pieces: roomPieces(slot, archetypes[index], rand, layout, objective),
   }));
   const hazards = options.noHazards ? [] : buildHazards(rand, floor, layout, objective, rooms);
+  // Trim trailing hazards (never the forced laser-vault tripwire first) until the floor fits the draw budget.
+  while (hazards.length > 0 && estimateFloorDrawCalls({ rooms, objective, hazards }) > DRAW_CALL_BUDGET) hazards.pop();
   const name = floor === 1 ? 'The Night Shift Tryout' : `${boss ? 'VAULT: ' : ''}${pick(rand, JOB_NAMES)}`;
   const objectiveText = objective.kind === 'grab' ? 'grab the prototype' : objective.kind.replace('-', ' ');
   const blurb = floor === 1
@@ -1141,5 +1146,7 @@ export function validateFloorPlan(plan, layout) {
     if (reason) return { ok: false, reason };
   }
   if (plan.hazards.length > PLAN_LIMITS.maxHazards) return { ok: false, reason: 'hazard limit exceeded' };
+  if (plan.rooms.every((room) => room.archetype !== 'classic') && plan.hazards.length > MAX_HAZARDS_ALL_DRESSED) return { ok: false, reason: 'too many hazards for a fully dressed floor' };
+  if (estimateFloorDrawCalls(plan) > DRAW_CALL_BUDGET) return { ok: false, reason: 'draw-call budget exceeded' };
   return { ok: true };
 }
