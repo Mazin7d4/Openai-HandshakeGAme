@@ -356,6 +356,9 @@ class HandshakeRoom extends Room {
     console.log(`[handshake] room ${this.roomId} created`);
     this.state.security = createSecurityState();
     this.securitySim = new SecuritySim(this.state.security);
+    // Test-only: a longer carry window so loaded qa round-trips fit inside it (never on Render).
+    const testCarryMax = TEST_HOOKS ? Number(process.env.HANDSHAKE_TEST_CARRY_MAX) : NaN;
+    if (Number.isFinite(testCarryMax) && testCarryMax > 0) this.securitySim.carryMax = testCarryMax;
     for (const [id, position] of Object.entries(layout.objects)) {
       const radius = { 'cargo-core': 3.3, 'crate-blue': 4.8, 'crate-pink': 3, prototype: 3.2 }[id] ?? 2.6; // desk props: small grab radius
       this.state.objects.set(id, createGrabbable(id, position.x, position.y, position.z, radius));

@@ -103,6 +103,69 @@ export async function waitForGame(page, timeout = 120_000) {
   await page.locator('#boot-status').waitFor({ state: 'detached', timeout });
 }
 
+/** Wait for the first rendered scene frames and the touch pause control to be live. */
+export async function waitForSceneReady(page, timeout = 60_000) {
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-testid="touch-pause"]');
+    if (!(button instanceof HTMLElement)) return false;
+    const style = getComputedStyle(button);
+    const box = button.getBoundingClientRect();
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0'
+      || box.width <= 0 || box.height <= 0) return false;
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
+    });
+  }, null, { timeout });
+}
+
+/** Retry a touch transition until its visible/selected effect is observed. */
+export async function tapUntil(page, testId, effectTestId, { deadline = 45_000 } = {}) {
+  const end = Date.now() + deadline;
+  const selectedEffect = effectTestId.startsWith('settings-tab-');
+  let lastError = 'effect was not observed';
+
+  const effectReady = async () => {
+    const effect = page.getByTestId(effectTestId);
+    try {
+      if (!(await effect.isVisible())) return false;
+      if (!selectedEffect) return true;
+      return (await effect.getAttribute('aria-selected')) === 'true';
+    } catch (error) {
+      lastError = String(error?.message ?? error).split('\n', 1)[0];
+      return false;
+    }
+  };
+
+  while (Date.now() < end) {
+    if (await effectReady()) return;
+    const remaining = end - Date.now();
+    try {
+      await page.getByTestId(testId).tap({ timeout: Math.min(5_000, remaining) });
+    } catch (error) {
+      lastError = String(error?.message ?? error).split('\n', 1)[0];
+      continue;
+    }
+    const effectTimeout = Math.min(3_000, end - Date.now());
+    if (effectTimeout <= 0) break;
+    try {
+      await page.waitForFunction(({ id, selected }) => {
+        const effect = document.querySelector(`[data-testid="${id}"]`);
+        if (!(effect instanceof HTMLElement)) return false;
+        const style = getComputedStyle(effect);
+        const box = effect.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0'
+          && box.width > 0 && box.height > 0
+          && (!selected || effect.getAttribute('aria-selected') === 'true');
+      }, { id: effectTestId, selected: selectedEffect }, { timeout: effectTimeout });
+      return;
+    } catch (error) {
+      lastError = String(error?.message ?? error).split('\n', 1)[0];
+    }
+    if (Date.now() >= end) break;
+  }
+  throw new Error(`tapUntil ${testId} -> ${effectTestId} timed out after ${deadline}ms: ${lastError}`);
+}
+
 /** Night Shift HUD ready: floor chip visible (and beat chip when a ?beat= is in play). */
 export async function waitForNightShiftHud(page, { beat = false, timeout = 30_000 } = {}) {
   await waitForGame(page, timeout);

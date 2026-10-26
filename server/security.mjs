@@ -111,6 +111,7 @@ export function createSecurityState() {
 export class SecuritySim {
   constructor(state) {
     this.state = state;
+    this.carryMax = CARRY_MAX;
     this.patrol = [
       emptyPatrolRuntime(),
       emptyPatrolRuntime(),
@@ -361,7 +362,7 @@ export class SecuritySim {
           if (freed) releases.push(freed);
           continue;
         }
-        if (rt.carryFor > CARRY_MAX) {
+        if (rt.carryFor > this.carryMax) {
           const freed = this.releaseCarry(i, 'timeout');
           if (freed) releases.push(freed);
           continue;

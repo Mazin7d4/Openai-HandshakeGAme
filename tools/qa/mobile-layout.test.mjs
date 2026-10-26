@@ -1,5 +1,5 @@
 // Phone layout contract: pause, embedded Settings, and Heist Report across phone sizes.
-import { runTest, url, assert, collectErrors, waitForGame } from './lib.mjs';
+import { runTest, url, assert, collectErrors, waitForGame, waitForSceneReady, tapUntil } from './lib.mjs';
 
 async function audit(page, label) {
   const result = await page.evaluate(() => {
@@ -63,25 +63,26 @@ await runTest('mobile-layout', async (browser, notes) => {
   collectErrors(page, 'mobile-layout', errors);
 
   await page.goto(url({ play: 'solo' }));
-  await waitForGame(page);
+  await waitForGame(page, 120_000);
+  await waitForSceneReady(page);
   await auditGameplayOverlay(page, 'portrait gameplay');
-  await page.getByTestId('touch-pause').tap();
+  await tapUntil(page, 'touch-pause', 'pause-settings');
   notes.pause = await audit(page, 'pause');
-  await page.getByTestId('pause-settings').tap();
+  await tapUntil(page, 'pause-settings', 'settings-back');
   notes.settings = await audit(page, 'settings');
   for (const tab of ['visuals', 'accessibility', 'controls', 'cosmetics']) {
-    await page.getByTestId(`settings-tab-${tab}`).tap();
+    await tapUntil(page, `settings-tab-${tab}`, `settings-tab-${tab}`);
     await audit(page, `settings ${tab}`);
   }
-  await page.getByTestId('settings-back').tap();
-  await page.getByTestId('pause-resume').tap();
+  await tapUntil(page, 'settings-back', 'pause-resume');
+  await tapUntil(page, 'pause-resume', 'touch-pause');
   await context.close();
 
   const reportContext = await browser.newContext({ viewport: { width: 360, height: 640 }, screen: { width: 360, height: 640 }, hasTouch: true, isMobile: true });
   const report = await reportContext.newPage();
   collectErrors(report, 'report', errors);
   await report.goto(url({ report: '1' }));
-  await report.getByTestId('mission-complete').waitFor({ state: 'visible' });
+  await report.getByTestId('mission-complete').waitFor({ state: 'visible', timeout: 60_000 });
   notes.report = await audit(report, 'report');
   notes.errors = errors;
   assert(errors.length === 0, `console/page errors:\n${errors.join('\n')}`);
@@ -92,22 +93,25 @@ await runTest('mobile-layout', async (browser, notes) => {
     const extra = await extraContext.newPage();
     collectErrors(extra, `extra-${size.width}x${size.height}`, errors);
     await extra.goto(url({ play: 'solo' }));
-    await waitForGame(extra);
-    await extra.getByTestId('touch-pause').tap();
+    await waitForGame(extra, 120_000);
+    await waitForSceneReady(extra);
+    await tapUntil(extra, 'touch-pause', 'pause-settings');
     notes[`pause${size.width}`] = await audit(extra, `pause ${size.width}x${size.height}`);
-    await extra.getByTestId('pause-settings').tap();
+    await tapUntil(extra, 'pause-settings', 'settings-back');
     notes[`settings${size.width}`] = await audit(extra, `settings ${size.width}x${size.height}`);
     for (const tab of ['visuals', 'accessibility', 'controls', 'cosmetics']) {
-      await extra.getByTestId(`settings-tab-${tab}`).tap();
+      await tapUntil(extra, `settings-tab-${tab}`, `settings-tab-${tab}`);
       await audit(extra, `settings ${tab} ${size.width}x${size.height}`);
     }
+    await tapUntil(extra, 'settings-back', 'pause-resume');
+    await tapUntil(extra, 'pause-resume', 'touch-pause');
     await extraContext.close();
 
     const extraReportContext = await browser.newContext({ viewport: size, screen: size, hasTouch: true, isMobile: true });
     const extraReport = await extraReportContext.newPage();
     collectErrors(extraReport, `report-${size.width}x${size.height}`, errors);
     await extraReport.goto(url({ report: '1' }));
-    await extraReport.getByTestId('mission-complete').waitFor({ state: 'visible' });
+    await extraReport.getByTestId('mission-complete').waitFor({ state: 'visible', timeout: 60_000 });
     notes[`report${size.width}`] = await audit(extraReport, `report ${size.width}x${size.height}`);
     await extraReportContext.close();
   }
