@@ -1031,6 +1031,7 @@ class HandshakeRoom extends Room {
       const bot = this.state.players.get('bot');
       if (bot) bot.connected = true;
       if (this.quickMatch && this.quickMatchAllowed && [...this.state.players.values()].filter((candidate) => !candidate.bot && candidate.connected).length < 2) this.unlock();
+      this.sendObjectiveState(client);
     }
   }
 
@@ -1390,6 +1391,10 @@ class HandshakeRoom extends Room {
 
   stepObjective(dt) {
     if (!this.floorPlan?.objective || this.state.mission.stage === 'complete') return;
+    const disconnectedHuman = Array.from(this.state.players.values()).some(
+      (player) => player.bot !== true && player.connected === false,
+    );
+    if (disconnectedHuman) return;
     const events = this.objectiveSim.step(
       Math.max(0, Math.min(0.25, dt)),
       Array.from(this.state.players.values()),
@@ -1470,7 +1475,7 @@ class HandshakeRoom extends Room {
       this.markSpotted(role);
     }
     if (this.floorPlan?.hazards && this.state.mission.stage !== 'complete') {
-      const hazardPlayers = players.map((player) => ({
+      const hazardPlayers = players.filter((player) => player.connected).map((player) => ({
         role: player.role,
         x: player.position.x,
         y: player.position.y,
