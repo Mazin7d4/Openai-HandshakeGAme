@@ -794,7 +794,9 @@ export class GameApp {
         if (wantsYank && !net?.captured && !this.gameplay.isRoleHacking(player.role)) this.yank(player);
         if (interactions.pause) {
           if (this.coach?.isActive) this.coach.skip();
-          else this.setPaused(true);
+          // Start is the pause toggle even while the first-run coach is visible;
+          // dismissing the coach must not consume the pause edge.
+          this.setPaused(true);
         }
         switchDrone ||= control.interactions.switchDrone;
         if (player.role === this.hudRole() && player.control instanceof HumanControlSource) {
