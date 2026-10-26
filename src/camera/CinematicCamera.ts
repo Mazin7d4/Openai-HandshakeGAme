@@ -18,7 +18,7 @@ const FRAME_LIFT = 1.7;
 const TOUCH_RELEASE_S = 2;
 const ZOOM_MIN = 0.85;
 const ZOOM_MAX = 1.10;
-const MIN_EYE_Y = 11.5;
+const MIN_EYE_Y = 12.2; // wall caps top out at 9.7; keep >= 2.5 above them
 
 /** Authored dolly with a fixed compass heading. Mouse right-drag + touch look pad. */
 export class CinematicCamera {
@@ -34,7 +34,7 @@ export class CinematicCamera {
   private readonly right = new Vector3(0.946, 0, -0.325).normalize();
   private placed = false;
   private distance = 14.5;
-  private pitch = 0.78;
+  private pitch = 0.9;
   private reveal = 0;
   private occluders: AbstractMesh[] | null = null;
   private occluderMeshCount = -1;
@@ -281,7 +281,7 @@ export class CinematicCamera {
     this.reveal = smooth(this.reveal, revealTarget, 1.3, safeDt);
     const extracting = this.focus.z > 28; // Loading Dock escape
     const vent = this.focus.z > -47 && this.focus.z < -39;
-    const targetPitch = extracting ? 0.85 : vent ? 0.70 : inLab ? 0.74 : 0.78;
+    const targetPitch = extracting ? 0.95 : vent ? 0.84 : inLab ? 0.86 : 0.9;
     this.pitch = this.placed ? smooth(this.pitch, targetPitch, 1.6, safeDt) : targetPitch;
     const angle = Math.atan2(this.forward.x, this.forward.z) + this.lookYaw;
     const pitch = this.pitch + this.lookPitch;

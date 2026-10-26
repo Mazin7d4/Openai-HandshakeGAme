@@ -94,7 +94,7 @@ export class HackSession {
       }),
     ];
     this.door = new Door(scene, plugin, {
-      name: 'lab-access-door', x: 0, y: 3, z: 2, width: 5.6, height: 6, depth: 0.7, travel: -6.2,
+      name: 'lab-access-door', x: 0, y: 4, z: 2, width: 5.6, height: 8, depth: 0.7, travel: -8.2,
     });
   }
 
@@ -192,7 +192,7 @@ export class HackSession {
       station.update(dt, this.ownerFor(station.id), this.completeFor(station.id));
     }
     const inLabThreshold = [...drones.values()].some((drone) =>
-      Math.abs(drone.position.x) < 3.1 && Math.abs(drone.position.z - 2) < 1.25 && drone.position.y < 6.2,
+      Math.abs(drone.position.x) < 3.1 && Math.abs(drone.position.z - 2) < 1.25 && drone.position.y < 8.2,
     );
     this.door.setCloseBlocked(this.alarmed && inLabThreshold);
     this.door.setOpen(this.doorOpen && !this.alarmed);
