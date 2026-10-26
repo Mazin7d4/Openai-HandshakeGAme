@@ -623,6 +623,11 @@ export class GameApp {
           ? { eye: new Vector3(eye.x, eye.y, eye.z), target: new Vector3(target.x, target.y, target.z) }
           : null;
       },
+      /** Test-only geometry/camera invariants for the authored heist bot route. */
+      cameraDiagnostics: () => ({
+        eyeY: this.cameraRig.camera.position.y,
+        cameraOccluders: this.cameraRig.fadeableOccluderNames(),
+      }),
       /** Ask the server for a test stage (needs HANDSHAKE_TEST_HOOKS=1 on the server). */
       debugStage: (stage: 'hack-security' | 'steal-prototype' | 'escape') => {
         if (this.multiplayer) this.multiplayer.debugStage(stage === 'escape' ? 'escape' : stage);

@@ -100,7 +100,7 @@ async function main() {
     await sleep(100);
   }
   await waitFor(() => proto().heldBy === 'nee', 'bot received prototype', 1500);
-  const extraction = followRoom.world?.extraction ?? { x: -15, y: 2, z: -61 };
+  const extraction = followRoom.world?.extraction ?? { x: 11, y: 2, z: 43.5 };
   const carryStartDistance = distance(followRoom.state.players.get('bot').position, extraction);
   await sendPath(followRoom, itemPoint, extraction, 3000);
   const carryMidDistance = distance(followRoom.state.players.get('bot').position, extraction);

@@ -285,8 +285,8 @@ try {
   const crateDist = Math.hypot(finalCratePos.x - initialCratePos.x, finalCratePos.z - initialCratePos.z);
   assert(crateDist > 3, `Crate only moved ${crateDist.toFixed(2)} units (expected > 3)`);
 
-  // The alarm opens the west relief vent; return using its own vertical route.
-  await travel(escape.slice(3));
+  // The alarm opens the dock backdrop; take the straight east-side route around the conveyor.
+  await travel(escape);
 
   // 9. Mission complete appears for both
   await Promise.all([

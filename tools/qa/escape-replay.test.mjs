@@ -2,13 +2,13 @@
 // the Heist Report follows, and "Watch replay" on the report plays it again and returns to the report.
 import { runTest, url, assert, collectErrors, shot, openPage, closePage, waitForGame } from './lib.mjs';
 
-const EXTRACTION = { x: -15, y: 2.2, z: -61 };
+const EXTRACTION = { x: 11, y: 2, z: 43.5 };
 
 async function extract(page) {
   // Start a few metres out so the ring buffer holds a real approach, then fly both drones in.
   await page.evaluate(() => {
-    window.__autotest.teleport('nee', -7, 2.2, -61);
-    window.__autotest.teleport('pix', -6, 2.2, -59);
+    window.__autotest.teleport('nee', 8, 2.2, 41);
+    window.__autotest.teleport('pix', 9, 2.2, 40);
   });
   await page.waitForTimeout(700);
   await page.evaluate((p) => {

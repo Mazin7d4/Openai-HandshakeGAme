@@ -397,6 +397,11 @@ export class CinematicCamera {
     }
   }
 
+  /** Names of meshes the camera may fade (test diagnostics). */
+  fadeableOccluderNames(): string[] {
+    return this.scene.meshes.filter(mesh => mesh.metadata?.cameraOccluder && this.isPropOccluder(mesh)).map(mesh => mesh.name);
+  }
+
   private isPropOccluder(mesh: AbstractMesh): boolean {
     const name = mesh.name.toLowerCase();
     // Architectural meshes must remain solid in the dollhouse cutaway. The
