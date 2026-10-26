@@ -82,7 +82,12 @@ function finite(value) {
 
 export function validateRun(run, limits = {}) {
   if (!run || (run.mode !== 'daily' && run.mode !== 'nightshift')) return { ok: false, reason: 'mode' };
-  if (run.humans !== 2 || run.bots !== 0) return { ok: false, reason: 'players' };
+  const kind = run.humans === 2 && run.bots === 0
+    ? 'coop'
+    : run.humans === 1 && run.bots === 1
+      ? 'solo'
+      : null;
+  if (!kind) return { ok: false, reason: 'players' };
   if (run.tainted && limits.acceptTainted !== true) return { ok: false, reason: 'tainted' };
 
   const now = utcDate(run.now);
@@ -91,7 +96,9 @@ export function validateRun(run, limits = {}) {
   if (run.mode === 'daily') {
     const started = utcDate(run.missionStartedAt);
     const elapsed = Number(run.elapsedSeconds);
-    const minSeconds = Number.isFinite(limits.minDailySeconds) ? limits.minDailySeconds : 30;
+    const minSeconds = kind === 'solo'
+      ? (Number.isFinite(limits.soloMinDailySeconds) ? limits.soloMinDailySeconds : 45)
+      : (Number.isFinite(limits.minDailySeconds) ? limits.minDailySeconds : 30);
     if (!finite(elapsed) || elapsed < minSeconds || elapsed > 3600) return { ok: false, reason: 'daily-time' };
     if (!started || elapsed > (now.getTime() - started.getTime()) / 1000 + 2) return { ok: false, reason: 'daily-wall-clock' };
     if ((!finite(Number(run.lootDelivered)) || Number(run.lootDelivered) < 1) && !(run.tainted && limits.acceptTainted === true)) return { ok: false, reason: 'loot' };
@@ -99,7 +106,7 @@ export function validateRun(run, limits = {}) {
     const nowKey = dateKey(now);
     const matches = [startedKey, nowKey].filter((key, index, keys) => keys.indexOf(key) === index && Number(run.seed) === dailySeed(key));
     if (matches.length === 0) return { ok: false, reason: 'daily-seed' };
-    return { ok: true, boards: [`daily:${matches[0]}`] };
+    return { ok: true, boards: [`${kind === 'solo' ? 'solo:' : ''}daily:${matches[0]}`], kind };
   }
 
   if (!Number.isFinite(run.captures) || run.captures < Number(run.maxCaptures)) return { ok: false, reason: 'captures' };
@@ -110,14 +117,17 @@ export function validateRun(run, limits = {}) {
   const runStarted = utcDate(run.runStartedAt);
   if (!runStarted) return { ok: false, reason: 'run-start' };
   const duration = (now.getTime() - runStarted.getTime()) / 1000;
-  const minFloorSeconds = Number.isFinite(limits.minFloorSeconds) ? limits.minFloorSeconds : 20;
+  const minFloorSeconds = kind === 'solo'
+    ? (Number.isFinite(limits.soloMinFloorSeconds) ? limits.soloMinFloorSeconds : 25)
+    : (Number.isFinite(limits.minFloorSeconds) ? limits.minFloorSeconds : 20);
   if (duration < floors * minFloorSeconds || duration > 8 * 60 * 60) return { ok: false, reason: 'duration' };
   const week = isoWeekKey(now);
-  return { ok: true, boards: ['nightshift:all', `nightshift:week:${week}`] };
+  const prefix = kind === 'solo' ? 'solo:' : '';
+  return { ok: true, boards: [`${prefix}nightshift:all`, `${prefix}nightshift:week:${week}`], kind };
 }
 
 function boardType(board) {
-  return board.startsWith('daily:') ? 'daily' : 'nightshift';
+  return board.startsWith('daily:') || board.startsWith('solo:daily:') ? 'daily' : 'nightshift';
 }
 
 function compareEntries(a, b, board) {
@@ -200,8 +210,8 @@ export class LeaderboardStore {
       const keys = Object.keys(this.boards).filter((key) => key.startsWith(prefix)).sort().reverse();
       for (const key of keys.slice(keep)) delete this.boards[key];
     };
-    pruneType('daily:', this.keepDailyBoards);
-    pruneType('nightshift:week:', this.keepWeeklyBoards);
+    for (const prefix of ['daily:', 'solo:daily:']) pruneType(prefix, this.keepDailyBoards);
+    for (const prefix of ['nightshift:week:', 'solo:nightshift:week:']) pruneType(prefix, this.keepWeeklyBoards);
   }
 
   scheduleWrite() {
@@ -291,6 +301,11 @@ export class LeaderboardStore {
       daily: { key: dailyKey, entries: this.top(dailyKey) },
       nightshift: { key: 'nightshift:all', entries: this.top('nightshift:all') },
       nightshiftWeek: { key: weekKey, entries: this.top(weekKey) },
+      solo: {
+        daily: { key: `solo:${dailyKey}`, entries: this.top(`solo:${dailyKey}`) },
+        nightshift: { key: 'solo:nightshift:all', entries: this.top('solo:nightshift:all') },
+        nightshiftWeek: { key: `solo:nightshift:week:${isoWeekKey(date)}`, entries: this.top(`solo:nightshift:week:${isoWeekKey(date)}`) },
+      },
     };
   }
 }

@@ -32,7 +32,7 @@ export function renderLeaderboardRows(entries: readonly Entry[], boardKey: strin
   return list;
 }
 
-type Tab = 'daily' | 'nightshift' | 'week';
+type Tab = 'daily' | 'nightshift' | 'week' | 'solo';
 
 export class LeaderboardPanel {
   readonly root: HTMLElement;
@@ -58,6 +58,7 @@ export class LeaderboardPanel {
       daily: this.tab(tabs, 'Daily', 'lb-tab-daily', 'daily'),
       nightshift: this.tab(tabs, 'Night Shift', 'lb-tab-nightshift', 'nightshift'),
       week: this.tab(tabs, 'This week', 'lb-tab-week', 'week'),
+      solo: this.tab(tabs, 'Solo + AI', 'lb-tab-solo', 'solo'),
     };
     this.list = document.createElement('ol');
     this.list.dataset.testid = 'lb-list';
@@ -107,7 +108,9 @@ export class LeaderboardPanel {
     if (!this.data) return null;
     return this.activeTab === 'daily'
       ? this.data.daily
-      : this.activeTab === 'week' ? this.data.nightshiftWeek : this.data.nightshift;
+      : this.activeTab === 'week' ? this.data.nightshiftWeek
+        : this.activeTab === 'solo' ? (this.data.solo?.nightshift ?? { key: 'solo:nightshift:all', entries: [] })
+          : this.data.nightshift;
   }
 
   private render(): void {

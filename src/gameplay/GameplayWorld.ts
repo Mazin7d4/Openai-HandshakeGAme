@@ -11,6 +11,7 @@ import type { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole, RoomStatus } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
 import type { RunLayout } from '../seed/index.ts';
+import { BOT_TUNING } from '../../shared/bot/brain.mjs';
 import { applyRunLayout, generateRun } from '../seed/index.ts';
 import { getRunState, onFloorStart, setLayoutSinkProvider } from '../run/ClientRun.ts';
 import { GrabSystem } from './GrabSystem.ts';
@@ -239,7 +240,7 @@ export class GameplayWorld {
   botObjective(role: DroneRole, leader: Vector3): Vector3 | null {
     if (this.mission.stage !== 'hack-security') return null;
     const station = this.hack.botStation(role);
-    if (!station || Vector3.Distance(station.position, leader) > 15) return null;
+    if (!station || Vector3.Distance(station.position, leader) > BOT_TUNING.objectiveRange) return null;
     return station.position.add(new Vector3(0, 0.4, 0));
   }
 

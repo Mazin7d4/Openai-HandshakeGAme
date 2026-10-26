@@ -524,6 +524,16 @@ export class HeistReport {
     const coop = this.currentCoopState;
     const isCoop = Boolean(coop && coop.players.size > 1);
     this.leaderboardRenderedCoop = isCoop;
+    if (this.leaderboardSkipReason === 'offline') {
+      section.hidden = false;
+      section.replaceChildren();
+      const note = document.createElement('p');
+      note.className = 'heist-report__leaderboard-muted';
+      note.dataset.testid = 'leaderboard-unranked';
+      note.textContent = 'Unranked (offline)';
+      section.append(note);
+      return;
+    }
     if (!isCoop || (!this.leaderboardPayload && !this.leaderboardSkipReason)) {
       section.hidden = true;
       section.replaceChildren();
@@ -545,14 +555,17 @@ export class HeistReport {
     }
 
     const payload = this.leaderboardPayload;
-    const board = payload?.boards.find((candidate) => candidate.key.startsWith('daily:') || candidate.key === 'nightshift:all');
+    const board = payload?.boards.find((candidate) => candidate.key.startsWith('daily:') || candidate.key.startsWith('solo:daily:') || candidate.key === 'nightshift:all' || candidate.key === 'solo:nightshift:all');
     if (!payload || !board) {
       section.hidden = true;
       return;
     }
     const heading = document.createElement('h2');
     heading.className = 'heist-report__leaderboard-title';
-    heading.textContent = board.key.startsWith('daily:') ? 'Daily board' : 'Night Shift board';
+    const solo = board.key.startsWith('solo:');
+    heading.textContent = board.key.includes('daily:')
+      ? (solo ? 'Solo + AI daily board' : 'Daily board')
+      : (solo ? 'Solo + AI board' : 'Night Shift board');
     section.append(heading);
     const list = renderLeaderboardRows(board.entries, board.key, payload.id);
     list.dataset.testid = 'leaderboard-list';
@@ -689,7 +702,8 @@ function cordDivider(): HTMLElement {
 }
 
 function leaderboardSkipText(reason: string): string {
-  if (reason === 'bot' || reason === 'solo' || reason === 'players') return 'bot runs and solo runs are not ranked.';
+  if (reason === 'bot' || reason === 'solo') return 'bot runs and solo runs are not ranked.';
+  if (reason === 'players') return 'only co-op and solo-with-AI server runs are ranked.';
   if (reason === 'tainted') return 'tainted runs are not ranked.';
   if (reason === 'too-fast' || reason === 'daily-time' || reason === 'duration') return 'runs under the minimum time are not ranked.';
   if (reason === 'rate-limit') return 'too many submissions were made.';

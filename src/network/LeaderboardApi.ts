@@ -22,6 +22,7 @@ export interface LeaderboardSummary {
   daily: Board;
   nightshift: Board;
   nightshiftWeek: Board;
+  solo?: { daily: Board; nightshift: Board; nightshiftWeek: Board };
 }
 
 export interface RecordedBoard extends Board {
@@ -93,7 +94,7 @@ export async function fetchLeaderboards({ timeoutMs = 6000, signal }: FetchOptio
 }
 
 export function formatEntryScore(boardKey: string, entry: Entry): string {
-  if (boardKey.startsWith('daily:')) {
+  if (boardKey.includes('daily:')) {
     const tenths = Math.max(0, Math.round((Number(entry.timeSeconds) || 0) * 10));
     const minutes = Math.floor(tenths / 600);
     const seconds = ((tenths % 600) / 10).toFixed(1).padStart(4, '0');

@@ -620,9 +620,12 @@ html[data-reduced-motion='1'] *::after {
 .heist-report__leaderboard-form .btn { min-height: 42px; padding: 7px 12px; }
 .heist-report__leaderboard-form small { grid-column: 1 / -1; min-height: 1.2em; color: var(--pencil); font-size: 13px; }
 .leaderboard-panel { width: 100%; min-width: 0; margin-top: 22px; }
-.leaderboard-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.leaderboard-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .leaderboard-tab { min-height: 44px; padding: 7px 6px; font-size: 14px; }
 .leaderboard-tab.is-active { color: var(--pix-ink); border-color: var(--pix-ink); background: var(--warm-screen); }
+@media (max-width: 420px) {
+  .leaderboard-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .leaderboard-status { min-height: 1.5em; margin-top: 10px; color: var(--pencil); font-size: 14px; }
 .leaderboard-panel > .btn--quiet { min-height: 44px; padding: 6px 10px; }
 .heist-report__stamp {

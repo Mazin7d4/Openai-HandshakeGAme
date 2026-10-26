@@ -37,6 +37,15 @@ function runChecks() {
   assert(validateRun({ ...daily, tainted: true }, {}).reason === 'tainted', 'taint rejected');
   assert(validateRun({ ...daily, tainted: true, lootDelivered: 0 }, { acceptTainted: true }).ok, 'debug daily accepted');
 
+  const soloDaily = {
+    ...daily, now: started + 50_000, elapsedSeconds: 45, humans: 1, bots: 1,
+  };
+  const soloDailyResult = validateRun(soloDaily, {});
+  assert(soloDailyResult.ok && soloDailyResult.kind === 'solo' && soloDailyResult.boards[0] === 'solo:daily:2026-10-25', 'solo daily accepted');
+  assert(validateRun({ ...soloDaily, elapsedSeconds: 44 }, {}).reason === 'daily-time', 'solo daily minimum');
+  assert(validateRun({ ...soloDaily, humans: 1, bots: 0 }, {}).reason === 'players', 'one human without bot rejected');
+  assert(validateRun({ ...soloDaily, humans: 2, bots: 1 }, {}).reason === 'players', 'three-player run rejected');
+
   const night = {
     mode: 'nightshift', seed: 123, missionStartedAt: started, runStartedAt: started,
     now: started + 45_000, elapsedSeconds: 20, timesSpotted: 1, lootDelivered: 0,
@@ -47,6 +56,10 @@ function runChecks() {
   assert(validateRun({ ...night, score: MAX_FLOOR_POINTS * 2 + 1 }, { minFloorSeconds: 20 }).reason === 'score', 'night score bound');
   assert(validateRun({ ...night, floorsCleared: 0 }, { minFloorSeconds: 20 }).reason === 'floors', 'night floors');
   assert(validateRun({ ...night, now: started + 20_000 }, { minFloorSeconds: 20 }).reason === 'duration', 'night duration');
+  const soloNight = { ...night, now: started + 55_000, humans: 1, bots: 1 };
+  const soloNightResult = validateRun(soloNight, {});
+  assert(soloNightResult.ok && soloNightResult.kind === 'solo' && soloNightResult.boards.includes('solo:nightshift:all'), 'solo night accepted');
+  assert(validateRun({ ...soloNight, now: started + 49_000 }, {}).reason === 'duration', 'solo night minimum');
 
   let clock = started;
   const limiter = new RateLimiter({ limit: 2, windowMs: 1000, now: () => clock });
@@ -63,6 +76,11 @@ function runChecks() {
   store.add(['nightshift:all'], { names: { pix: 'PIX', nee: 'NEE' }, score: 100, floors: 1, recordedAt: started, seed: 1 });
   store.add(['nightshift:all'], { names: { pix: 'A', nee: 'B' }, score: 200, floors: 1, recordedAt: started + 1, seed: 1 });
   assert(store.top('nightshift:all')[0].score === 200, 'night ordering');
+  store.add(['solo:daily:2026-10-25'], { names: { pix: 'PIX', nee: 'AI' }, timeSeconds: 30, spotted: 1, recordedAt: started, seed: 1 });
+  store.add(['solo:daily:2026-10-25'], { names: { pix: 'A', nee: 'AI' }, timeSeconds: 20, spotted: 2, recordedAt: started + 1, seed: 1 });
+  assert(store.top('solo:daily:2026-10-25')[0].timeSeconds === 20, 'solo daily ordering');
+  const summary = store.boardsSummary(started);
+  assert(summary.solo.daily.key === 'solo:daily:2026-10-25' && summary.solo.nightshift.key === 'solo:nightshift:all', 'solo summary');
   const id = store.top('daily:2026-10-25')[0].id;
   assert(store.rename(id, 'pix', 'Ace'), 'rename');
   store.flushSync();

@@ -464,6 +464,17 @@ export class MultiplayerSession {
     return new MultiplayerSession(room, options.beat);
   }
 
+  static async createBotRoom(options: { mode: RunMode; seed?: number }, timeoutMs: number): Promise<MultiplayerSession> {
+    const client = new Client(serverEndpoint());
+    const createOptions: { seed?: number; mode: RunMode; bot: true } = { mode: options.mode, bot: true };
+    if (typeof options.seed === 'number' && Number.isFinite(options.seed)) createOptions.seed = options.seed >>> 0;
+    const room = await withConnectTimeout(
+      client.create<SchemaRoomState>('handshake', createOptions),
+      Math.max(1, timeoutMs),
+    );
+    return new MultiplayerSession(room);
+  }
+
   static async quickMatch(options: QuickMatchOptions): Promise<MultiplayerSession> {
     const client = new Client(serverEndpoint());
     const joinOptions: { quickMatch: true; qmKey: string; seed?: number; mode?: RunMode } = {

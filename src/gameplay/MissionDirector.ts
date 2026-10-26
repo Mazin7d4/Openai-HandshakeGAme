@@ -976,10 +976,13 @@ export class MissionDirector {
           },
         };
       }
-      this.report.setLeaderboard(this.leaderboardPayload, this.leaderboardSkipReason);
+      this.report.setLeaderboard(null, this.mode === 'night-shift' ? 'offline' : undefined);
       this.report.show(stats, this.lastNightShiftSummary, this.coopReportState());
     } else {
-      this.report.setLeaderboard(this.leaderboardPayload, this.leaderboardSkipReason);
+      this.report.setLeaderboard(
+        this.multiplayer ? this.leaderboardPayload : null,
+        this.multiplayer ? this.leaderboardSkipReason : this.mode === 'night-shift' ? 'offline' : undefined,
+      );
       this.report.show(stats, this.lastNightShiftSummary, this.coopReportState());
     }
   }

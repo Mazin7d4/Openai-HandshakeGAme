@@ -169,6 +169,50 @@ async function phaseTwo(file) {
   const persistedCors = await getJson(server.port, '/leaderboard', { Origin: 'https://mazin7d4.github.io' });
   assert(persistedCors.response.headers.get('access-control-allow-origin') === 'https://mazin7d4.github.io', 'persisted CORS');
   assert(persisted.body.nightshift.entries.length >= 2, 'night persistence');
+  await server.stop();
+  server = null;
+}
+
+async function phaseThree() {
+  const port = await freePort();
+  server = await startTestServer({
+    port, root,
+    env: {
+      HANDSHAKE_TEST_HOOKS: '1', LEADERBOARD_ACCEPT_DEBUG: '1',
+      LEADERBOARD_SOLO_MIN_FLOOR_SECONDS: '0', LEADERBOARD_SOLO_MIN_DAILY_SECONDS: '1',
+      LEADERBOARD_MIN_FLOOR_SECONDS: '0', LEADERBOARD_IP_LIMIT: '100', LEADERBOARD_FILE: 'off',
+      EMPTY_ROOM_SECONDS: '120', LONELY_ROOM_SECONDS: '120',
+    },
+  });
+  const endpoint = `ws://127.0.0.1:${port}`;
+  const botRoom = await new Client(endpoint).create('handshake', { mode: 'nightshift', bot: true });
+  rooms.push(botRoom);
+  const botEvents = eventsFor(botRoom);
+  await waitFor(() => botRoom.state?.started && botRoom.state.players?.size === 2 && [...botRoom.state.players.values()].some((player) => player.bot), 'solo bot room started');
+  botRoom.send('debug-run-clear', { elapsedSeconds: 0, timesSpotted: 0 });
+  await waitFor(() => botRoom.state.run.floorCleared, 'solo floor clear');
+  botRoom.send('run-next-floor', { floor: 1 });
+  await waitFor(() => botRoom.state.run.floor === 2, 'solo next floor');
+  botRoom.send('debug-run-capture'); botRoom.send('debug-run-capture'); botRoom.send('debug-run-capture');
+  await waitFor(() => botEvents.recorded.length + botEvents.skipped.length === 1, 'solo leaderboard decision');
+  assert(botEvents.recorded.length === 1, `solo run skipped: ${botEvents.skipped[0]?.reason}`);
+  assert(botEvents.recorded[0].boards.some((board) => board.key === 'solo:nightshift:all'), 'solo board missing');
+  assert(!botEvents.recorded[0].boards.some((board) => board.key === 'nightshift:all'), 'solo entered co-op board');
+  const soloBoard = await getJson(port, '/leaderboard');
+  assert(soloBoard.body.solo.nightshift.entries.length === 1, 'solo HTTP board missing');
+  assert(soloBoard.body.solo.nightshift.entries[0].display.includes('AI'), 'solo display missing AI');
+
+  const humanOnly = await new Client(endpoint).create('handshake', { mode: 'nightshift' });
+  rooms.push(humanOnly);
+  const humanEvents = eventsFor(humanOnly);
+  await waitFor(() => humanOnly.state?.players?.size === 1, 'human-only room');
+  humanOnly.send('debug-run-capture'); humanOnly.send('debug-run-capture'); humanOnly.send('debug-run-capture');
+  await sleep(1200);
+  assert(humanEvents.recorded.length === 0, 'human-only run was recorded');
+  if (humanEvents.skipped.length) assert(humanEvents.skipped[0].reason === 'players', 'human-only skip reason');
+  result.notes.solo = { board: 'solo:nightshift:all', humanOnlySkipped: humanEvents.skipped[0]?.reason ?? 'not-started' };
+  await server.stop();
+  server = null;
 }
 
 async function main() {
@@ -177,13 +221,14 @@ async function main() {
   const file = join(tempRoot, 'lb.json');
   await phaseOne(file);
   await phaseTwo(file);
+  await phaseThree();
 }
 
 const hardTimeout = setTimeout(() => {
-  console.log(`QA_RESULT ${JSON.stringify({ ...result, error: 'overall timeout 90s' })}`);
+  console.log(`QA_RESULT ${JSON.stringify({ ...result, error: 'overall timeout 120s' })}`);
   server?.child.kill('SIGTERM');
   process.exit(1);
-}, 90_000);
+}, 120_000);
 
 try {
   await main();

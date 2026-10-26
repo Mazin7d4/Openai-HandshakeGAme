@@ -46,6 +46,8 @@ const LEADERBOARD_FILE = process.env.LEADERBOARD_FILE === 'off'
 const LEADERBOARD_IP_LIMIT = Number.parseInt(process.env.LEADERBOARD_IP_LIMIT ?? '12', 10);
 const LEADERBOARD_MIN_DAILY_SECONDS = Number.parseFloat(process.env.LEADERBOARD_MIN_DAILY_SECONDS ?? '30');
 const LEADERBOARD_MIN_FLOOR_SECONDS = Number.parseFloat(process.env.LEADERBOARD_MIN_FLOOR_SECONDS ?? '20');
+const LEADERBOARD_SOLO_MIN_DAILY_SECONDS = Number.parseFloat(process.env.LEADERBOARD_SOLO_MIN_DAILY_SECONDS ?? '45');
+const LEADERBOARD_SOLO_MIN_FLOOR_SECONDS = Number.parseFloat(process.env.LEADERBOARD_SOLO_MIN_FLOOR_SECONDS ?? '25');
 const LEADERBOARD_ACCEPT_DEBUG = TEST_HOOKS && process.env.LEADERBOARD_ACCEPT_DEBUG === '1';
 const leaderboardStore = new LeaderboardStore({ file: LEADERBOARD_FILE });
 leaderboardStore.load();
@@ -819,6 +821,8 @@ class HandshakeRoom extends Room {
     }, {
       minDailySeconds: LEADERBOARD_MIN_DAILY_SECONDS,
       minFloorSeconds: LEADERBOARD_MIN_FLOOR_SECONDS,
+      soloMinDailySeconds: LEADERBOARD_SOLO_MIN_DAILY_SECONDS,
+      soloMinFloorSeconds: LEADERBOARD_SOLO_MIN_FLOOR_SECONDS,
       acceptTainted: LEADERBOARD_ACCEPT_DEBUG,
     });
     if (!validation.ok) {
@@ -850,6 +854,10 @@ class HandshakeRoom extends Room {
       recordedAt: now,
       seed: this.runStartSeed,
     };
+    if (validation.kind === 'solo') {
+      const bot = players.find((player) => player.bot === true);
+      if (bot?.role === 'pix' || bot?.role === 'nee') entryBase.names[bot.role] = 'AI';
+    }
     const added = leaderboardStore.add(validation.boards, entryBase);
     this.leaderboardRecordedSerial = this.runSerial;
     this.leaderboardDecisionSerial = this.runSerial;
@@ -1228,6 +1236,20 @@ class HandshakeRoom extends Room {
         : null;
   }
 
+  get terminalRange() {
+    return TERMINAL_RANGE;
+  }
+
+  botHackStation(role) {
+    for (const stationId of ['terminal-a', 'terminal-b', 'terminal-c']) {
+      const fields = this.stationFields(stationId);
+      if (fields?.role === role && !this.state.hack[fields.complete]) {
+        return { stationId, position: this.world.terminals[stationId] };
+      }
+    }
+    return null;
+  }
+
   startHack(sessionId, message) {
     const player = this.state.players.get(sessionId);
     const stationId = message?.stationId;
@@ -1258,15 +1280,20 @@ class HandshakeRoom extends Room {
       this.state.hack[fields.owner] !== player.role ||
       distance(player.position, this.world.terminals[stationId]) > TERMINAL_RANGE
     ) return;
+    this.completeHackForRole(player, stationId);
+  }
+
+  completeHackForRole(player, stationId) {
+    const fields = this.stationFields(stationId);
+    if (!player || !fields || this.state.hack[fields.complete] || this.state.hack[fields.owner] !== player.role) return false;
     this.state.hack[fields.complete] = true;
     player.hacks = Math.min(65535, player.hacks + 1);
     this.state.hack[fields.owner] = '';
     this.state.hack.doorOpen =
       this.state.hack.stationAComplete && this.state.hack.stationBComplete &&
       this.state.hack.stationCComplete;
-    if (this.state.hack.doorOpen && !this.doorOpenedAt) {
-      this.doorOpenedAt = Date.now();
-    }
+    if (this.state.hack.doorOpen && !this.doorOpenedAt) this.doorOpenedAt = Date.now();
+    return true;
   }
 
   cancelHack(sessionId, message) {
@@ -1681,6 +1708,7 @@ class HandshakeRoom extends Room {
     this.state.hack.stationBComplete = false;
     this.state.hack.stationCComplete = false;
     this.state.hack.doorOpen = false;
+    this.botPilot.reset();
     const prototype = this.state.objects.get('prototype');
     if (prototype) {
       this.setOwnership(prototype, null, 'reset', 'pix');
@@ -1864,7 +1892,7 @@ httpServer.on('request', (req, res) => {
     }
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
     const board = url.searchParams.get('board');
-    if (board !== null && !/^(daily:\d{4}-\d{2}-\d{2}|nightshift:all|nightshift:week:\d{4}-W\d{2})$/.test(board)) {
+    if (board !== null && !/^(daily:\d{4}-\d{2}-\d{2}|solo:daily:\d{4}-\d{2}-\d{2}|nightshift:all|solo:nightshift:all|nightshift:week:\d{4}-W\d{2}|solo:nightshift:week:\d{4}-W\d{2})$/.test(board)) {
       res.writeHead(400, { ...headers, 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'invalid-board' }));
       return;

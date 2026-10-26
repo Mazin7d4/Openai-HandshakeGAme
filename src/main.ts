@@ -18,6 +18,7 @@ import {
   retryWarmup,
   startWarmup,
   waitForServer,
+  warmupReadyWithin,
   warmupIsFresh,
 } from './network/ServerWarmup.ts';
 import {
@@ -34,6 +35,7 @@ import {
   getRunInfo,
   prepareChallengeRun,
   prepareDailyRun,
+  peekRunIntent,
   runOptionsFromSearch,
 } from './net/runInfo.ts';
 import { getBest } from './run/nightShiftScore.ts';
@@ -98,6 +100,7 @@ const root: HTMLElement = rootNode;
 let game: GameApp | null = null;
 let titleAttract: TitleAttract | null = null;
 let quickMatchInFlight = false;
+let soloStartInFlight = false;
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -194,7 +197,7 @@ function showMainMenu(): void {
   play.append(element('span', 'btn__label', 'Play now'), element('span', 'btn__hint', 'Solo · you fly PIX'));
   const daily = menuButton('Daily Heist', 'daily-heist', () => {
     prepareDailyRun(new Date());
-    void startGame('night-shift');
+    void startSoloNightShift();
   });
   daily.title = `Night Shift seeded from today's UTC date (${dailySeed(new Date())})`;
   const actions = element('div', 'menu-actions');
@@ -249,7 +252,7 @@ function showSinglePlayer(): void {
   }, 'btn--primary');
   const night = menuButton('Night Shift', 'night-shift', () => {
     clearRunIntent();
-    void startGame('night-shift');
+    void startSoloNightShift();
   });
   night.title = 'Endless seeded floors. Your score carries over.';
   const actions = element('div', 'menu-actions');
@@ -262,6 +265,30 @@ function showSinglePlayer(): void {
     panel.append(p);
   }
   bindMenuNav(panel, showMainMenu, start);
+}
+
+async function startSoloNightShift(): Promise<void> {
+  if (soloStartInFlight) return;
+  const params = new URLSearchParams(window.location.search);
+  if (!warmupReadyWithin(60_000) || params.get('bot') === '0' || params.get('ranked') === '0') {
+    void startGame('night-shift');
+    return;
+  }
+  soloStartInFlight = true;
+  try {
+    const { tryRankedSolo } = await import('./network/RankedSolo.ts');
+    const session = await tryRankedSolo({ seed: peekRunIntent()?.seed });
+    if (session) {
+      clearRunIntent();
+      void startGame('multiplayer', session);
+      return;
+    }
+  } catch {
+    // The ranked path is optional; fall through to the instant local run.
+  } finally {
+    soloStartInFlight = false;
+  }
+  void startGame('night-shift');
 }
 
 function showMultiplayerMenu(): void {

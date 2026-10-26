@@ -22,6 +22,7 @@ const listeners = new Set<WarmupListener>();
 
 function setWarmupState(next: WarmupState): void {
   if (next === 'ready') readyAt = Date.now();
+  document.documentElement.dataset.warmup = next;
   if (state === next) return;
   state = next;
   for (const listener of listeners) listener(state);
@@ -108,6 +109,10 @@ export function startWarmup(): void {
 
 export function warmupIsFresh(): boolean {
   return state === 'ready' && Date.now() - readyAt < READY_FRESH_MS;
+}
+
+export function warmupReadyWithin(ms: number): boolean {
+  return state === 'ready' && Date.now() - readyAt < ms;
 }
 
 /** Start a new check unless one is running: after unreachable, or when "ready" has gone stale. */
