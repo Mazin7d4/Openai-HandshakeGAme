@@ -834,8 +834,12 @@ html[data-reduced-motion='1'] *::after {
 @keyframes rotation { to { transform: rotate(360deg); } }
 .wake-title { margin: 0 0 6px; color: var(--graphite); font: 700 18px/1.2 var(--font-title); }
 .wake-detail { margin: 0; color: var(--pencil); font: 400 16px/1.4 var(--font-body); }
+.wake-progress { width: min(260px, 100%); height: 6px; overflow: hidden; border-radius: 999px; background: var(--aluminium); }
+.wake-progress span { display: block; height: 100%; border-radius: inherit; background: var(--pix-ink); transition: width 0.4s ease; }
 @media (prefers-reduced-motion: reduce) { .wake-spinner { display: none; } }
 html[data-reduced-motion='1'] .wake-spinner { display: none; }
+@media (prefers-reduced-motion: reduce) { .wake-progress span { transition: none; } }
+html[data-reduced-motion='1'] .wake-progress span { transition: none; }
 
 /* ---------- First-run onboarding coach ---------- */
 .onboarding-coach {
