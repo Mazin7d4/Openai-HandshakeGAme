@@ -305,15 +305,26 @@ export async function layoutAudit(page) {
 /** Run a test body with a browser, always closing it. Prints a JSON result line. */
 export async function runTest(name, body) {
   const started = Date.now();
-  const browser = await launch();
   const result = { test: name, pass: false, notes: {} };
+  const deadlineMs = Number(process.env.QA_TEST_DEADLINE_MS ?? (name === 'mobile' ? 595_000 : 295_000));
+  const watchdog = setTimeout(() => {
+    result.pass = false;
+    result.error = `hard deadline exceeded after ${deadlineMs}ms`;
+    result.seconds = Math.round((Date.now() - started) / 1000);
+    console.log('QA_RESULT ' + JSON.stringify(result));
+    process.exit(124);
+  }, deadlineMs);
+  let browser;
   try {
+    browser = await launch();
+    browser.on('disconnected', () => { result.notes.browserDisconnectedAt = Math.round((Date.now() - started) / 1000); });
     await body(browser, result.notes);
     result.pass = true;
   } catch (e) {
     result.error = String(e?.message ?? e).slice(0, 1500);
   } finally {
-    await browser.close().catch(() => {});
+    await browser?.close().catch(() => {});
+    clearTimeout(watchdog);
     result.seconds = Math.round((Date.now() - started) / 1000);
     console.log('QA_RESULT ' + JSON.stringify(result));
     process.exitCode = result.pass ? 0 : 1;

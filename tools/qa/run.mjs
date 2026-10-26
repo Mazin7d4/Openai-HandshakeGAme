@@ -1,29 +1,20 @@
 // Runs the QA suite sequentially (one browser at a time). Usage: npm run qa [-- smoke coop ...]
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { request } from 'node:http';
 import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { runQaProcess } from './process.mjs';
 import { freePort, startTestServer } from '../test-server.mjs';
 
-const all = ['phone-ui', 'seeds', 'bundle-budget', 'pass-rules', 'messages', 'interp', 'challenge', 'night-shift', 'smoke', 'solo-boot', 'no-cdn', 'bot-solo', 'coop', 'coop-capture', 'grab-carry', 'rematch', 'bot-server', 'bot-hack-server', 'leaderboard-server', 'quickmatch-server', 'quickmatch', 'quickmatch-cancel', 'quickmatch-bot', 'quickmatch-private', 'nightshift-coop', 'ping-emote', 'reconnect', 'mobile', 'quality-phone', 'governor', 'mobile-layout', 'join-mobile', 'join-qr', 'rematch-mobile', 'leaderboard', 'leaderboard-solo', 'title-best-crew', 'wake', 'emote-mobile', 'gamepad', 'escape-replay', 'no-test-hooks', 'settings', 'a11y-keyboard', 'floorplan-sweep', 'objectives-unit', 'hazards-unit', 'variety-coop', 'nightshift-9floors', 'variety-solo'];
+const all = ['qa-deadline', 'phone-ui', 'seeds', 'bundle-budget', 'pass-rules', 'messages', 'interp', 'challenge', 'night-shift', 'smoke', 'solo-boot', 'no-cdn', 'bot-solo', 'coop', 'coop-capture', 'grab-carry', 'rematch', 'bot-server', 'bot-hack-server', 'leaderboard-server', 'quickmatch-server', 'quickmatch', 'quickmatch-cancel', 'quickmatch-bot', 'quickmatch-private', 'nightshift-coop', 'ping-emote', 'reconnect', 'mobile', 'quality-phone', 'governor', 'mobile-layout', 'join-mobile', 'join-qr', 'rematch-mobile', 'leaderboard', 'leaderboard-solo', 'title-best-crew', 'wake', 'emote-mobile', 'gamepad', 'escape-replay', 'no-test-hooks', 'settings', 'a11y-keyboard', 'floorplan-sweep', 'objectives-unit', 'hazards-unit', 'variety-coop', 'nightshift-9floors', 'variety-solo'];
 const args = process.argv.slice(2);
 const ownServers = process.env.QA_OWN_SERVERS === '1' || args.includes('--own-servers');
 const pick = args.filter((a) => a !== '--own-servers' && all.includes(a));
 const tests = pick.length ? pick : all;
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const timeoutMs = Number(process.env.QA_TIMEOUT_MS ?? 300_000);
-
-function parseResult(test, stdout, stderr, error) {
-  const line = (stdout ?? '').split('\n').find((entry) => entry.startsWith('QA_RESULT '));
-  if (line) {
-    try {
-      return JSON.parse(line.slice(10));
-    } catch (parseError) {
-      return { test, pass: false, error: parseError.message };
-    }
-  }
-  return { test, pass: false, error: error ?? (stderr ?? '').slice(-500) };
-}
+const configuredTimeout = Number(process.env.QA_TIMEOUT_MS);
+if (process.env.QA_TIMEOUT_MS && (!Number.isFinite(configuredTimeout) || configuredTimeout <= 0)) throw new Error('QA_TIMEOUT_MS must be a positive finite number');
+const testTimeout = (test) => process.env.QA_TIMEOUT_MS ? configuredTimeout : test === 'mobile' ? 600_000 : 300_000;
 
 function report(test, res) {
   console.log(`${res.pass ? 'PASS' : 'FAIL'} ${test} (${res.seconds ?? '?'}s)${res.error ? ' - ' + res.error.split('\n')[0] : ''}`);
@@ -71,6 +62,10 @@ async function waitForHttp(url, limitMs = 60_000) {
 }
 
 function killChild(child) {
+  if (child?.qaProcessGroup) {
+    try { process.kill(-child.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+    return Promise.resolve();
+  }
   if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
   return new Promise((resolve) => {
     let finished = false;
@@ -91,56 +86,17 @@ function killChild(child) {
 }
 
 function runTestAsync(test, env) {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [`tools/qa/${test}.test.mjs`], {
-      cwd: root,
-      env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    runningTest = child;
-    let stdout = '';
-    let stderr = '';
-    let timedOut = false;
-    let settled = false;
-    let forceTimer;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGTERM');
-      forceTimer = setTimeout(() => {
-        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-      }, 1_000);
-    }, timeoutMs);
-    const finish = (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      clearTimeout(forceTimer);
-      if (runningTest === child) runningTest = null;
-      resolve(parseResult(test, stdout, stderr, error));
-    };
-    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
-    child.once('error', (error) => finish(error.message));
-    child.once('close', (code, signal) => {
-      const error = timedOut
-        ? `test timed out after ${timeoutMs}ms`
-        : (code === 0 || signal == null ? undefined : `test exited with code ${code ?? '?'} signal ${signal}`);
-      finish(error);
-    });
-  });
+  return runQaProcess(test, {
+    root, env, timeoutMs: testTimeout(test),
+    onChild: (child) => { runningTest = child; },
+  }).finally(() => { runningTest = null; });
 }
 
 async function runDefault() {
   const results = [];
   let livenessWarned = false;
   for (const test of tests) {
-    const result = spawnSync(process.execPath, [`tools/qa/${test}.test.mjs`], {
-      cwd: root,
-      encoding: 'utf8',
-      timeout: timeoutMs,
-      env: process.env,
-    });
-    const res = parseResult(test, result.stdout, result.stderr, result.error?.message);
+    const res = await runTestAsync(test, process.env);
     results.push(res);
     report(test, res);
     if (!livenessWarned && !process.env.QA_BASE_URL && !process.env.QA_URL && await refused(process.env.QA_SERVER_PORT ?? '2583')) {
@@ -234,7 +190,9 @@ if (ownServers) {
   process.once('SIGTERM', async () => { await cleanup(); process.exit(143); });
   process.once('exit', () => {
     viteProcess?.kill('SIGTERM');
-    runningTest?.kill('SIGTERM');
+    if (runningTest?.qaProcessGroup) {
+      try { process.kill(-runningTest.pid, 'SIGKILL'); } catch {}
+    } else runningTest?.kill('SIGTERM');
     runningServer?.child.kill('SIGTERM');
   });
   let code = 1;
