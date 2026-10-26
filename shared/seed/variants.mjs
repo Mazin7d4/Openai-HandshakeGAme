@@ -29,6 +29,9 @@ export const LEVEL_SLOTS = Object.freeze([
   'escape',
 ]);
 
+/** Bump when authored level bounds invalidate previously generated layouts. */
+export const SEED_FORMAT_VERSION = 2;
+
 /** @type {Record<string, readonly RoomVariant[]>} */
 export const VARIANTS_BY_SLOT = {
   arrival: Object.freeze([
@@ -281,8 +284,8 @@ export const VARIANTS_BY_SLOT = {
         Object.freeze({
           id: 'vault.relief',
           kind: 'door',
-          center: Object.freeze({ x: -12, y: 3, z: 13 }),
-          halfExtents: Object.freeze({ x: 0.6, y: 2.8, z: 3.5 }),
+          center: Object.freeze({ x: 0, y: 3, z: 27 }),
+          halfExtents: Object.freeze({ x: 5.5, y: 2.8, z: 0.6 }),
         }),
       ]),
       cover: Object.freeze([
@@ -310,8 +313,8 @@ export const VARIANTS_BY_SLOT = {
         Object.freeze({
           id: 'vault.relief',
           kind: 'door',
-          center: Object.freeze({ x: -12, y: 3, z: 13 }),
-          halfExtents: Object.freeze({ x: 0.6, y: 2.8, z: 3.5 }),
+          center: Object.freeze({ x: 0, y: 3, z: 27 }),
+          halfExtents: Object.freeze({ x: 5.5, y: 2.8, z: 0.6 }),
         }),
       ]),
       cover: Object.freeze([
@@ -339,8 +342,8 @@ export const VARIANTS_BY_SLOT = {
         Object.freeze({
           id: 'vault.relief',
           kind: 'door',
-          center: Object.freeze({ x: -12, y: 3, z: 13 }),
-          halfExtents: Object.freeze({ x: 0.6, y: 2.8, z: 3.5 }),
+          center: Object.freeze({ x: 0, y: 3, z: 27 }),
+          halfExtents: Object.freeze({ x: 5.5, y: 2.8, z: 0.6 }),
         }),
       ]),
       cover: Object.freeze([
@@ -353,58 +356,60 @@ export const VARIANTS_BY_SLOT = {
 
   escape: Object.freeze([
     Object.freeze({
-      id: 'escape.west-spine',
+      id: 'escape.dock-west',
       slot: 'escape',
-      label: 'West spine',
+      label: 'Dock west lane',
       bounds: Object.freeze({
-        min: Object.freeze({ x: -18.5, y: 0, z: -64 }),
-        max: Object.freeze({ x: -10, y: 12, z: 16 }),
+        min: Object.freeze({ x: -18.5, y: 0, z: 27 }),
+        max: Object.freeze({ x: 18.5, y: 9.2, z: 47 }),
       }),
       openings: Object.freeze([
         Object.freeze({
-          id: 'escape.low-dive',
+          id: 'escape.dock-underpass',
           kind: 'wall-gap',
-          center: Object.freeze({ x: -15.5, y: 2.5, z: -9 }),
-          halfExtents: Object.freeze({ x: 2.5, y: 2, z: 1.5 }),
+          center: Object.freeze({ x: -4, y: 1.8, z: 34 }),
+          halfExtents: Object.freeze({ x: 4, y: 1.6, z: 1.2 }),
         }),
         Object.freeze({
-          id: 'escape.high-pass',
+          id: 'escape.dock-east-end',
           kind: 'wall-gap',
-          center: Object.freeze({ x: -15.5, y: 7, z: -34 }),
-          halfExtents: Object.freeze({ x: 2.5, y: 2.5, z: 1.5 }),
+          center: Object.freeze({ x: 8, y: 3, z: 34 }),
+          halfExtents: Object.freeze({ x: 2, y: 2.5, z: 1.5 }),
         }),
       ]),
       cover: Object.freeze([
-        Object.freeze({ id: 'escape.low-obstacle', kind: 'cover', position: Object.freeze({ x: -15.5, y: 1.6, z: -9 }) }),
-        Object.freeze({ id: 'escape.high-obstacle', kind: 'cover', position: Object.freeze({ x: -15.5, y: 10.6, z: -34 }) }),
+        Object.freeze({ id: 'escape.conveyor', kind: 'cover', position: Object.freeze({ x: -5, y: 1.2, z: 34 }) }),
+        Object.freeze({ id: 'escape.cage-west', kind: 'prop', position: Object.freeze({ x: -10, y: 2.2, z: 41 }) }),
+        Object.freeze({ id: 'escape.cage-east', kind: 'prop', position: Object.freeze({ x: 2, y: 2.2, z: 40 }) }),
       ]),
       spawnPoints: Object.freeze([]),
     }),
     Object.freeze({
-      id: 'escape.pressure-run',
+      id: 'escape.dock-run',
       slot: 'escape',
-      label: 'Pressure run',
+      label: 'Dock run',
       bounds: Object.freeze({
-        min: Object.freeze({ x: -18.5, y: 0, z: -64 }),
-        max: Object.freeze({ x: -9, y: 12, z: 16 }),
+        min: Object.freeze({ x: -18.5, y: 0, z: 27 }),
+        max: Object.freeze({ x: 18.5, y: 9.2, z: 47 }),
       }),
       openings: Object.freeze([
         Object.freeze({
-          id: 'escape.mid-gap',
+          id: 'escape.dock-low-lane',
           kind: 'wall-gap',
-          center: Object.freeze({ x: -15, y: 4, z: -20 }),
-          halfExtents: Object.freeze({ x: 2.8, y: 3, z: 2 }),
+          center: Object.freeze({ x: -8, y: 1.8, z: 34 }),
+          halfExtents: Object.freeze({ x: 4, y: 1.6, z: 1.2 }),
         }),
         Object.freeze({
-          id: 'escape.pickup-approach',
+          id: 'escape.dock-pad-approach',
           kind: 'wall-gap',
-          center: Object.freeze({ x: -15, y: 2.5, z: -55 }),
-          halfExtents: Object.freeze({ x: 3, y: 2.2, z: 2 }),
+          center: Object.freeze({ x: 10, y: 3, z: 40 }),
+          halfExtents: Object.freeze({ x: 4, y: 2.5, z: 3 }),
         }),
       ]),
       cover: Object.freeze([
-        Object.freeze({ id: 'escape.mid-crate', kind: 'crate', position: Object.freeze({ x: -14, y: 1.2, z: -25 }) }),
-        Object.freeze({ id: 'escape.pad-lamp', kind: 'prop', position: Object.freeze({ x: -15, y: 0.2, z: -61 }) }),
+        Object.freeze({ id: 'escape.conveyor-run', kind: 'cover', position: Object.freeze({ x: -5, y: 1.2, z: 34 }) }),
+        Object.freeze({ id: 'escape.cage-east', kind: 'prop', position: Object.freeze({ x: 2, y: 2.2, z: 40 }) }),
+        Object.freeze({ id: 'escape.pad-lamp', kind: 'prop', position: Object.freeze({ x: 11, y: 0.2, z: 43.5 }) }),
       ]),
       spawnPoints: Object.freeze([]),
     }),
@@ -422,9 +427,9 @@ export const LOOT_CANDIDATES = Object.freeze([
 
 /** Candidate extraction pads. */
 export const EXTRACTION_CANDIDATES = Object.freeze([
-  Object.freeze({ x: -15, y: 2, z: -61 }),
-  Object.freeze({ x: -14.2, y: 2, z: -59.5 }),
-  Object.freeze({ x: -15.8, y: 2, z: -60 }),
+  Object.freeze({ x: 11, y: 2, z: 43.5 }),
+  Object.freeze({ x: 12.5, y: 2, z: 44 }),
+  Object.freeze({ x: 9.5, y: 2, z: 43 }),
 ]);
 
 /** Hack terminal candidate sets (a/b/c must stay role-reachable and cord-compatible). */
@@ -449,42 +454,42 @@ export const TERMINAL_CANDIDATE_SETS = Object.freeze([
   }),
 ]);
 
-/** Guard / drone patrol waypoint sets (lab / vault pocket). */
+/** Guard / drone patrol waypoint sets (loading dock pocket). */
 export const PATROL_ROUTE_CANDIDATES = Object.freeze([
   Object.freeze({
-    id: 'patrol.lab-orbit-a',
+    id: 'patrol.dock-west-lane',
     waypoints: Object.freeze([
-      Object.freeze({ x: -4, y: 2.2, z: 10 }),
-      Object.freeze({ x: 0, y: 2.2, z: 14 }),
-      Object.freeze({ x: 4, y: 2.2, z: 10 }),
-      Object.freeze({ x: 0, y: 2.2, z: 6 }),
+      Object.freeze({ x: -15, y: 2.2, z: 30 }),
+      Object.freeze({ x: -8, y: 2.2, z: 32 }),
+      Object.freeze({ x: -15, y: 2.2, z: 38 }),
+      Object.freeze({ x: -8, y: 2.2, z: 44 }),
     ]),
   }),
   Object.freeze({
-    id: 'patrol.lab-orbit-b',
+    id: 'patrol.dock-east-lane',
     waypoints: Object.freeze([
-      Object.freeze({ x: 4, y: 2.2, z: 13 }),
-      Object.freeze({ x: -2, y: 2.2, z: 16 }),
-      Object.freeze({ x: -5, y: 2.2, z: 11 }),
-      Object.freeze({ x: 1, y: 2.2, z: 8 }),
+      Object.freeze({ x: 7, y: 2.2, z: 30 }),
+      Object.freeze({ x: 14, y: 2.2, z: 36 }),
+      Object.freeze({ x: 7, y: 2.2, z: 44 }),
+      Object.freeze({ x: 14, y: 2.2, z: 46 }),
     ]),
   }),
   Object.freeze({
-    id: 'patrol.bench-sweep',
+    id: 'patrol.dock-crossing',
     waypoints: Object.freeze([
-      Object.freeze({ x: -7, y: 2.4, z: 8 }),
-      Object.freeze({ x: 0, y: 2.4, z: 12 }),
-      Object.freeze({ x: 9, y: 2.4, z: 11 }),
-      Object.freeze({ x: 2, y: 2.4, z: 7 }),
+      Object.freeze({ x: -15, y: 2.4, z: 45 }),
+      Object.freeze({ x: -5, y: 2.4, z: 37 }),
+      Object.freeze({ x: 8, y: 2.4, z: 37 }),
+      Object.freeze({ x: 14, y: 2.4, z: 45 }),
     ]),
   }),
   Object.freeze({
-    id: 'patrol.dais-ring',
+    id: 'patrol.dock-pad-ring',
     waypoints: Object.freeze([
-      Object.freeze({ x: -5, y: 2.5, z: 16 }),
-      Object.freeze({ x: 0, y: 2.5, z: 21 }),
-      Object.freeze({ x: 5, y: 2.5, z: 16 }),
-      Object.freeze({ x: 0, y: 2.5, z: 12 }),
+      Object.freeze({ x: 8, y: 2.5, z: 39 }),
+      Object.freeze({ x: 11, y: 2.5, z: 37 }),
+      Object.freeze({ x: 15, y: 2.5, z: 43 }),
+      Object.freeze({ x: 11, y: 2.5, z: 46 }),
     ]),
   }),
 ]);
@@ -492,32 +497,32 @@ export const PATROL_ROUTE_CANDIDATES = Object.freeze([
 /** Camera placements with sweep half-angles (radians). */
 export const CAMERA_CANDIDATES = Object.freeze([
   Object.freeze({
-    id: 'camera.lab-south',
-    origin: Object.freeze({ x: 0, y: 3.7, z: 8.5 }),
-    forward: Object.freeze({ x: 0, y: -0.08, z: -1 }),
+    id: 'camera.dock-south',
+    origin: Object.freeze({ x: 0, y: 3.7, z: 29.5 }),
+    forward: Object.freeze({ x: 0, y: -0.08, z: 1 }),
     sweepAngle: Math.PI / 5,
     range: 10,
     sweepPeriod: 6,
   }),
   Object.freeze({
-    id: 'camera.lab-west',
-    origin: Object.freeze({ x: -8, y: 4.2, z: 12 }),
+    id: 'camera.dock-west',
+    origin: Object.freeze({ x: -15, y: 4.2, z: 36 }),
     forward: Object.freeze({ x: 0.85, y: -0.1, z: 0.2 }),
     sweepAngle: Math.PI / 6,
     range: 9,
     sweepPeriod: 5.5,
   }),
   Object.freeze({
-    id: 'camera.vault-high',
-    origin: Object.freeze({ x: 2, y: 5.5, z: 22 }),
+    id: 'camera.dock-high',
+    origin: Object.freeze({ x: 2, y: 5.5, z: 42 }),
     forward: Object.freeze({ x: -0.15, y: -0.25, z: -0.9 }),
     sweepAngle: Math.PI / 4.5,
     range: 11,
     sweepPeriod: 7,
   }),
   Object.freeze({
-    id: 'camera.relief-watch',
-    origin: Object.freeze({ x: -10, y: 4, z: 14 }),
+    id: 'camera.roller-watch',
+    origin: Object.freeze({ x: 14, y: 4, z: 43 }),
     forward: Object.freeze({ x: -0.6, y: -0.05, z: -0.7 }),
     sweepAngle: Math.PI / 5.5,
     range: 8.5,

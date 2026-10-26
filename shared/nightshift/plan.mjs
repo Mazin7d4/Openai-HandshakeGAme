@@ -1,4 +1,5 @@
 import { intRange, mixSeed, mulberry32, pick } from '../seed/prng.mjs';
+import { DRAW_CALL_BUDGET, MAX_HAZARDS_ALL_DRESSED, estimateFloorDrawCalls } from './drawBudget.mjs';
 import {
   ANCHOR_POOLS,
   ROOM_BOUNDS,
@@ -312,6 +313,8 @@ function roomPieces(slot, archetype, rand, layout, objective) {
     const wanted = Math.min(candidates.length, 4 + intRange(rand, 0, 3));
     for (let i = 0; i < wanted; i++) {
       const cell = candidates[(i * 3 + intRange(rand, 0, candidates.length)) % candidates.length];
+      // Without the old service spine more desks fit; keep the room within the 12-piece budget.
+      if (pieces.length + 3 > 12) break;
       const desk = addAt('desk', cell, { sx: 2.8, sy: 1.8, sz: 1.5 }, true, 'Desk');
       if (pieces.includes(desk)) {
         addAt('partition', { x: cell.x, z: cell.z + 1.2 }, { sx: 2.5, sy: 1.8, sz: 0.12 }, true, 'GlassPartition');
@@ -379,11 +382,12 @@ function roomPieces(slot, archetype, rand, layout, objective) {
 
   if (archetype === 'vent-crawl') {
     const count = intRange(rand, 2, 5);
-    const zValues = [-56, -43, -27, -15, 3];
+    // West half of the loading dock only: clear of the conveyor, cages, patrol
+    // waypoints, and the east-side run from the vault doors to the extraction pad.
+    const spots = [{ x: -11, z: 30 }, { x: -11, z: 37.5 }, { x: -4.5, z: 30.5 }, { x: -4, z: 43.5 }];
     for (let i = 0; i < count; i++) {
-      const z = zValues[(i + intRange(rand, 0, zValues.length)) % zValues.length] + randomJitter(rand, 0.7);
-      const x = rand() < 0.5 ? -16 : -11;
-      addAt('duct', { x, z }, { sx: 0.9, sy: 2.2, sz: 2.2 }, true, 'GlassPartition');
+      const spot = spots[(i + intRange(rand, 0, spots.length)) % spots.length];
+      addAt('duct', { x: spot.x + randomJitter(rand, 0.3), z: spot.z + randomJitter(rand, 0.3) }, { sx: 0.9, sy: 2.2, sz: 2.2 }, true, 'GlassPartition');
     }
   }
 
@@ -611,8 +615,8 @@ function lineCandidates(slot) {
       [{ x: 8, y: 2, z: 4 }, { x: 8, y: 2, z: 10 }],
     ],
     escape: [
-      [{ x: -16, y: 2, z: -57 }, { x: -16, y: 2, z: -50 }],
-      [{ x: -11, y: 2, z: -25 }, { x: -11, y: 2, z: -18 }],
+      [{ x: -15, y: 2, z: 30 }, { x: -8, y: 2, z: 30 }],
+      [{ x: 8, y: 2, z: 38 }, { x: 14, y: 2, z: 38 }],
     ],
   };
   return lines[slot];
@@ -624,7 +628,7 @@ function rectCandidates(slot) {
     office: [{ x: -11, z: -38, sx: 4, sz: 3 }, { x: 9, z: -38, sx: 4, sz: 3 }],
     server: [{ x: 8, z: -7, sx: 4, sz: 3 }, { x: 8, z: -2, sx: 4, sz: 3 }],
     vault: [{ x: -9, z: 4.5, sx: 4, sz: 3 }, { x: 9, z: 4.5, sx: 4, sz: 3 }],
-    escape: [{ x: -16, z: -51, sx: 3, sz: 4 }, { x: -11, z: -20, sx: 3, sz: 4 }],
+    escape: [{ x: -15, z: 30, sx: 3, sz: 3 }, { x: 9, z: 39, sx: 3, sz: 3 }],
   };
   return rects[slot];
 }
@@ -791,6 +795,8 @@ function hazardCount(floor, rand) {
 
 function buildHazards(rand, floor, layout, objective, rooms) {
   let count = hazardCount(floor, rand);
+  // Every room dressed is the heaviest build; keep its hazards light so the floor fits the draw budget.
+  if (rooms.every((roomPlan) => roomPlan.archetype !== 'classic')) count = Math.min(count, MAX_HAZARDS_ALL_DRESSED);
   const unlocked = ['tripwire', 'sweeper'];
   if (floor >= 2 && layout.twist?.id !== 'slippery_floor') unlocked.push('ice');
   if (floor >= 3) unlocked.push('gust');
@@ -856,13 +862,15 @@ function buildPlan(seed, floor, layout, rand, options = {}) {
     pieces: roomPieces(slot, archetypes[index], rand, layout, objective),
   }));
   const hazards = options.noHazards ? [] : buildHazards(rand, floor, layout, objective, rooms);
+  // Trim trailing hazards (never the forced laser-vault tripwire first) until the floor fits the draw budget.
+  while (hazards.length > 0 && estimateFloorDrawCalls({ rooms, objective, hazards }) > DRAW_CALL_BUDGET) hazards.pop();
   const name = floor === 1 ? 'The Night Shift Tryout' : `${boss ? 'VAULT: ' : ''}${pick(rand, JOB_NAMES)}`;
   const objectiveText = objective.kind === 'grab' ? 'grab the prototype' : objective.kind.replace('-', ' ');
   const blurb = floor === 1
     ? 'Warm up: the cord is your tool. Grab the prototype together.'
     : `${boss ? 'Boss lock: ' : ''}Work together to ${objectiveText} before the night shift notices.`;
   return {
-    version: 1,
+    version: 2,
     job: {
       id: `job-${floor}`,
       name,
@@ -899,7 +907,7 @@ function safeFallbackObjective(floor, layout) {
 function classicFallback(floor, layout) {
   const boss = floor % 3 === 0;
   return {
-    version: 1,
+    version: 2,
     job: {
       id: `job-${floor}`,
       name: floor === 1 ? 'The Night Shift Tryout' : `${boss ? 'VAULT: ' : ''}The Quiet Job`,
@@ -1104,7 +1112,7 @@ function validateHazard(hazard, floor, layout, objective, hazards) {
 }
 
 export function validateFloorPlan(plan, layout) {
-  if (!plan || plan.version !== 1 || !plan.job || !Array.isArray(plan.rooms) || plan.rooms.length !== SLOTS.length || !plan.objective || !Array.isArray(plan.hazards)) return { ok: false, reason: 'malformed floor plan' };
+  if (!plan || plan.version !== 2 || !plan.job || !Array.isArray(plan.rooms) || plan.rooms.length !== SLOTS.length || !plan.objective || !Array.isArray(plan.hazards)) return { ok: false, reason: 'malformed floor plan; regenerate this run' };
   const floor = layout.floor | 0;
   const boss = floor % 3 === 0;
   if (plan.job.boss !== boss || plan.job.payoutScale !== (boss ? 2 : 1) || plan.job.tutorial !== (floor === 1)) return { ok: false, reason: 'job pacing mismatch' };
@@ -1138,5 +1146,7 @@ export function validateFloorPlan(plan, layout) {
     if (reason) return { ok: false, reason };
   }
   if (plan.hazards.length > PLAN_LIMITS.maxHazards) return { ok: false, reason: 'hazard limit exceeded' };
+  if (plan.rooms.every((room) => room.archetype !== 'classic') && plan.hazards.length > MAX_HAZARDS_ALL_DRESSED) return { ok: false, reason: 'too many hazards for a fully dressed floor' };
+  if (estimateFloorDrawCalls(plan) > DRAW_CALL_BUDGET) return { ok: false, reason: 'draw-call budget exceeded' };
   return { ok: true };
 }

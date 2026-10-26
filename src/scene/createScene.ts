@@ -6,7 +6,9 @@ import { GlowLayer } from '@babylonjs/core/Layers/glowLayer.js';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder.js';
 import { Scene } from '@babylonjs/core/scene.js';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
@@ -49,8 +51,16 @@ export function getQuality(scene: Scene): QualityManager | undefined { return qu
 
 export function createScene(engine: Engine): Scene {
   const scene = new Scene(engine);
-  scene.clearColor = new Color4(0.72, 0.79, 0.79, 1);
+  scene.clearColor = Color4.FromHexString('#1E2326FF');
   scene.ambientColor = new Color3(0.2, 0.2, 0.22);
+
+  const surround = CreateGround('diorama-surround', { width: 200, height: 200 }, scene);
+  const surroundMat = new StandardMaterial('diorama-surround-material', scene);
+  surroundMat.diffuseColor = Color3.FromHexString('#15191B');
+  surroundMat.specularColor = Color3.Black();
+  surround.material = surroundMat;
+  surround.position.y = -0.05;
+  surround.isPickable = false;
 
   const fill = new HemisphericLight('fill', new Vector3(0.15, 1, 0.2), scene);
   fill.intensity = 0.48;

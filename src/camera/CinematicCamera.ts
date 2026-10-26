@@ -17,7 +17,8 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 const FRAME_LIFT = 1.7;
 const TOUCH_RELEASE_S = 2;
 const ZOOM_MIN = 0.85;
-const ZOOM_MAX = 1.16;
+const ZOOM_MAX = 1.10;
+const MIN_EYE_Y = 12.2; // wall caps top out at 9.7; keep >= 2.5 above them
 
 /** Authored dolly with a fixed compass heading. Mouse right-drag + touch look pad. */
 export class CinematicCamera {
@@ -32,8 +33,8 @@ export class CinematicCamera {
   private readonly forward = new Vector3(0.325, 0, 0.946).normalize();
   private readonly right = new Vector3(0.946, 0, -0.325).normalize();
   private placed = false;
-  private distance = 13;
-  private pitch = 0.53;
+  private distance = 14.5;
+  private pitch = 0.9;
   private reveal = 0;
   private occluders: AbstractMesh[] | null = null;
   private occluderMeshCount = -1;
@@ -243,6 +244,7 @@ export class CinematicCamera {
   update(dt: number, subjects: readonly CameraSubject[], context: CameraContext = QUIET): void {
     if (this.debugPose) {
       this.camera.position.copyFrom(this.debugPose.eye);
+      this.camera.position.y = Math.max(MIN_EYE_Y, this.camera.position.y);
       this.camera.setTarget(this.debugPose.target);
       return;
     }
@@ -274,12 +276,12 @@ export class CinematicCamera {
       this.touchTargetYaw = this.lookYaw;
       this.touchTargetPitch = this.lookPitch;
     }
-    const inLab = this.focus.z > 3 && this.focus.x > -11;
+    const inLab = this.focus.z > 3 && this.focus.z < 27;
     const revealTarget = inLab && context.vaultOpen && !context.alarm ? clamp((this.focus.z - 3) / 5, 0, 1) : 0;
     this.reveal = smooth(this.reveal, revealTarget, 1.3, safeDt);
-    const extracting = this.focus.x < -10 && this.focus.z < -55;
+    const extracting = this.focus.z > 28; // Loading Dock escape
     const vent = this.focus.z > -47 && this.focus.z < -39;
-    const targetPitch = extracting ? 0.66 : vent ? 0.39 : inLab ? 0.46 : 0.53;
+    const targetPitch = extracting ? 0.95 : vent ? 0.84 : inLab ? 0.86 : 0.9;
     this.pitch = this.placed ? smooth(this.pitch, targetPitch, 1.6, safeDt) : targetPitch;
     const angle = Math.atan2(this.forward.x, this.forward.z) + this.lookYaw;
     const pitch = this.pitch + this.lookPitch;
@@ -291,14 +293,15 @@ export class CinematicCamera {
     const targetLook = this.focus.add(ahead);
     // Look a little above the crew so they sit in the lower-middle third (clear of the objective card).
     targetLook.y += FRAME_LIFT + this.reveal * 0.5;
-    targetLook.z += this.reveal * 1.25;
+    // Keep the next partition and its landmark in view on the wide phone frame.
+    targetLook.z += 1.2 + this.reveal * 1.25;
     const aspect = Math.max(0.4, this.scene.getEngine().getAspectRatio(this.camera));
     const fovTarget = (context.alarm && !context.complete ? 0.94 : 0.86) * this.fovScale;
     this.baseFov = smooth(this.baseFov ?? this.camera.fov, fovTarget, 1.6, safeDt);
     this.camera.fov = this.baseFov;
     const tanY = Math.tan(this.camera.fov / 2) * 0.72;
     const tanX = tanY * aspect;
-    let required = extracting ? 15.5 : vent ? 12 : inLab ? 15 + this.reveal * 2 : 13;
+    let required = extracting ? 16 : vent ? 14.5 : inLab ? 14.5 + this.reveal * 2 : 14.5;
     for (const point of positions) {
       const delta = point.subtract(targetLook);
       const depth = Vector3.Dot(delta, view);
@@ -325,6 +328,9 @@ export class CinematicCamera {
       Vector3.LerpToRef(this.position, targetPosition, 1 - Math.exp(-response * safeDt), this.position);
     }
     this.camera.position.copyFrom(this.position);
+    // The cutaway roof is at 9.2; never let smoothing or any future collision
+    // adjustment put the eye below the cap clearance.
+    this.camera.position.y = Math.max(MIN_EYE_Y, this.camera.position.y);
     if (this.screenShake && this.shakeAmount > 0.001 && safeDt > 0) {
       this.shakeTime += safeDt;
       const trauma = this.shakeAmount * this.shakeAmount * 0.32;
@@ -334,6 +340,7 @@ export class CinematicCamera {
         (Math.cos(t * 1.7) + Math.sin(t * 2.9) * 0.4) * trauma,
         Math.sin(t * 1.3 + 1.7) * trauma * 0.6);
       this.shakeAmount = Math.max(0, this.shakeAmount - safeDt * 2.2);
+      this.camera.position.y = Math.max(MIN_EYE_Y, this.camera.position.y);
     } else if (!this.screenShake) {
       this.shakeAmount = 0;
     }
@@ -364,7 +371,7 @@ export class CinematicCamera {
     // Room dressing is built asynchronously after the first camera frame. Refresh when
     // the scene mesh set changes so newly merged racks/props participate in occlusion.
     if (this.occluderMeshCount !== this.scene.meshes.length) {
-      this.occluders = this.scene.meshes.filter(mesh => mesh.metadata?.cameraOccluder);
+      this.occluders = this.scene.meshes.filter(mesh => mesh.metadata?.cameraOccluder && this.isPropOccluder(mesh));
       this.occluderMeshCount = this.scene.meshes.length;
     }
     const inspection = this.scene.activeCamera !== this.camera;
@@ -384,10 +391,23 @@ export class CinematicCamera {
           if (this.segmentIntersectsBounds(mesh, this.occlusionRay.length)) { obscures = true; break; }
         }
       }
-      // Cut fully through a blocking wall; a stack of translucent panels still reads as a
-      // grey foreground slab on the long service-spine sightline.
+      // Keep tall foreground props clear on the north sightline while leaving
+      // the architectural shell and partitions fully opaque.
       mesh.visibility = smooth(mesh.visibility, obscures ? 0 : 1, obscures ? 16 : 5, dt);
     }
+  }
+
+  /** Names of meshes the camera may fade (test diagnostics). */
+  fadeableOccluderNames(): string[] {
+    return this.scene.meshes.filter(mesh => mesh.metadata?.cameraOccluder && this.isPropOccluder(mesh)).map(mesh => mesh.name);
+  }
+
+  private isPropOccluder(mesh: AbstractMesh): boolean {
+    const name = mesh.name.toLowerCase();
+    // Architectural meshes must remain solid in the dollhouse cutaway. The
+    // remaining tagged meshes are tall props such as racks and vault glass.
+    if (/(wall|cap|partition|divider|header|door|vent|boundary|collider|room-merged)/.test(name)) return false;
+    return !name.includes('glass') || name.includes('vault');
   }
 
   private segmentIntersectsBounds(mesh: AbstractMesh, length: number): boolean {

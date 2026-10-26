@@ -5,6 +5,9 @@
 
 /** @typedef {{ x: number, y: number, z: number }} Vec3 */
 
+const SEED_FORMAT_VERSION = 2;
+const CEILING_Y = 9.2;
+
 /**
  * @param {Vec3} a
  * @param {Vec3} b
@@ -106,6 +109,9 @@ export function validateRunLayout(layout) {
   if (!layout || typeof layout !== 'object') {
     return { ok: false, reason: 'missing layout' };
   }
+  if (layout.formatVersion !== SEED_FORMAT_VERSION) {
+    return { ok: false, reason: 'seed format mismatch; regenerate this run' };
+  }
 
   const cordMax = layout.cord?.maxLength ?? 10;
   if (!(cordMax >= 5 && cordMax <= 14)) {
@@ -152,7 +158,7 @@ export function validateRunLayout(layout) {
     return { ok: false, reason: 'loot outside vault bounds' };
   }
 
-  // Extraction inside escape bounds.
+  // Extraction inside the loading dock escape bounds.
   const escape = layout.variants?.escape;
   if (!escape) return { ok: false, reason: 'missing escape variant' };
   const eb = escape.bounds;
@@ -209,19 +215,38 @@ export function validateRunLayout(layout) {
     return { ok: false, reason: 'relief opening malformed' };
   }
 
-  // Patrols must start near vault play space.
+  // Patrols are seeded in the loading dock escape pocket.
   for (const route of layout.patrolRoutes ?? []) {
     for (const wp of route.waypoints) {
       if (
-        wp.x < vb.min.x - 4 || wp.x > vb.max.x + 4 ||
-        wp.z < vb.min.z - 6 || wp.z > vb.max.z + 4
+        wp.x < eb.min.x - 4 || wp.x > eb.max.x + 4 ||
+        wp.z < eb.min.z - 6 || wp.z > eb.max.z + 4
       ) {
-        return { ok: false, reason: `patrol waypoint outside vault pocket (${route.id})` };
+        return { ok: false, reason: `patrol waypoint outside escape pocket (${route.id})` };
       }
     }
     if (route.waypoints.length < 2) {
       return { ok: false, reason: `patrol route too short (${route.id})` };
     }
+  }
+
+  // Seeded points must fit below the authored cutaway roof. This catches old
+  // spine candidates and future catalog edits before they reach gameplay.
+  const points = [
+    layout.spawn,
+    layout.loot,
+    layout.extraction,
+    ...Object.values(layout.terminals ?? {}),
+    ...(layout.patrolRoutes ?? []).flatMap((route) => route.waypoints),
+    ...(layout.cameras ?? []).map((camera) => camera.origin),
+    ...Object.values(layout.variants ?? {}).flatMap((variant) => [
+      ...(variant.spawnPoints ?? []),
+      ...(variant.openings ?? []).map((opening) => opening.center),
+      ...(variant.cover ?? []).map((cover) => cover.position),
+    ]),
+  ];
+  if (points.some((point) => Number.isFinite(point?.y) && point.y > CEILING_Y + 1e-6)) {
+    return { ok: false, reason: `seeded object above ceilingY ${CEILING_Y}` };
   }
 
   // Cameras need a forward vector and positive range.
