@@ -106,8 +106,8 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     lip.parent = mesh; lip.position.set(0, h / 2 + 0.1, -0.06); lip.material = signGlow; lip.isPickable = false;
     return mesh;
   };
-  const desk = (name: string, x: number, z: number, width = 9) => {
-    box(`${name}-oak`, x, 3.75, z, width, 0.32, 4.3, p.wood);
+  const desk = (name: string, x: number, z: number, width = 9, depth = 4.3) => {
+    box(`${name}-oak`, x, 3.75, z, width, 0.32, depth, p.wood);
     for (const dx of [-width / 2 + 0.4, width / 2 - 0.4]) {
       box(`${name}-leg`, x + dx, 1.8, z, 0.28, 3.6, 3.8, p.paint);
     }
@@ -163,7 +163,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   box('entry-glass-right', 11, 6.85, -55, 16, 4.3, 0.16, p.glass); glassRail('entry-glass-right', 11, -55, 16);
   box('entry-header', -1.5, 8.5, -55, 9, 1, 0.6, p.wood); wallCap('entry-header', -1.5, -55, 9, 0.8, p.wood);
   partitionTrim('entry-partition', -55, [[-12.5, 13], [11, 16]]);
-  desk('reception', -4.5, -49, 11);
+  desk('reception', -4.5, -49, 7.2, 3.2);
   sign('reception-sign', '02 RECEPTION', '', 2, 2.6, -54.6, 6);
   sign('apron-sign', '01 APRON', '', -12.5, 2.6, -55.35, 5);
   exitStrip('G0', -1.5, -55.35, 9, true);
@@ -572,7 +572,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   const kit = await loadPropKit(scene);
   // Server gallery: replace the flat rack slabs with instanced Blender rack units (collision box stays).
   for (const x of [-8.5, 8.5] as const) {
-    for (let z = -22.5; z <= -9.5; z += 2.4) kit.place({ prop: 'Rack', x, z, scale: [1.2, 0.7, 1] });
+    for (let z = -22.5; z <= -9.5; z += 2.4) kit.place({ prop: 'Rack', x, z, scale: [0.88, 0.48, 0.82] });
     const row = scene.getMeshByName(`rack-row-${x}`); if (row) row.isVisible = false;
   }
   for (const name of ['rack-upright', 'rack-tray', 'rack-status']) for (const m of scene.meshes.filter(m => m.name === name)) m.dispose();

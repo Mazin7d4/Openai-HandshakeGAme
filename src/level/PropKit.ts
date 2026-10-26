@@ -29,6 +29,23 @@ export async function loadPropKit(scene: Scene) {
       child.receiveShadows = true;
       child.metadata = { ...child.metadata, castShadow: true };
       if (child.material instanceof PBRMaterial) child.material.maxSimultaneousLights = 4;
+      if (node.name === 'Prop_Rack') {
+        const mat = child.material as PBRMaterial;
+        mat.unfreeze();
+        mat.albedoColor.set(0.34, 0.43, 0.47);
+        if (mat.name.includes('Emissive')) {
+          mat.emissiveColor.set(0.18, 0.78, 0.95);
+          mat.emissiveIntensity = 0.9;
+        }
+        mat.freeze();
+      }
+      if (node.name === 'Prop_Duct' && child.material instanceof PBRMaterial) {
+        const mat = child.material;
+        mat.unfreeze();
+        mat.albedoColor.set(0.29, 0.40, 0.42);
+        mat.roughness = 0.62;
+        mat.freeze();
+      }
     }
     sources.set(node.name.slice(5), parts);
   }

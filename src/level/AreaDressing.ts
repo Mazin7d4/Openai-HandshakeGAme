@@ -21,6 +21,7 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   const make = (name: string, hex: string, roughness: number, metallic = 0, emissive?: string) => {
     const m = new PBRMaterial(`dress-${name}`, scene);
     m.albedoColor = Color3.FromHexString(hex); m.roughness = roughness; m.metallic = metallic;
+    m.maxSimultaneousLights = 4;
     if (emissive) m.emissiveColor = Color3.FromHexString(emissive);
     return m;
   };
@@ -195,7 +196,7 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   for (let y = 5.4; y < 8; y += 0.45) {
     for (const x of [-9.6, -0.6]) box(x, y, -43.35, 3.6, 0.1, 0.2, p.metal);
   }
-  kit.place({ prop: 'Duct', x: -5, y: 8.2, z: -43, ry: Math.PI / 2, scale: 0.9 });
+  kit.place({ prop: 'Duct', x: -5, y: 7.65, z: -43, ry: Math.PI / 2, scale: 0.72 });
   for (let i = 0; i < 5; i++) box(-7.2 + i * 1.1, 4.64, -45.7, 0.5, 0.06, 0.35, yellow, 0.6);
   box(-5, 4.66, -45.7, 5.2, 0.03, 0.08, cable);
   kit.place({ prop: 'Plant', x: 14, z: -44.8, scale: 0.7 });

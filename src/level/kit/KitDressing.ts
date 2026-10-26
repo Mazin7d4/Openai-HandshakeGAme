@@ -324,7 +324,11 @@ export async function dressRunLayout(scene: Scene, layout: RunLayout): Promise<K
         floorMesh = hit.pickedMesh;
       }
 
-      const finalY = floorY + (row.y ?? 0);
+      // Keep decorative kit below the authored 9-unit wall cut. The row table contains
+      // legacy high placements (notably Night Shift cable trays); their presentation
+      // must never pierce the cutaway or become a camera-space bar.
+      const requestedY = floorY + (row.y ?? 0);
+      const finalY = Math.min(requestedY, 8.72 - asset.bounds.max[1] * scale);
 
       // Compute footprint AABB rotated by rotY and scaled, expanded by 1.0 unit
       const bMin = asset.bounds.min;
