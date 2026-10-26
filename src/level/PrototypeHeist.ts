@@ -1,4 +1,3 @@
-import { CreatePolyhedron } from '@babylonjs/core/Meshes/Builders/polyhedronBuilder.js';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
 import { Constants } from '@babylonjs/core/Engines/constants.js';
 import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
@@ -39,7 +38,7 @@ const STATUS_IDLE = Color3.FromHexString('#D8CBB2');
 
 export interface HeistPresentation {
   alarm: boolean; complete: boolean; officeOpen: boolean; vaultOpen?: boolean;
-  /** Optional presentation-only hints for objective beacons. */
+  /** Optional presentation-only mission hints (key lamps read `hacked`). */
   stage?: string; hacked?: Record<string, boolean>; prototypeHeld?: boolean;
 }
 const levels = new WeakMap<Scene, { update(dt: number, state: HeistPresentation): void }>();
@@ -241,8 +240,6 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     box('vault-glass', x, 4.4, 20, 0.1, 8, 8, p.glass);
     for (const z of [16, 24]) box('vault-mullion', x, 4.4, z, 0.13, 8, 0.13, p.metal);
   }
-  const halo = CreateTorus('vault-halo', { diameter: 7.7, thickness: 0.08, tessellation: 80 }, scene);
-  halo.position.set(0, 6.2, 25.9); halo.rotation.x = Math.PI / 2; halo.material = p.light; halo.isPickable = false;
   // ── Vault bell jar: decorative frosted glass cylinder with aluminium cap ──
   const protoX = layout.objects.prototype.x;
   const protoZ = layout.objects.prototype.z;
@@ -317,12 +314,6 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   // ── Warm vault SpotLight ──
   const vaultSpot = new SpotLight('vault-spot', new Vector3(protoX, 8.7, protoZ), new Vector3(0, -1, 0), 0.6, 2, scene);
   vaultSpot.diffuse = Color3.FromHexString('#FFE2B0'); vaultSpot.intensity = 0;
-  // ── Emissive plinth ring ──
-  const plinthRingMat = new StandardMaterial('plinth-ring-mat', scene);
-  plinthRingMat.disableLighting = true; plinthRingMat.emissiveColor = Color3.FromHexString('#FFE2B0');
-  const plinthRing = CreateTorus('plinth-ring', { diameter: 3.6, thickness: 0.05, tessellation: 60 }, scene);
-  plinthRing.position.set(protoX, 4.62, protoZ); plinthRing.material = plinthRingMat; plinthRing.isPickable = false;
-  plinthRing.visibility = 0.1;
   // ── Alarm beacon lamps (6 rotating beacons). Security = amber (ANTI_VIBECODED colour code). ──
   const beaconRedMat = new StandardMaterial('alarm-beacon-amber', scene);
   beaconRedMat.disableLighting = true; beaconRedMat.emissiveColor = SECURITY_AMBER.clone();
@@ -391,32 +382,6 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   let alarmLightTamed = false;
   let statusLed: PBRMaterial | null | undefined;
   let completeTintTimer = 0;
-  // Objective beacons: a slowly spinning diamond and a breathing floor ring above the next goal(s).
-  // Purely presentational and driven from replicated mission state, so they are identical for both players.
-  const beaconMat = new StandardMaterial('objective-beacon', scene);
-  // Objective = warm diffuser white (never security amber); mint accent only on the core's beacon, exit green on extraction.
-  beaconMat.emissiveColor = Color3.FromHexString('#FFF1D6'); beaconMat.diffuseColor = Color3.Black();
-  beaconMat.specularColor = Color3.Black(); beaconMat.alpha = 0.85; beaconMat.disableLighting = true;
-  const accentMat = (name: string, hex: string) => {
-    const m = beaconMat.clone(name); m.emissiveColor = Color3.FromHexString(hex); return m;
-  };
-  const coreAccent = accentMat('objective-beacon-core', '#7FF0D0');
-  const exitAccent = accentMat('objective-beacon-exit', '#71B38C');
-  const makeBeacon = (name: string, x: number, y: number, z: number, gemMat = beaconMat, ringMat = beaconMat) => {
-    const gem = CreatePolyhedron(`${name}-beacon`, { type: 1, size: 0.32 }, scene);
-    gem.scaling.y = 1.6; gem.position.set(x, y + 1.6, z); gem.material = gemMat; gem.isPickable = false;
-    const ring = CreateTorus(`${name}-beacon-ring`, { diameter: 2.2, thickness: 0.07, tessellation: 40 }, scene);
-    ring.position.set(x, y - 0.45, z); ring.material = ringMat; ring.isPickable = false;
-    return { gem, ring, baseY: y + 1.6 };
-  };
-  const t = layout.terminals;
-  const beacons = {
-    'terminal-a': makeBeacon('terminal-a', t['terminal-a'].x, t['terminal-a'].y, t['terminal-a'].z),
-    'terminal-b': makeBeacon('terminal-b', t['terminal-b'].x, t['terminal-b'].y, t['terminal-b'].z),
-    'terminal-c': makeBeacon('terminal-c', t['terminal-c'].x, t['terminal-c'].y, t['terminal-c'].z),
-    vault: makeBeacon('vault', layout.objects.prototype.x, layout.objects.prototype.y + 0.8, layout.objects.prototype.z, beaconMat, coreAccent),
-    pickup: makeBeacon('pickup', layout.extraction.x, 1.2, layout.extraction.z, exitAccent, exitAccent),
-  };
   levels.set(scene, { update(dt, state) {
     elapsed += dt;
     officeDoor.setOpen(state.officeOpen); officeDoor.update(dt);
@@ -448,14 +413,6 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     bellJar.position.y = Scalar.Lerp(bellJarBaseY, bellJarOpenY, eased);
     bellCap.position.y = Scalar.Lerp(bellCapBaseY, bellCapOpenY, eased);
     vaultSpot.intensity = Scalar.Lerp(0, 2.2, eased);
-    plinthRing.visibility = Scalar.Lerp(0.1, 1, eased);
-    // Brief halo pulse when vault first opens
-    if (wantOpen && vaultProgress < 0.5) {
-      halo.visibility = 0.6 + 0.4 * Math.sin(elapsed * 8);
-    } else {
-      halo.visibility = 1;
-    }
-
     // ── Alarm transformation (staged, allocation-free) ──
     // Key dims to ~40%; the cool fill and every surface keep their colour. Amber comes only from
     // lamps (beacons, wall ring) and screens. Stages: 1 trip (0-1.5 s, fast strobe), 2 sustained
@@ -498,7 +455,6 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     }
     // Hero beam: museum-soft when closed, full when revealed, dimmed with the key during the alarm.
     beamMat.alpha = (0.22 + 0.16 * eased) * (1 - 0.55 * alarmBlend);
-    halo.material = alarmActive ? beaconRedMat : p.light;
     scene.metadata = { ...(scene.metadata ?? {}), alarmStage };
     // Warm gold tint on complete
     if (!state.complete) completeTintTimer = 0;
@@ -516,26 +472,6 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
       if (alarmActive) ab.beam.rotation.y = elapsed * 4; // rotate beam around Y
     }
 
-    if (state.stage) {
-      const h = state.hacked ?? {};
-      const show: Record<keyof typeof beacons, boolean> = {
-        'terminal-a': (state.stage === 'infiltrate' || state.stage === 'hack-security') && !h['terminal-a'],
-        'terminal-b': (state.stage === 'infiltrate' || state.stage === 'hack-security') && !h['terminal-b'],
-        'terminal-c': state.stage === 'hack-security' && !!h['terminal-a'] && !!h['terminal-b'] && !h['terminal-c'],
-        vault: state.stage === 'steal-prototype' && !state.prototypeHeld,
-        pickup: state.stage === 'escape',
-      };
-      const pulse = 0.5 + 0.5 * Math.sin(elapsed * 3);
-      const lum = 0.82 + 0.18 * pulse;
-      beaconMat.emissiveColor.set(lum, 0.945 * lum, 0.84 * lum);
-      for (const [key, b] of Object.entries(beacons)) {
-        const on = show[key as keyof typeof beacons];
-        b.gem.setEnabled(on); b.ring.setEnabled(on);
-        if (!on) continue;
-        b.gem.rotation.y = elapsed * 1.6; b.gem.position.y = b.baseY + Math.sin(elapsed * 2.2) * 0.18;
-        b.ring.scaling.setAll(0.85 + 0.3 * pulse);
-      }
-    } else for (const b of Object.values(beacons)) { b.gem.setEnabled(false); b.ring.setEnabled(false); }
     // ── scene.metadata for PrototypeVisual p01Excited ──
     scene.metadata = { ...(scene.metadata ?? {}), p01Excited: state.alarm ? 1 : state.vaultOpen ? 0.4 : 0 };
 

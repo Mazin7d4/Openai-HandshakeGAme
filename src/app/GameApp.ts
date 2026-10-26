@@ -626,6 +626,7 @@ export class GameApp {
       /** Test-only geometry/camera invariants for the authored heist bot route. */
       cameraDiagnostics: () => ({
         eyeY: this.cameraRig.camera.position.y,
+        objectiveMarkers: this.scene.meshes.filter(mesh => /(?:-beacon(?:-ring)?$|-floor-ring$|^vault-halo$|^plinth-ring$)/.test(mesh.name)).map(mesh => mesh.name),
         cameraOccluders: this.cameraRig.fadeableOccluderNames(),
       }),
       /** Ask the server for a test stage (needs HANDSHAKE_TEST_HOOKS=1 on the server). */

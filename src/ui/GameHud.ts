@@ -100,7 +100,7 @@ export class GameHud {
     }
     const tip = document.createElement('p');
     tip.className = 'glyph-tip';
-    tip.append('Follow the beacon. ', keycaps('H'), ' hides this.');
+    tip.append(keycaps('H'), ' hides this.');
     this.controlsCard.append(list, tip);
     this.toastLayer = document.createElement('div');
     this.toastLayer.className = 'juice-toasts';

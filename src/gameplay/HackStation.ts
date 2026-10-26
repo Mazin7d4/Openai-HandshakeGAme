@@ -1,5 +1,4 @@
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
-import { CreateTorus } from '@babylonjs/core/Meshes/Builders/torusBuilder.js';
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
@@ -23,12 +22,6 @@ export interface HackStationSpec {
   allowedRole: DroneRole | 'either';
   accent: Color3;
 }
-
-const ROLE_RING_COLORS: Record<DroneRole | 'either', string> = {
-  pix: '#3DDBFF',
-  nee: '#FF6194',
-  either: '#F4EFE6',
-};
 
 const PLUG_GRID = [
   '..#...#..',
@@ -65,10 +58,6 @@ export class HackStation implements Interactable {
   private readonly indicator: Mesh;
   private readonly material: StandardMaterial;
   private readonly screenTexture: DynamicTexture;
-  private readonly floorRing: Mesh;
-  private readonly ringMaterial: StandardMaterial;
-  private readonly ringActiveColor: Color3;
-  private readonly ringDimColor: Color3;
   private readonly aggregate;
   private time = 0;
 
@@ -127,24 +116,6 @@ export class HackStation implements Interactable {
     this.material.diffuseColor = Color3.White();
     this.material.emissiveColor = new Color3(0.55, 0.55, 0.55);
     this.indicator.material = this.material;
-
-    const roleHex = ROLE_RING_COLORS[spec.allowedRole] ?? '#F4EFE6';
-    const baseRoleColor = Color3.FromHexString(roleHex);
-    this.ringActiveColor = baseRoleColor.scale(0.9);
-    this.ringDimColor = baseRoleColor.scale(0.35);
-
-    this.ringMaterial = new StandardMaterial(`${spec.id}-floor-ring-mat`, scene);
-    this.ringMaterial.disableLighting = true;
-    this.ringMaterial.emissiveColor = this.ringActiveColor.clone();
-
-    this.floorRing = CreateTorus(
-      `${spec.id}-floor-ring`,
-      { diameter: 2.2, thickness: 0.06, tessellation: 40 },
-      scene,
-    );
-    this.floorRing.position.set(spec.position.x, spec.position.y - 1.25 + 0.03, spec.position.z);
-    this.floorRing.isPickable = false;
-    this.floorRing.material = this.ringMaterial;
   }
 
   /** Move the console for a seeded RunLayout (mesh + indicator + interact point). */
@@ -170,13 +141,10 @@ export class HackStation implements Interactable {
     const k = complete ? 1.0 : owner ? 0.875 + Math.sin(this.time * 8) * 0.125 : 0.55;
     this.material.emissiveColor.set(k, k, k);
     this.indicator.scaling.y = complete ? 1 : 0.93 + Math.sin(this.time * 5) * 0.035;
-    this.ringMaterial.emissiveColor.copyFrom(complete ? this.ringDimColor : this.ringActiveColor);
   }
 
   dispose(): void {
     this.aggregate.dispose();
-    this.floorRing.dispose();
-    this.ringMaterial.dispose();
     this.screenTexture.dispose();
     this.material.dispose();
     this.indicator.dispose();
