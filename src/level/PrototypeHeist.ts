@@ -353,7 +353,9 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   const vaultDoorLeft = new Door(scene, plugin, { name: 'vault-backdrop-door-left', x: -2.5, y: 4.5, z: 27, width: 5, height: 9, depth: 0.35, travel: -6, axis: 'x' });
   const vaultDoorRight = new Door(scene, plugin, { name: 'vault-backdrop-door-right', x: 2.5, y: 4.5, z: 27, width: 5, height: 9, depth: 0.35, travel: 6, axis: 'x' });
   vaultDoorLeft.mesh.material = p.wood; vaultDoorRight.mesh.material = p.wood;
-  exitStrip('G4', 0, 26.72, 10, false);
+  // Cap the backdrop opening so its exit strip hangs from the shell instead of floating mid-air.
+  wallCap('vault-backdrop-lintel', 0, 27, 10, 0.8);
+  exitStrip('G4', 0, 26.72, 10, false).position.y = 8.92;
   exitStrip('G1', -5, -43.35, 5, true);
   exitStrip('G5', 11, 46.4, 10, true);
   const indigo = new StandardMaterial('morrow-indigo', scene);
