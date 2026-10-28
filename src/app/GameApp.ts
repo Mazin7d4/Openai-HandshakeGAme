@@ -893,6 +893,7 @@ export class GameApp {
         hudRole,
       );
       this.touch?.setCarryState(this.gameplay.heldObjectId(hudRole) !== null, prompts.some((text) => /^\[E\]\s+Pass\b/.test(text)));
+      this.touch?.setContext(prompts, hudRole);
     }
   }
 

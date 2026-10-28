@@ -347,7 +347,7 @@ body.hack-session-open :is(.mission-objective, .juice-toasts, .interaction-promp
     padding: 8px 12px; z-index: 80;
   }
   .mission-objective--collapsed h2 { display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; font-size: 13px; }
-  .juice-toasts { left: auto; right: max(8px, env(safe-area-inset-right, 0px)); transform: none; top: calc(max(8px, env(safe-area-inset-top, 0px)) + 88px); width: min(24vw, 240px); max-width: 24vw; z-index: 70; gap: 4px; align-items: flex-end; }
+  .juice-toasts { left: 50%; right: auto; transform: translateX(-50%); top: max(8px, env(safe-area-inset-top, 0px)); width: min(24vw, 240px); max-width: 24vw; z-index: 70; gap: 4px; align-items: flex-end; }
   .juice-toast { width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 10px; font: 800 15px/1.1 var(--font-title); animation: none; }
   .touch-play .interaction-prompt { left: 50%; bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + 8px); width: min(40vw, 360px); max-width: 40vw; padding: 4px; z-index: 18; }
   .touch-play .interaction-prompt button { min-height: 40px; padding: 4px 8px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -362,12 +362,15 @@ body.hack-session-open :is(.mission-objective, .juice-toasts, .interaction-promp
 }
 .pause-panel h2, .hack-panel h2 { margin-bottom: 8px; font-size: 28px; }
 .pause-panel > *, .settings-panel > *, .settings-menu--embedded > * { max-width: 100%; min-width: 0; }
-.settings-panel, .settings-menu--embedded { display: grid; gap: 10px; width: min(480px, 100%); max-width: 100%; min-width: 0; }
+.settings-panel, .settings-menu--embedded { display: flex; flex-direction: column; gap: 10px; width: min(720px, 100%); max-width: 100%; min-width: 0; }
 .settings-menu--embedded { width: 100%; }
 .settings-overlay .settings-panel { max-height: calc(100dvh - 24px); overflow: auto; }
-.pause-panel .settings-body { max-height: none; }
+.pause-panel:has(.settings-menu--embedded) { width: min(720px, 100%); }
+.settings-panel > :not(.settings-body), .settings-menu--embedded > :not(.settings-body) { flex-shrink: 0; }
+.settings-panel .settings-body, .settings-menu--embedded .settings-body { min-height: 0; flex: 1; }
+.settings-menu--embedded { max-height: calc(100dvh - 80px); }
 .settings-menu--embedded > .btn--quiet,
-.settings-panel > .btn--quiet { position: sticky; bottom: 0; z-index: 1; background: var(--paper); }
+.settings-panel > .btn--quiet { z-index: 1; background: var(--paper); }
 .settings-tabs {
   display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; min-width: 0;
 }
@@ -379,12 +382,24 @@ body.hack-session-open :is(.mission-objective, .juice-toasts, .interaction-promp
   color: var(--graphite); background: var(--paper); border-color: var(--graphite);
   box-shadow: 0 1px 0 #8E9C9B;
 }
-.settings-body { display: grid; gap: 0; max-height: min(52vh, 420px); overflow: auto; }
+.settings-body { display: grid; grid-auto-rows: max-content; align-content: start; gap: 0; max-height: min(52vh, 420px); overflow: auto; }
 .settings-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 160px); align-items: center; min-width: 0; min-height: 48px; border-bottom: var(--rim); font-size: 16px; }
-.settings-row select { min-width: 0; max-width: 100%; min-height: 44px; padding: 8px; border: var(--rim); border-radius: var(--r-control); background: var(--porcelain); }
+.settings-row select { min-width: 0; max-width: 100%; min-height: 48px; padding: 8px; border: var(--rim); border-radius: var(--r-control); background: var(--porcelain); }
 .settings-row input[type='range'], .settings-row input[type='checkbox'] { accent-color: var(--graphite); }
-.settings-row input[type='range'] { height: 44px; }
-.settings-row input[type='checkbox'] { width: 28px; height: 28px; justify-self: start; }
+.settings-row input[type='range'] { width: 100%; min-width: 48px; height: 48px; }
+.settings-row input[type='checkbox'] {
+  appearance: none; width: 48px; height: 48px; justify-self: start; border: var(--rim); border-radius: var(--r-control);
+  background: var(--porcelain); cursor: pointer;
+}
+.settings-row input[type='checkbox']:checked {
+  border-color: var(--pix-ink); background-color: var(--screen);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='m13 24 7 7 15-16' fill='none' stroke='%233DDBFF' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+@media (max-width: 560px) {
+  .settings-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-tab { overflow-wrap: normal; }
+}
+
 .settings-cosmetics-heading { margin-top: 12px; font: 800 18px/1.1 var(--font-title); }
 .settings-cosmetics-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .settings-cosmetic { display: grid; justify-items: start; gap: 3px; min-height: 64px; padding: 9px 10px; text-align: left; }
@@ -494,7 +509,7 @@ html[data-reduced-motion='1'] *::after {
 .signal-wave.player { stroke: var(--pix-ink); }
 .signal-controls { display: grid; gap: 12px; margin: 15px 0; }
 .signal-controls label { display: grid; grid-template-columns: 110px 1fr; align-items: center; color: var(--pencil); font-size: 16px; font-weight: 700; }
-.signal-controls input { width: 100%; height: 44px; accent-color: var(--pix-ink); touch-action: none; }
+.signal-controls input { width: 100%; height: 48px; accent-color: var(--pix-ink); touch-action: none; }
 .memory-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 26px auto 20px; max-width: 460px; }
 .memory-node {
   min-height: 92px; border: var(--rim); border-radius: var(--r-panel); color: var(--pencil); background: var(--porcelain); box-shadow: var(--lip);
@@ -759,6 +774,19 @@ html[data-reduced-motion='1'] *::after {
 /* ---------- Partner disconnected / connection lost ---------- */
 .partner-overlay { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); z-index: 6; display: none; width: auto; min-width: 300px; padding: 18px 24px; text-align: center; border-color: var(--security); animation: none; }
 .partner-overlay.visible { display: grid; gap: 8px; justify-items: center; }
+@media (pointer: coarse) {
+  .touch-play .partner-overlay {
+    top: auto; bottom: max(8px, env(safe-area-inset-bottom, 0px)); width: calc(50vw - 16px); min-width: 0;
+    padding: 6px 8px; text-align: left; column-gap: 8px; row-gap: 2px; grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .touch-play .partner-overlay > p { grid-column: 1; justify-self: start; }
+  .touch-play .partner-overlay > button { grid-column: 2; grid-row: 1 / span 2; padding: 6px 10px; }
+  .touch-play .partner-overlay .partner-title { font-size: 16px; }
+  .touch-play .partner-overlay .partner-detail { font-size: 14px; line-height: 1.15; }
+}
+@media (pointer: coarse) and (orientation: portrait) {
+  .touch-play .partner-overlay { top: 64px; bottom: auto; width: calc(100vw - 24px); }
+}
 .partner-title { margin: 0; color: var(--security-ink); font: 800 20px/1.1 var(--font-title); font-stretch: 112%; }
 .partner-detail { margin: 0; }
 
@@ -851,6 +879,42 @@ html[data-reduced-motion='1'] *::after {
   .menu-actions, .join-form { margin-top: 14px; gap: 8px; }
   .controls-card { display: none; }
 }
+/* Menu frames stay inside the screen; scroll is contained within the device panel. */
+.menu-shell { min-height: 0; }
+.menu-panel { max-height: calc(100dvh - 24px); overflow: auto; margin-top: 0; }
+@media (orientation: landscape) and (max-height: 500px) {
+  .menu-shell { padding: 12px max(16px, 5vw); }
+  .menu-panel { padding: 16px 20px; }
+  .menu-panel:not(.title-panel) { width: min(620px, 100%); }
+  .menu-panel::before, .menu-panel::after { display: none; }
+  .menu-panel > .menu-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+  .menu-panel h1 { margin-top: 4px; font-size: 28px; }
+  .menu-subtitle, .lobby-status { margin-top: 6px; }
+  .title-panel {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+    width: min(580px, 82vw); gap: 10px 20px; align-items: start;
+  }
+  .title-panel > :not(.menu-actions) { grid-column: 1; }
+  .title-panel .wordmark { font-size: clamp(30px, 4vw, 40px); }
+  .title-panel .title-tagline { font-size: 24px; margin-top: 0; }
+  .title-panel .menu-subtitle { display: block; margin: 0; font-size: 16px; }
+  .title-panel > .menu-actions { grid-column: 2; grid-row: 1 / span 5; margin: 0; }
+  .title-panel [data-testid='singleplayer'] { grid-column: 1 / -1; min-height: 64px; }
+  .title-panel [data-testid='singleplayer'] .btn__label { font-size: 24px; }
+  .title-panel .menu-button { padding: 8px; font-size: 16px; }
+  .title-panel [data-testid='multiplayer'], .title-panel [data-testid='daily-heist'] { grid-column: 1 / -1; }
+  .title-best-crew { white-space: normal; }
+  .lobby-panel { display: grid; grid-template-columns: minmax(0, 1fr) 160px; column-gap: 16px; row-gap: 4px; padding: 12px 16px; }
+  .lobby-panel > :not(:has(.invite-qr)) { grid-column: 1; }
+  .lobby-panel > :has(.invite-qr) { grid-column: 2; grid-row: 1 / span 5; align-self: center; }
+  .lobby-panel .invite-qr { width: 140px; margin: 0 auto; }
+  .lobby-panel .room-label { margin-top: 4px; }
+  .lobby-panel .room-code { font-size: 36px; margin: 0; padding: 6px; }
+  .lobby-panel .invite-link { margin: 0; }
+  .lobby-panel > .btn { padding: 6px 10px; margin-left: 0; }
+  .lobby-panel > .lobby-status { grid-column: 2; grid-row: 7; margin: 0; align-self: center; }
+  .lobby-panel > .room-label:not(.panel__kicker) { grid-column: 2; grid-row: 6; font-size: 14px; }
+}
 /* Server wake-up overlay (multiplayer host/join on the free server) */
 .wake-overlay { display: grid; justify-items: center; gap: 10px; margin-top: 20px; text-align: center; }
 .wake-spinner {
@@ -888,223 +952,122 @@ html[data-reduced-motion='1'] .wake-progress span { transition: none; }
   to { opacity: 0; transform: translateX(-50%) translateY(6px); }
 }
 
-/* ---------- Touch controls (coarse pointer / touch only) ---------- */
+/* ---------- Touch flight deck: named slots, mirrored as one unit ---------- */
 .touch-controls {
-  --touch-btn: max(56px, min(72px, 9vmin));
-  --touch-opacity: 0.85;
-  --touch-gap: max(8px, env(safe-area-inset-bottom, 0px));
+  --touch-btn: 48px; --touch-gap: 8px; --touch-step: calc(var(--touch-btn) + var(--touch-gap));
+  --touch-edge: max(8px, env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px));
+  --touch-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  --touch-top: max(8px, env(safe-area-inset-top, 0px));
+  --stick-w: clamp(72px, calc(25vw - 80px), 136px);
+  --touch-opacity: .85; --touch-accent: var(--pix); --touch-ink: var(--pix-ink);
   position: absolute; inset: 0; z-index: 11; pointer-events: none;
-  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
-  opacity: var(--touch-opacity);
-  /* Keep chrome clear of notches / home indicators in both landscape sides. */
-  padding:
-    max(8px, env(safe-area-inset-top, 0px))
-    max(8px, env(safe-area-inset-right, 0px))
-    max(8px, env(safe-area-inset-bottom, 0px))
-    max(8px, env(safe-area-inset-left, 0px));
+  opacity: var(--touch-opacity); touch-action: none;
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
 }
+.touch-controls[data-role='nee'] { --touch-accent: var(--nee); --touch-ink: var(--nee-ink); }
 .touch-play { overflow-x: clip; }
-.touch-controls--hidden { display: none; }
-/* Look pad covers the action half; buttons sit above and stopPropagation. */
+.touch-controls--hidden, .touch-controls [hidden] { display: none !important; }
 .touch-look {
-  position: absolute; top: 0; bottom: 0; width: 50%;
+  position: absolute; right: var(--touch-edge); top: calc(var(--touch-top) + 56px);
+  width: calc(25vw - 24px);
+  height: max(48px, calc(100% - var(--touch-top) - var(--touch-bottom) - 4 * var(--touch-step) - 56px));
   pointer-events: auto; touch-action: none;
-  -webkit-touch-callout: none; user-select: none;
 }
-.touch-controls--right .touch-look { right: 0; }
-.touch-controls--left .touch-look { left: 0; }
+.touch-controls--left .touch-look { right: auto; left: var(--touch-edge); }
 .touch-stick {
-  position: absolute; bottom: 0; width: min(48vw, 240px); height: min(52vh, 260px);
-  pointer-events: auto; touch-action: none;
+  position: absolute; left: var(--touch-edge); bottom: var(--touch-bottom);
+  width: var(--stick-w); height: 112px; pointer-events: auto; touch-action: none;
 }
-.touch-controls--right .touch-stick { left: 0; }
-.touch-controls--left .touch-stick { right: 0; }
+.touch-controls--left .touch-stick { left: auto; right: var(--touch-edge); }
 .touch-stick__base {
-  position: absolute; left: 50%; top: 55%; width: calc(var(--touch-btn) * 2);
-  height: calc(var(--touch-btn) * 2);
-  margin: calc(var(--touch-btn) * -1) 0 0 calc(var(--touch-btn) * -1);
-  border: var(--rim); border-radius: 50%;
-  background: rgba(244, 239, 230, 0.55); box-shadow: var(--lip);
-  opacity: 0.55; transition: opacity var(--t-ui) var(--ease-out);
-  pointer-events: none;
+  position: absolute; left: 50%; top: 50%; width: 80px; height: 80px; margin: -40px 0 0 -40px;
+  border: 1px solid var(--aluminium); border-radius: 50%;
+  background: rgba(244, 239, 230, .55); box-shadow: inset 0 0 0 5px rgba(244, 239, 230, .4);
+  pointer-events: none; transition: background var(--t-ui) var(--ease-out);
 }
-.touch-stick__base.active { opacity: 0.92; }
+.touch-stick__base.active { border-color: var(--touch-ink); background: rgba(244, 239, 230, .8); }
 .touch-stick__knob {
-  position: absolute; left: 50%; top: 50%;
-  width: calc(var(--touch-btn) * 0.85); height: calc(var(--touch-btn) * 0.85);
-  margin: calc(var(--touch-btn) * -0.425) 0 0 calc(var(--touch-btn) * -0.425);
-  border: var(--rim); border-radius: 50%;
-  background: var(--porcelain); box-shadow: var(--lip); pointer-events: none;
-  will-change: transform;
+  position: absolute; left: 50%; top: 50%; width: 40px; height: 40px; margin: -20px;
+  border: 2px solid var(--touch-ink); border-radius: 50%; background: var(--paper);
+  box-shadow: inset 0 0 0 4px var(--touch-accent), var(--lip); pointer-events: none; will-change: transform;
 }
-.touch-actions {
-  position: absolute; inset: 0; display: block;
-  pointer-events: none; touch-action: none;
+.touch-actions { position: absolute; inset: 0; pointer-events: none; }
+.touch-btn, .touch-pause {
+  position: absolute; display: grid; justify-items: center; align-content: center; gap: 3px;
+  width: var(--touch-btn); height: var(--touch-btn); min-width: 48px; min-height: 48px; padding: 3px;
+  border: var(--rim); border-radius: var(--r-control); color: var(--graphite); background: var(--paper);
+  box-shadow: var(--lip); font: 700 12px/1 var(--font-body); pointer-events: auto; touch-action: none; cursor: pointer;
+  transition: background 80ms var(--ease-out), box-shadow 80ms var(--ease-out);
 }
-.touch-actions > .touch-btn { pointer-events: auto; }
-.touch-controls--right .touch-actions { right: 0; }
-.touch-controls--left .touch-actions { left: 0; }
-.touch-actions > .touch-btn { position: absolute; }
-.touch-controls--right .touch-actions > :nth-child(1) { right: max(8px, env(safe-area-inset-right, 0px)); bottom: max(8px, env(safe-area-inset-bottom, 0px)); }
-.touch-controls--right .touch-actions > :nth-child(2) { left: 100px; bottom: 124px; }
-.touch-controls--right .touch-actions > :nth-child(3) { left: 100px; bottom: 58px; }
-.touch-controls--right .touch-actions > :nth-child(4) { right: 78px; bottom: 76px; }
-.touch-controls--right .touch-actions > :nth-child(5) { right: 146px; bottom: 10px; }
-.touch-controls--right .touch-actions > :nth-child(6) { right: 78px; bottom: 148px; }
-.touch-controls--right .touch-actions > :nth-child(7) { right: 146px; bottom: 150px; }
-.touch-controls--right .touch-actions > :nth-child(8) { right: 146px; bottom: 216px; }
-.touch-controls--right .touch-actions > :nth-child(9) { right: 146px; bottom: 282px; }
-.touch-controls--left .touch-actions > :nth-child(1) { left: max(8px, env(safe-area-inset-left, 0px)); bottom: max(8px, env(safe-area-inset-bottom, 0px)); }
-.touch-controls--left .touch-actions > :nth-child(2) { right: 100px; bottom: 124px; }
-.touch-controls--left .touch-actions > :nth-child(3) { right: 100px; bottom: 58px; }
-.touch-controls--left .touch-actions > :nth-child(4) { left: 78px; bottom: 76px; }
-.touch-controls--left .touch-actions > :nth-child(5) { left: 146px; bottom: 10px; }
-.touch-controls--left .touch-actions > :nth-child(6) { left: 78px; bottom: 148px; }
-.touch-controls--left .touch-actions > :nth-child(7) { left: 146px; bottom: 150px; }
-.touch-controls--left .touch-actions > :nth-child(8) { left: 146px; bottom: 216px; }
-.touch-controls--left .touch-actions > :nth-child(9) { left: 146px; bottom: 282px; }
-.touch-btn {
-  display: grid; justify-items: center; align-content: center; gap: 2px;
-  width: var(--touch-btn); height: var(--touch-btn);
-  min-width: 56px; min-height: 56px; padding: 6px 4px;
-  border: var(--rim); border-radius: var(--r-control);
-  color: var(--graphite); background: var(--paper); box-shadow: var(--lip);
-  font: 700 12px/1.1 var(--font-body); letter-spacing: 0.01em;
-  pointer-events: auto; touch-action: none; cursor: pointer;
-  transition: transform 80ms var(--ease-out), box-shadow 80ms var(--ease-out), background var(--t-ui) var(--ease-out), filter var(--t-ui) var(--ease-out);
-  -webkit-touch-callout: none; user-select: none; -webkit-user-select: none;
-}
-.touch-btn__glyph { width: 24px; height: 24px; pointer-events: none; }
-.touch-btn__label { color: var(--pencil); font-size: 11px; line-height: 1; pointer-events: none; }
-.touch-btn.is-down, .touch-btn:active,
-.touch-pause.is-down, .touch-pause:active {
-  transform: translateY(2px) scale(0.96); box-shadow: 0 1px 0 #8E9C9B; background: var(--porcelain);
-  filter: brightness(0.96);
-}
-.touch-pause {
-  position: absolute; top: 0; z-index: 12;
-  display: grid; place-items: center;
-  width: var(--touch-btn); height: var(--touch-btn);
-  min-width: 56px; min-height: 56px;
-  padding: 0; border: var(--rim); border-radius: var(--r-control);
-  color: var(--graphite); background: var(--paper); box-shadow: var(--lip);
-  pointer-events: auto; touch-action: none; cursor: pointer;
-  transition: transform 80ms var(--ease-out), box-shadow 80ms var(--ease-out), filter var(--t-ui) var(--ease-out);
-  -webkit-touch-callout: none; user-select: none; -webkit-user-select: none;
-}
-.touch-controls--right .touch-pause { right: 0; }
-.touch-controls--left .touch-pause { left: 0; }
+.touch-btn__glyph { width: 20px; height: 20px; pointer-events: none; }
+.touch-btn__label { color: var(--graphite); font-size: 12px; line-height: 1; pointer-events: none; }
+.touch-btn.is-down, .touch-pause.is-down { background: var(--porcelain); box-shadow: inset 0 0 0 2px var(--touch-ink); }
+.touch-btn[data-testid='touch-grab'] { border-color: var(--touch-ink); box-shadow: inset 0 3px 0 var(--touch-accent), var(--lip); }
+.touch-btn[data-context='1'] { background: var(--warm-screen); }
+.touch-actions > .touch-btn { right: calc(var(--touch-edge) + var(--slot-x, 0) * var(--touch-step)); bottom: calc(var(--touch-bottom) + var(--slot-y, 0) * var(--touch-step)); }
+.touch-controls--left .touch-actions > .touch-btn { right: auto; left: calc(var(--touch-edge) + var(--slot-x, 0) * var(--touch-step)); }
+[data-testid='touch-jump'] { --slot-x: 0; --slot-y: 0; }
+[data-testid='touch-yank'] { --slot-x: 1; --slot-y: 0; }
+[data-testid='touch-grab'] { --slot-x: 0; --slot-y: 1; }
+[data-testid='touch-throw'] { --slot-x: 1; --slot-y: 1; }
+[data-testid='touch-hack'] { --slot-x: 0; --slot-y: 2; }
+[data-testid='touch-ping'] { --slot-x: 1; --slot-y: 2; }
+[data-testid='touch-switch'] { --slot-x: 0; --slot-y: 3; }
+[data-testid='touch-emote'] { --slot-x: 1; --slot-y: 3; }
+.touch-controls--right .touch-actions > :is([data-testid='touch-up'], [data-testid='touch-down']) { left: calc(2 * var(--touch-edge) + var(--stick-w)); right: auto; }
+.touch-controls--left .touch-actions > :is([data-testid='touch-up'], [data-testid='touch-down']) { right: calc(2 * var(--touch-edge) + var(--stick-w)); left: auto; }
+[data-testid='touch-up'] { --slot-y: 1; }
+[data-testid='touch-down'] { --slot-y: 0; }
+[data-testid='touch-down'] .touch-btn__glyph { transform: rotate(180deg); }
+.touch-pause { right: var(--touch-edge); top: var(--touch-top); }
+.touch-controls--left .touch-pause { right: auto; left: var(--touch-edge); }
 .touch-rotate-hint {
-  position: absolute; left: 50%; top: 18%; z-index: 15; display: none;
-  transform: translateX(-50%); width: min(320px, calc(100% - 32px));
-  padding: 14px 16px; border: var(--rim); border-radius: var(--r-panel);
-  background: var(--paper); box-shadow: var(--lip), var(--float-shadow);
-  isolation: isolate; text-align: center; pointer-events: auto; touch-action: manipulation;
-  opacity: 0; transition: opacity var(--t-ui) var(--ease-out);
-}
-.touch-rotate-hint::before {
-  content: ''; position: fixed; inset: 0; z-index: -1;
-  background: var(--porcelain); pointer-events: none;
+  position: absolute; left: 50%; top: 18%; z-index: 1000; display: none; transform: translateX(-50%);
+  width: min(320px, calc(100% - 32px)); padding: 14px 16px; border: var(--rim); border-radius: var(--r-panel);
+  background: var(--paper); box-shadow: var(--lip), var(--float-shadow); text-align: center; pointer-events: auto;
 }
 .touch-rotate-hint--hidden { display: none !important; }
-.touch-rotate-hint { z-index: 1000; }
-.touch-rotate-hint.visible { display: grid; gap: 8px; justify-items: center; opacity: 1; }
-.touch-rotate-hint p { margin: 0; color: var(--graphite); font: 700 16px/1.3 var(--font-body); }
-.touch-rotate-hint strong { color: var(--graphite); font: 800 20px/1.1 var(--font-title); }
+.touch-rotate-hint.visible { display: grid; gap: 8px; justify-items: center; }
+.touch-rotate-hint p { color: var(--graphite); font: 700 16px/1.3 var(--font-body); }
+.touch-rotate-hint strong { font: 800 20px/1.1 var(--font-title); }
 .touch-rotate-hint__icon svg { width: 42px; height: 42px; fill: none; stroke: var(--pix-ink); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-.touch-rotate-hint__dismiss { min-height: 44px; }
-.touch-play .active-drone-hud { right: calc(var(--touch-btn, 56px) + 20px); }
-.touch-play .touch-controls--left ~ .active-drone-hud,
-.touch-play:has(.touch-controls--left) .active-drone-hud { right: 16px; left: auto; }
-.touch-play .controls-card,
-.controls-card--touch-hidden { display: none !important; }
-.touch-play .interaction-prompt { bottom: calc(var(--touch-btn, 56px) * 2.6 + 24px); }
-.touch-play:has(.touch-controls--carrying) .interaction-prompt { display: none !important; }
-.touch-play .onboarding-coach { bottom: calc(var(--touch-btn, 56px) * 3 + 36px); }
-.touch-play .network-hud { top: max(16px, env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); }
-.touch-play .active-drone-hud { top: max(16px, env(safe-area-inset-top, 0px)); }
-.touch-play .mission-objective { top: calc(max(16px, env(safe-area-inset-top, 0px)) + 46px); width: min(35vw, 380px); }
-.touch-play .mission-objective--collapsed { height: 36px; min-height: 36px; box-sizing: border-box; padding: 9px 12px; }
-/* Floor / beat chips: free half only — never under pause or the look pad / action column. */
-.touch-play .run-hud {
-  top: max(12px, env(safe-area-inset-top, 0px));
-  left: max(12px, env(safe-area-inset-left, 0px));
-  max-width: min(160px, 38vw);
-  z-index: 12;
+.touch-rotate-hint__dismiss { min-height: 48px; }
+.touch-play .active-drone-hud { top: max(12px, env(safe-area-inset-top, 0px)); right: calc(max(8px, env(safe-area-inset-right, 0px)) + 64px); }
+.touch-play:has(.touch-controls--left) .active-drone-hud { right: 12px; }
+.touch-play .controls-card, .controls-card--touch-hidden { display: none !important; }
+.touch-play .interaction-prompt { display: none !important; }
+.touch-play .network-hud { top: max(12px, env(safe-area-inset-top, 0px)); left: max(12px, env(safe-area-inset-left, 0px)); }
+.touch-play:has(.touch-controls--left) .network-hud { left: 72px; }
+.touch-play .run-hud { left: 12px; max-width: min(160px, 22vw); z-index: 12; }
+.touch-play:has(.touch-controls--left) .run-hud { left: auto; right: 12px; }
+.touch-play .mission-objective { top: max(8px, env(safe-area-inset-top, 0px)); width: min(40vw, 360px); }
+.touch-play .mission-objective--collapsed { height: 36px; min-height: 36px; padding: 8px 12px; }
+body.hack-session-open :is(.touch-controls, .emote-radial, .onboarding-coach, .active-drone-hud, .network-hud, .run-hud) { visibility: hidden !important; }
+/* The emote picker stays in its thumb rail; all four choices remain directly tappable. */
+.touch-play .emote-radial {
+  left: auto; right: max(8px, env(safe-area-inset-right, 0px)); bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  width: 104px; height: 104px; transform: none; border-radius: var(--r-panel); background: var(--screen);
 }
-.touch-play:has(.touch-controls--left) .run-hud {
-  left: auto;
-  right: max(12px, env(safe-area-inset-right, 0px));
-  /* Sit under the active-drone chip so the left pause button stays clear. */
-  top: calc(max(12px, env(safe-area-inset-top, 0px)) + 44px);
-}
-
-@media (orientation: landscape) and (max-height: 460px) {
-  .touch-stick { width: min(42vw, 220px); height: min(78vh, 220px); }
-  .touch-actions { gap: 8px; }
-  .touch-play .interaction-prompt { bottom: calc(var(--touch-btn, 56px) * 2.2 + 12px); }
-  .touch-play .onboarding-coach { bottom: calc(var(--touch-btn, 56px) * 2.6 + 20px); }
-  .onboarding-coach { max-width: min(360px, calc(100% - 280px)); }
-  .touch-play .run-hud { max-width: min(140px, 34vw); gap: 4px; }
-  .touch-play .floor-chip, .touch-play .beat-chip { font-size: 16px; padding: 4px 8px; }
-  .touch-play .mission-objective { width: min(35vw, 300px); }
-}
-
-@media (orientation: landscape) and (max-height: 460px) and (min-width: 560px) {
-  .pause-panel { gap: 4px; padding: 12px 20px; }
-  .settings-menu--embedded { gap: 4px; }
-  .settings-menu--embedded .settings-body { max-height: 120px; }
-  .touch-play .mission-objective { width: min(35vw, 300px, calc(100% - 320px)); }
-}
-
+.touch-play:has(.touch-controls--left) .emote-radial { right: auto; left: max(8px, env(safe-area-inset-left, 0px)); }
+.touch-play .emote-radial__item { width: 48px; height: 48px; min-width: 48px; min-height: 48px; border-radius: var(--r-control); transform: none; font-size: 14px; }
+.touch-play .emote-radial__item--here { left: 0; top: 0; }
+.touch-play .emote-radial__item--go { left: auto; right: 0; top: 0; }
+.touch-play .emote-radial__item--wait { left: 0; bottom: 0; top: auto; }
+.touch-play .emote-radial__item--yay { left: auto; right: 0; bottom: 0; top: auto; }
 @media (orientation: portrait) and (max-width: 480px) {
-  .touch-stick { height: min(42vh, 280px); }
-  .touch-play .mission-objective { top: calc(max(16px, env(safe-area-inset-top, 0px)) + 92px); width: calc(100% - 24px); }
-  .touch-actions { inset: auto; right: max(8px, env(safe-area-inset-right, 0px)); bottom: max(8px, env(safe-area-inset-bottom, 0px)); width: 120px; height: 264px; }
-  .touch-controls--right .touch-actions > :nth-child(1) { right: 72px; bottom: 72px; }
-  .touch-controls--right .touch-actions > :nth-child(4) { right: 0; bottom: 72px; }
-  .touch-controls--right .touch-actions > :nth-child(5) { right: 72px; bottom: 0; }
-  .touch-controls--right .touch-actions > :nth-child(6) { right: 0; bottom: 0; }
-  .touch-controls--right .touch-actions > :nth-child(7) { right: 72px; bottom: 144px; }
-  .touch-controls--right .touch-actions > :nth-child(8) { right: 0; bottom: 144px; }
-  .touch-controls--right .touch-actions > :nth-child(9) { right: 0; bottom: 216px; }
-  .touch-controls--left .touch-actions { left: max(8px, env(safe-area-inset-left, 0px)); right: auto; }
-  .touch-controls--left .touch-actions > .touch-btn { left: auto; right: auto; }
-  .touch-controls--left .touch-actions > :nth-child(1) { left: 0; bottom: 72px; }
-  .touch-controls--left .touch-actions > :nth-child(4) { left: 72px; bottom: 72px; }
-  .touch-controls--left .touch-actions > :nth-child(5) { left: 0; bottom: 0; }
-  .touch-controls--left .touch-actions > :nth-child(6) { left: 72px; bottom: 0; }
-  .touch-controls--left .touch-actions > :nth-child(7) { left: 0; bottom: 144px; }
-  .touch-controls--left .touch-actions > :nth-child(8) { left: 72px; bottom: 144px; }
-  .touch-controls--left .touch-actions > :nth-child(9) { left: 72px; bottom: 216px; }
-  .touch-actions > :nth-child(2) { left: -96px !important; right: auto !important; bottom: 124px !important; }
-  .touch-actions > :nth-child(3) { left: -96px !important; right: auto !important; bottom: 58px !important; }
-}
+  .touch-controls { --touch-gap: 4px; --touch-bottom: max(6px, env(safe-area-inset-bottom, 0px)); --stick-w: 104px; }
+  .touch-look { width: 104px; top: auto; bottom: calc(var(--touch-bottom) + 4 * var(--touch-step)); height: 64px; }
+  .touch-controls--right .touch-actions > :is([data-testid='touch-up'], [data-testid='touch-down']) { left: calc(var(--touch-edge) + var(--slot-x) * var(--touch-step)); bottom: calc(var(--touch-bottom) + 116px); }
+  .touch-controls--left .touch-actions > :is([data-testid='touch-up'], [data-testid='touch-down']) { right: calc(var(--touch-edge) + var(--slot-x) * var(--touch-step)); bottom: calc(var(--touch-bottom) + 116px); }
+  [data-testid='touch-up'] { --slot-x: 0; } [data-testid='touch-down'] { --slot-x: 1; }
+  .touch-play .mission-objective { top: 64px; }
+  .touch-play .mission-objective--collapsed { width: calc(100% - 24px) !important; max-width: calc(100% - 24px); }
+  .touch-play .juice-toasts { top: 174px; width: min(70vw, 300px); max-width: 70vw; }
 
-@media (max-width: 380px) {
-  .touch-controls { --touch-btn: 48px; --touch-gap: 6px; }
-  .touch-actions { gap: 6px; }
-  .touch-btn, .touch-pause { min-width: 48px; min-height: 48px; }
-  .touch-btn__glyph { width: 20px; height: 20px; }
-  .touch-btn__label { font-size: 10px; }
-  .touch-stick { width: 46vw; height: min(44vh, 232px); }
-  .touch-play .interaction-prompt { bottom: 116px; max-width: calc(100% - 132px); }
-  .touch-play .onboarding-coach { bottom: 122px; max-width: calc(100% - 132px); }
+  .touch-play .onboarding-coach { width: calc(100vw - 24px); max-width: 220px; }
 }
+@media (prefers-reduced-motion: reduce) { .touch-btn, .touch-pause, .touch-stick__base { transition: none; } }
 
-@media (orientation: landscape) and (max-height: 380px) {
-  .touch-controls { --touch-btn: 48px; --touch-gap: 6px; }
-  .touch-actions { gap: 6px; }
-  .touch-btn, .touch-pause { min-width: 48px; min-height: 48px; }
-  .touch-stick { width: 42vw; height: 200px; }
-  .touch-play .interaction-prompt { bottom: 112px; max-width: calc(100% - 250px); }
-  .touch-play .onboarding-coach { bottom: 116px; max-width: calc(100% - 250px); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .onboarding-coach--done.visible { animation: none; opacity: 0; }
-  .touch-btn, .touch-pause { transition-duration: 1ms; }
-}
 
 .warmup-step {
   display: inline-flex;
@@ -1208,22 +1171,6 @@ html[data-reduced-motion='1'] .wake-progress span { transition: none; }
 
 
 
-/* Portrait phones: the stick pad stops short of the Up/Down column beside the action grid. */
-@media (orientation: portrait) and (max-width: 480px) {
-  .touch-controls .touch-stick { width: max(120px, calc(100% - 244px)); }
-}
-
-/* Landscape phones: Up/Down sit just outside the stick pad, clear of the centre third. */
-@media (orientation: landscape) and (max-height: 500px) {
-  /* Keep the lift column to the left of the 25%-75% audit rect at every phone width. */
-  .touch-controls { --stick-w: clamp(120px, calc(25vw - var(--touch-btn) - 2px), 200px); }
-  .touch-controls .touch-stick { width: var(--stick-w); }
-  .touch-controls--right .touch-actions > :nth-child(2),
-  .touch-controls--right .touch-actions > :nth-child(3) { left: var(--stick-w); right: auto; }
-  .touch-controls--left .touch-actions > :nth-child(2),
-  .touch-controls--left .touch-actions > :nth-child(3) { right: var(--stick-w); left: auto; }
-}
-
 @media (orientation: landscape) and (max-height: 420px) {
   .hack-panel { padding-block: 4px; }
   .hack-help { display: none; }
@@ -1232,72 +1179,26 @@ html[data-reduced-motion='1'] .wake-progress span { transition: none; }
   .hack-status { min-height: 16px; margin-bottom: 0; }
 }
 
-/* Carry adds one adjacent action without changing the rest of the touch cluster. */
-@media (orientation: landscape) and (max-height: 500px) {
-  .touch-controls--right .touch-actions > :nth-child(4) { right: var(--s); bottom: calc(var(--s) + var(--b) + 8px); }
-  .touch-controls--right .touch-actions > :nth-child(5) { right: calc(var(--s) + var(--b) + 8px); bottom: calc(var(--s) + var(--b) + 8px); }
-  .touch-controls--right .touch-actions > :nth-child(6) { right: calc(var(--s) + var(--b) + 8px); bottom: var(--s); }
-  .touch-controls--right .touch-actions > :nth-child(7) { right: calc(var(--s) + 2 * (var(--b) + 8px)); bottom: calc(var(--s) + var(--b) + 8px); }
-  .touch-controls--right .touch-actions > :nth-child(8) { right: calc(var(--s) + 2 * (var(--b) + 8px)); bottom: calc(var(--s) + 2 * (var(--b) + 8px)); }
-  .touch-controls--right .touch-actions > :nth-child(9) { right: calc(var(--s) + 3 * (var(--b) + 8px)); bottom: calc(var(--s) + var(--b) + 8px); }
-  .touch-controls--right .touch-actions > :nth-child(10) { right: calc(var(--s) + 3 * (var(--b) + 8px)); bottom: var(--s); }
-  .touch-controls--left .touch-actions > :nth-child(4) { left: var(--s); bottom: calc(var(--s) + var(--b) + 8px); }
-  .touch-controls--left .touch-actions > :nth-child(5) { left: calc(var(--s) + var(--b) + 8px); bottom: calc(var(--s) + var(--b) + 8px); }
-  .touch-controls--left .touch-actions > :nth-child(6) { left: calc(var(--s) + var(--b) + 8px); bottom: var(--s); }
-  .touch-controls--left .touch-actions > :nth-child(7) { left: calc(var(--s) + 2 * (var(--b) + 8px)); bottom: calc(var(--s) + var(--b) + 8px); }
-  .touch-controls--left .touch-actions > :nth-child(8) { left: calc(var(--s) + 2 * (var(--b) + 8px)); bottom: calc(var(--s) + 2 * (var(--b) + 8px)); }
-  .touch-controls--left .touch-actions > :nth-child(9) { left: calc(var(--s) + 3 * (var(--b) + 8px)); bottom: calc(var(--s) + var(--b) + 8px); }
-  .touch-controls--left .touch-actions > :nth-child(10) { left: calc(var(--s) + 3 * (var(--b) + 8px)); bottom: var(--s); }
-}
-
 /* Every hack variant is a compact landscape sheet.  Controls retain 40px tap targets. */
 @media (orientation: landscape) and (max-height: 500px) {
   .hack-overlay { padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px)); }
-  .hack-panel { width: min(760px, 100%); max-height: 100%; overflow: auto; padding: clamp(10px, 2vh, 18px) clamp(12px, 3vw, 24px); }
+  .hack-panel { width: min(560px, 100%); max-height: 100%; overflow: auto; padding: clamp(10px, 2vh, 18px) clamp(12px, 3vw, 24px); }
   .hack-panel h2 { margin-bottom: 4px; font-size: clamp(20px, 5vh, 28px); }
   .hack-help { font-size: 14px; line-height: 1.2; }
   .signal-scope { height: clamp(64px, 20vh, 100px); margin: 8px 0; }
   .signal-controls { grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
   .signal-controls label { grid-template-columns: 76px 1fr; font-size: 14px; }
-  .signal-controls input { height: 40px; min-width: 40px; }
-  .hack-board-shell { grid-template-columns: 54px 1fr 54px; gap: 8px; margin: 10px 0; }
-  .hack-grid { width: min(100%, 280px); margin-inline: auto; gap: 4px; padding: 6px; grid-template-columns: repeat(var(--grid-width), minmax(40px, 1fr)); }
-  .packet-node { min-width: 40px; min-height: 40px; font-size: clamp(22px, 6vh, 34px); }
+  .signal-controls input { height: 48px; min-width: 48px; }
+  .hack-board-shell { grid-template-columns: 54px 1fr 54px; gap: 8px; margin: 0; }
+  .hack-panel .hack-help { display: none; }
+  .hack-panel .hack-status { min-height: 16px; margin-bottom: 0; }
+  .hack-grid { width: min(100%, 220px); margin-inline: auto; gap: 4px; padding: 6px; grid-template-columns: repeat(var(--grid-width), minmax(48px, 1fr)); }
+  .packet-node { min-width: 48px; min-height: 48px; font-size: clamp(22px, 6vh, 34px); }
   .memory-board { gap: 6px; margin: 10px auto; max-width: 360px; }
-  .memory-node { min-width: 40px; min-height: 40px; height: clamp(40px, 12vh, 58px); font-size: 18px; }
+  .memory-node { min-width: 48px; min-height: 48px; height: clamp(48px, 12vh, 58px); font-size: 18px; }
   .hack-status { min-height: 20px; margin-bottom: 6px; font-size: 14px; }
-  .hack-cancel { width: 120px; min-height: 42px; padding: 6px 10px; }
+  .hack-cancel { width: 120px; min-height: 48px; padding: 6px 10px; }
 }
-
-/* Landscape phones: thumb cluster in the bottom corner. Jump/Grab/Yank/Hack primary, Ping/Emote/Switch 44px. */
-@media (orientation: landscape) and (max-height: 500px) {
-  .touch-actions { --b: var(--touch-btn, 56px); --s: max(8px, env(safe-area-inset-bottom, 0px)); }
-  .touch-actions > :nth-child(n+7) { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
-  .touch-controls--right .touch-actions > :nth-child(1) { right: var(--s); left: auto; bottom: var(--s); }
-  .touch-controls--right .touch-actions > :nth-child(4) { right: var(--s); left: auto; bottom: calc(var(--s) + var(--b) + 8px); }
-  .touch-controls--right .touch-actions > :nth-child(5) { right: calc(var(--s) + var(--b) + 8px); left: auto; bottom: var(--s); }
-  .touch-controls--right .touch-actions > :nth-child(6) { right: calc(var(--s) + var(--b) + 8px); left: auto; bottom: calc(var(--s) + var(--b) + 8px); }
-  .touch-controls--right .touch-actions > :nth-child(7) { right: var(--s); left: auto; bottom: calc(var(--s) + 2 * (var(--b) + 8px)); }
-  .touch-controls--right .touch-actions > :nth-child(8) { right: calc(var(--s) + 2 * (var(--b) + 8px)); left: auto; bottom: calc(var(--s) + var(--b) + 8px); }
-  .touch-controls--right .touch-actions > :nth-child(9) { right: calc(var(--s) + 2 * (var(--b) + 8px)); left: auto; bottom: var(--s); }
-  .touch-controls--left .touch-actions > :nth-child(1) { left: var(--s); right: auto; bottom: var(--s); }
-  .touch-controls--left .touch-actions > :nth-child(4) { left: var(--s); right: auto; bottom: calc(var(--s) + var(--b) + 8px); }
-  .touch-controls--left .touch-actions > :nth-child(5) { left: calc(var(--s) + var(--b) + 8px); right: auto; bottom: var(--s); }
-  .touch-controls--left .touch-actions > :nth-child(6) { left: calc(var(--s) + var(--b) + 8px); right: auto; bottom: calc(var(--s) + var(--b) + 8px); }
-  .touch-controls--left .touch-actions > :nth-child(7) { left: var(--s); right: auto; bottom: calc(var(--s) + 2 * (var(--b) + 8px)); }
-  .touch-controls--left .touch-actions > :nth-child(8) { left: calc(var(--s) + 2 * (var(--b) + 8px)); right: auto; bottom: calc(var(--s) + var(--b) + 8px); }
-  .touch-controls--left .touch-actions > :nth-child(9) { left: calc(var(--s) + 2 * (var(--b) + 8px)); right: auto; bottom: var(--s); }
-}
-
-/* Portrait phones: coach and prompts sit above the two-column action grid (264px tall). */
-@media (orientation: portrait) and (max-width: 480px) {
-  .touch-play .onboarding-coach,
-  .touch-play .interaction-prompt { max-width: calc(100% - 24px); }
-  .touch-play .interaction-prompt { bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + 280px); }
-  .touch-play .onboarding-coach { bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + 370px); }
-}
-
-.touch-rotate-hint__dismiss { min-height: 48px; }
 
 /* Portrait phones: the collapsed objective pill may use more width for its one-line title. */
 @media (orientation: portrait) and (max-width: 480px) {
@@ -1308,15 +1209,15 @@ html[data-reduced-motion='1'] .wake-progress span { transition: none; }
 .touch-play .onboarding-coach {
   top: calc(max(12px, env(safe-area-inset-top, 0px)) + 46px); bottom: auto !important;
   left: max(12px, env(safe-area-inset-left, 0px)); right: auto; transform: none;
-  max-width: min(220px, 34vw); gap: 8px; padding: 6px 8px 6px 10px;
+  width: calc(25vw - 24px); max-width: 220px; gap: 6px; padding: 6px 8px 6px 10px;
 }
 .touch-play .onboarding-coach__prompt { font-size: 14px; }
 .touch-play .onboarding-coach__touch-glyph { width: 22px; height: 22px; }
 .touch-play .onboarding-coach__skip { min-height: 48px; padding: 4px 8px; font-size: 14px; }
 /* Night Shift keeps its floor chips top-left, so the coach takes the top-right slot under the drone chip. */
-.touch-play:has(.run-hud) .onboarding-coach { left: auto; right: max(12px, env(safe-area-inset-right, 0px)); top: calc(max(12px, env(safe-area-inset-top, 0px)) + 60px); }
+.touch-play:has(.run-hud) .onboarding-coach { top: auto; bottom: 132px !important; }
 @media (orientation: portrait) and (max-width: 480px) {
-  .touch-play .onboarding-coach { top: calc(max(12px, env(safe-area-inset-top, 0px)) + 140px); max-width: min(220px, 60vw); }
+  .touch-play .onboarding-coach { top: 100px; width: calc(100vw - 24px); max-width: calc(100vw - 24px); }
 }
 
 /* Night Shift chips stack under the room / seed label instead of on top of it. */
@@ -1356,5 +1257,5 @@ body.escape-replay-on :is(.mission-objective, .onboarding-coach, .interaction-pr
   .hack-panel .hack-board-shell { margin-block: 0; }
   .hack-panel .hack-grid { width: min(100%, 220px); }
   .hack-panel .hack-status { min-height: 16px; margin-bottom: 0; }
-  .hack-panel .hack-cancel { min-height: 42px; }
+  .hack-panel .hack-cancel { min-height: 48px; }
 }

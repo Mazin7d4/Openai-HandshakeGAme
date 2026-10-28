@@ -53,7 +53,12 @@ export class TouchControls {
   private readonly rotateHint: HTMLDivElement;
   private readonly handlers: TouchControlsHandlers;
   private stick: StickState | null = null;
-  private stickRadius = 56;
+  private stickRadius = 40;
+  private requestedVisible = true;
+  private contextAction: 'grab' | 'hack' | 'yank' = 'grab';
+  private actionLabel = 'Grab';
+  private readonly cancelHolds = new Set<() => void>();
+  private readonly modalObserver: MutationObserver;
   private jumpBoostHeld = false;
   private disposed = false;
   private handedness: TouchHandedness = 'right';
@@ -197,6 +202,7 @@ export class TouchControls {
     this.stickPad = document.createElement('div');
     this.stickPad.className = 'touch-stick';
     this.stickPad.dataset.testid = 'touch-joystick';
+    this.stickPad.setAttribute('aria-label', 'Move');
     this.stickBase = document.createElement('div');
     this.stickBase.className = 'touch-stick__base';
     this.stickKnob = document.createElement('div');
@@ -206,18 +212,23 @@ export class TouchControls {
 
     this.actions = document.createElement('div');
     this.actions.className = 'touch-actions';
-    this.carryButton = this.tapButton('Grab', 'grab', 'touch-grab', () => this.handlers.onGrab());
+    this.carryButton = this.tapButton('Grab', 'grab', 'touch-grab', () => {
+      if (this.contextAction === 'hack') this.handlers.onInteract();
+      else if (this.contextAction === 'yank') this.handlers.onYank();
+      else this.handlers.onGrab();
+    });
     this.throwButton = this.tapButton('Throw', 'grab', 'touch-throw', () => this.handlers.onThrow?.());
     this.throwButton.classList.add('touch-carry-throw');
     this.throwButton.hidden = true;
     this.actions.append(
-      this.holdButton('Jump', 'boost', 'touch-jump', (down) => {
+      this.holdButton('Boost', 'boost', 'touch-jump', (down) => {
         this.jumpBoostHeld = down;
-        this.handlers.virtual.setAxes({ lift: down ? 1 : 0, boost: down });
+        this.updateLift();
+        this.handlers.virtual.setAxes({ boost: down });
         this.handlers.onJumpBoost?.(down);
       }),
-      this.holdButton('Up', 'updown', 'touch-up', (down) => this.setLiftHold('touch-up', down, 1)),
-      this.holdButton('Down', 'updown', 'touch-down', (down) => this.setLiftHold('touch-down', down, -1)),
+      this.holdButton('Up', 'lift', 'touch-up', (down) => this.setLiftHold('touch-up', down, 1)),
+      this.holdButton('Down', 'lift', 'touch-down', (down) => this.setLiftHold('touch-down', down, -1)),
       this.carryButton,
       this.throwButton,
       this.tapButton('Yank', 'yank', 'touch-yank', () => this.handlers.onYank()),
@@ -301,9 +312,14 @@ export class TouchControls {
     window.addEventListener('resize', this.onResize);
     window.addEventListener('orientationchange', this.onOrientation);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
+    window.addEventListener('blur', this.onBlur);
+    this.modalObserver = new MutationObserver(() => this.syncVisibility());
+    this.modalObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    this.syncVisibility();
   }
 
   private readonly onResize = () => {
+    this.resetInput();
     this.updateStickRadius();
     this.syncRotateHint();
   };
@@ -313,26 +329,38 @@ export class TouchControls {
   };
 
   private readonly onVisibilityChange = () => {
-    if (document.hidden) this.clearLiftHolds();
+    if (document.hidden) this.resetInput();
   };
+
+  private readonly onBlur = () => this.resetInput();
 
   static shouldShow(): boolean {
     return isTouchPlayDevice();
   }
 
   setVisible(visible: boolean): void {
+    this.requestedVisible = visible;
+    this.syncVisibility();
+  }
+
+  private syncVisibility(): void {
+    const visible = this.requestedVisible && !document.body.classList.contains('hack-session-open');
     this.root.classList.toggle('touch-controls--hidden', !visible);
     this.rotateHint.classList.toggle('touch-rotate-hint--hidden', !visible);
-    if (!visible) {
-      this.clearStick();
-      this.lookFingers.clear();
-      this.lookPrimaryId = null;
-      this.handlers.camera.touchLookRelease();
-      if (this.jumpBoostHeld) {
-        this.jumpBoostHeld = false;
-        this.handlers.virtual.setAxes({ lift: 0, boost: false });
-      }
-    }
+    if (!visible) { this.resetInput(); this.closeRadial(); }
+  }
+
+  private resetInput(): void {
+    this.clearStick();
+    this.lookFingers.clear();
+    this.lookPrimaryId = null;
+    this.handlers.camera.touchLookRelease();
+    for (const cancel of this.cancelHolds) cancel();
+    this.jumpBoostHeld = false;
+    this.clearLiftHolds();
+    this.handlers.virtual.setAxes({ boost: false });
+    this.emotePointer = null;
+    this.root.querySelectorAll('.is-down').forEach(button => button.classList.remove('is-down'));
   }
 
   /** Keep carry actions in the touch action cluster instead of the world prompt. */
@@ -340,18 +368,40 @@ export class TouchControls {
     this.root.classList.toggle('touch-controls--carrying', carrying);
     const label = pass ? 'Pass' : 'Drop';
     this.carryButton.hidden = false;
+    const wasCarrying = this.carryButton.dataset.carrying === '1';
     this.carryButton.dataset.carrying = carrying ? '1' : '0';
-    this.carryButton.setAttribute('aria-label', carrying ? label : 'Grab');
-    const caption = this.carryButton.querySelector('.touch-btn__label');
-    if (caption) caption.textContent = carrying ? label : 'Grab';
-    this.carryButton.querySelector('.touch-btn__glyph')?.setAttribute('data-carry', carrying ? label.toLowerCase() : 'grab');
+    if (carrying || wasCarrying) {
+      this.contextAction = 'grab';
+      this.setActionLabel(carrying ? label : 'Grab', 'grab');
+    }
     this.throwButton.hidden = !carrying;
+  }
+
+  /** Present the current command using the same proximity prompts as the keyboard HUD. */
+  setContext(prompts: readonly string[], role: 'pix' | 'nee'): void {
+    this.root.dataset.role = role;
+    if (this.carryButton.dataset.carrying === '1') return;
+    const grab = prompts.some(text => /^\[E\]\s+(Grab|Snatch)\b/.test(text));
+    const hack = prompts.some(text => /^\[F\]/.test(text));
+    const yank = prompts.some(text => /^\[R\]/.test(text));
+    this.contextAction = grab ? 'grab' : hack ? 'hack' : yank ? 'yank' : 'grab';
+    this.setActionLabel(grab ? 'Grab' : hack ? 'Hack' : yank ? 'Yank' : 'Grab', this.contextAction);
+    this.carryButton.dataset.context = grab || hack || yank ? '1' : '0';
+  }
+
+  private setActionLabel(label: string, glyph: string): void {
+    if (this.actionLabel === label) return;
+    this.actionLabel = label;
+    this.carryButton.setAttribute('aria-label', label);
+    const caption = this.carryButton.querySelector('.touch-btn__label');
+    if (caption) caption.textContent = label;
+    this.carryButton.querySelector('.touch-btn__glyph')?.replaceWith(controlIcon(glyph, 'glyph touch-btn__glyph'));
   }
 
   /** Swap the virtual stick target after a local drone switch recreates HumanControlSource. */
   rebindVirtual(virtual: VirtualControlInput): void {
     this.handlers.virtual = virtual;
-    this.clearStick();
+    this.resetInput();
   }
 
   dispose(): void {
@@ -360,11 +410,13 @@ export class TouchControls {
     this.rotateHint.remove();
     if (this.disposed) return;
     this.disposed = true;
-    this.clearStick();
+    this.resetInput();
+    this.modalObserver.disconnect();
     this.unsubSettings();
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('orientationchange', this.onOrientation);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    window.removeEventListener('blur', this.onBlur);
     this.stickPad.removeEventListener('pointerdown', this.onStickDown);
     this.stickPad.removeEventListener('pointermove', this.onStickMove);
     this.stickPad.removeEventListener('pointerup', this.onStickUp);
@@ -379,6 +431,7 @@ export class TouchControls {
   }
 
   private applyLayout(handedness: TouchHandedness): void {
+    if (this.handedness !== handedness) this.resetInput();
     this.handedness = handedness;
     this.root.dataset.handedness = handedness;
     this.root.classList.toggle('touch-controls--left', handedness === 'left');
@@ -390,8 +443,7 @@ export class TouchControls {
   }
 
   private updateStickRadius(): void {
-    const btn = Number.parseFloat(getComputedStyle(this.root).getPropertyValue('--touch-btn')) || 56;
-    this.stickRadius = Math.max(56, btn);
+    this.stickRadius = 40;
   }
 
   private syncRotateHint(): void {
@@ -432,8 +484,13 @@ export class TouchControls {
     if (!button) return;
     button.dataset.lift = value < 0 ? 'down' : 'up';
     if (down) this.liftHolds.add(button); else this.liftHolds.delete(button);
-    const current = [...this.liftHolds].reduce((sum, item) => sum + (item.dataset.lift === 'down' ? -1 : 1), 0);
-    this.handlers.virtual.setAxes({ lift: Math.max(-1, Math.min(1, current)) });
+    this.updateLift();
+  }
+
+  private updateLift(): void {
+    let lift = this.jumpBoostHeld ? 1 : 0;
+    for (const item of this.liftHolds) lift += item.dataset.lift === 'down' ? -1 : 1;
+    this.handlers.virtual.setAxes({ lift: Math.max(-1, Math.min(1, lift)) });
   }
 
   private clearLiftHolds(): void {
@@ -442,13 +499,15 @@ export class TouchControls {
       button.classList.remove('is-down');
       delete button.dataset.lift;
     });
-    this.handlers.virtual.setAxes({ lift: 0 });
+    this.updateLift();
   }
 
   private placeStickVisual(originX: number, originY: number, cx: number, cy: number): void {
-    this.stickBase.style.left = `${originX}px`;
-    this.stickBase.style.top = `${originY}px`;
-    this.stickKnob.style.transform = `translate(${cx}px, ${cy}px)`;
+    const x = Math.max(40, Math.min(this.stickPad.clientWidth - 40, originX));
+    const y = Math.max(40, Math.min(this.stickPad.clientHeight - 40, originY));
+    this.stickBase.style.left = `${x}px`;
+    this.stickBase.style.top = `${y}px`;
+    this.stickKnob.style.transform = `translate(${cx * .5}px, ${cy * .5}px)`;
   }
 
   private tapButton(label: string, glyph: string, testId: string, action: () => void): HTMLButtonElement {
@@ -465,6 +524,7 @@ export class TouchControls {
     button.addEventListener('pointerdown', (event) => {
       event.preventDefault();
       event.stopPropagation();
+      try { button.setPointerCapture(event.pointerId); } catch { /* synthetic pointer */ }
       button.classList.add('is-down');
       hapticTap(12);
       action();
@@ -475,7 +535,7 @@ export class TouchControls {
     };
     button.addEventListener('pointerup', release);
     button.addEventListener('pointercancel', release);
-    button.addEventListener('pointerleave', release);
+    button.addEventListener('lostpointercapture', release);
     return button;
   }
 
@@ -499,6 +559,7 @@ export class TouchControls {
     const up = (event: PointerEvent) => {
       if (!this.emotePointer || event.pointerId !== this.emotePointer.id) return;
       const state = this.emotePointer; this.emotePointer = null;
+      if (event.type === 'pointercancel') { this.closeRadial(); return; }
       const over = (document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null)?.closest<HTMLElement>('.emote-radial__item');
       const overId = over?.dataset.testid?.replace('emote-', '') as EmoteId | undefined;
       const choice = overId ?? (state.moved ? state.selected : null);
@@ -536,18 +597,19 @@ export class TouchControls {
     caption.className = 'touch-btn__label';
     caption.textContent = label;
     button.append(caption);
+    const pointers = new Set<number>();
+    const cancel = () => { pointers.clear(); button.classList.remove('is-down'); onHold(false); };
+    this.cancelHolds.add(cancel);
     const down = (event: PointerEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
+      event.preventDefault(); event.stopPropagation();
       try { button.setPointerCapture(event.pointerId); } catch { /* synthetic pointer */ }
-      button.classList.add('is-down');
-      hapticTap(10);
-      onHold(true);
+      pointers.add(event.pointerId);
+      button.classList.add('is-down'); hapticTap(10); onHold(true);
     };
     const up = (event: PointerEvent) => {
+      if (!pointers.delete(event.pointerId)) return;
       event.preventDefault();
-      button.classList.remove('is-down');
-      onHold(false);
+      if (pointers.size === 0) { button.classList.remove('is-down'); onHold(false); }
     };
     button.addEventListener('pointerdown', down);
     button.addEventListener('pointerup', up);
