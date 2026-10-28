@@ -691,6 +691,7 @@ export class MissionDirector {
     const warm = this.state.stage === 'infiltrate' ? this.warmup() : null;
     const job = floorJob(this.runLayout?.floor);
     const plan = this.runLayout?.plan;
+    this.objective?.classList.toggle('mission-objective--campaign', Boolean(plan?.campaign));
     const planJobName = plan?.job.name.replace(/^VAULT:\s*/i, '') ?? '';
     const kicker = plan
       ? plan.campaign
