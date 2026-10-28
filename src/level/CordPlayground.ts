@@ -27,7 +27,7 @@ import { byInput } from '../ui/inputHints.ts';
  * None of it gates progress. Cups are local cosmetic physics (each client sees
  * its own topple from the same replicated drone and cord positions).
  */
-const TOWER_ORIGINS = [new Vector3(0.6, 0, -57.4), new Vector3(-4.6, 0, -58.6)];
+const TOWER_ORIGINS = [new Vector3(8, 0, -61.5), new Vector3(-9, 0, -60)];
 const CUP = 0.62;
 /** Cups stand on a side table so the stack sits in the drones' hover band. */
 const TABLE_H = 1.35;

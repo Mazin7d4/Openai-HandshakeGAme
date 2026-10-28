@@ -56,7 +56,6 @@ export class ObjectiveVisuals {
   private readonly pillar?: AbstractMesh;
   private readonly pylonCore?: AbstractMesh;
   private readonly pylonBody?: AbstractMesh;
-  private readonly pylonBeacon?: AbstractMesh;
   private readonly stretch?: AbstractMesh;
   private readonly cage?: AbstractMesh;
   private lastSeq = -1;
@@ -204,12 +203,6 @@ export class ObjectiveVisuals {
       core.isPickable = false;
       this.pylonCore = core;
       this.nodes.push(core);
-      const beacon = CreateCylinder('objective-pylon-beacon', { diameter: 0.24, height: 0.55, tessellation: 12 }, scene);
-      beacon.position.set(pylon.x, pylon.y + 2.35, pylon.z);
-      beacon.material = this.materials.warn;
-      beacon.isPickable = false;
-      this.pylonBeacon = beacon;
-      this.nodes.push(beacon);
       this.safeDirection.copyFrom(pylon).subtractInPlace(this.safeBase);
       this.safeDirection.y = 0;
       if (this.safeDirection.lengthSquared() > 0.001) {
@@ -220,16 +213,6 @@ export class ObjectiveVisuals {
     if (plan.anchor) {
       const anchor = point(plan.anchor);
       this.beacons.push(anchor.clone());
-      const ring = CreateTorus('objective-anchor', {
-        diameter: 1.8,
-        thickness: 0.05,
-        tessellation: 24,
-      }, scene);
-      ring.position.set(anchor.x, anchor.y + 0.03, anchor.z);
-      ring.rotation.x = Math.PI / 2;
-      ring.material = this.materials.goal;
-      ring.isPickable = false;
-      this.nodes.push(ring);
     }
 
     if (plan.pads) {
@@ -382,9 +365,7 @@ export class ObjectiveVisuals {
     if (this.pylonBody) {
       this.pylonBody.material = state.done ? this.materials.done : this.materials.pylon;
     }
-    if (this.pylonBeacon) {
-      this.pylonBeacon.material = state.done ? this.materials.done : this.materials.warn;
-    }
+
 
     for (let i = 0; i < this.pads.length; i++) {
       const pad = this.pads[i];

@@ -33,7 +33,7 @@ import { createRoundedBox } from '../scene/roundedBox.ts';
 import { addHeroLighting } from './HeroLighting.ts';
 import { ArrivalLesson } from './ArrivalLesson.ts';
 import { PowerCircuit } from './PowerCircuit.ts';
-import { gameEvents } from '../gameplay/GameEvents.ts';
+import { effectiveReducedMotion, getSettings } from '../ui/Settings.ts';
 
 const SECURITY_AMBER = Color3.FromHexString('#FFB84D');
 const SCREEN_IDLE = new Color3(0.35, 0.35, 0.35);
@@ -60,6 +60,14 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     mesh.receiveShadows = true;
     if (occluder) mesh.metadata = { cameraOccluder: true };
     if (solid) addStaticBody(mesh, scene);
+    // Permanent architectural section, never a visibility fade: a low solid plinth and clear
+    // glass preserve the room boundary while leaving low-flying drones visible behind it.
+    if (/^(entry-wall-|office-divider-low-|office-wall-|lab-door-(left|right))/.test(name)) {
+      mesh.isVisible = false;
+      const section = CreateBox(`${name}-section`, { width: w, height: 1.2, depth: d }, scene);
+      section.position.set(x, 0.6, z); section.material = material;
+      section.isPickable = false; section.receiveShadows = true;
+    }
     return mesh;
   };
   const wallCap = (name: string, x: number, z: number, w: number, d: number) =>
@@ -67,7 +75,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   // Partitions read as a low capped knee wall with clear glass above and only a thin top rail,
   // so the cap never becomes a thick bar across the crew in the 45-60 degree dollhouse view.
   const kneeCap = (name: string, x: number, z: number, w: number, d: number) =>
-    box(`${name}-cap`, x, 4.85, z, w, 0.3, d + 0.1, p.dark, false);
+    box(`${name}-cap`, x, 1.32, z, w, 0.24, d + 0.1, p.dark, false);
   const glassRail = (name: string, x: number, z: number, w: number) =>
     box(`${name}-rail`, x, 9.04, z, w, 0.12, 0.22, p.dark, false);
   const partitionTrim = (name: string, z: number, segments: [number, number][]) => {
@@ -82,7 +90,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   signGlow.diffuseColor = new Color3(1, 0.86, 0.62); signGlow.emissiveColor = new Color3(1, 0.8, 0.52);
   signGlow.specularColor = Color3.Black();
   const lintelDark = new StandardMaterial('exit-lintel-dark', scene);
-  lintelDark.diffuseColor = Color3.FromHexString('#443D36'); lintelDark.emissiveColor = Color3.FromHexString('#221F1C');
+  lintelDark.diffuseColor = Color3.FromHexString('#443D36'); lintelDark.emissiveColor = Color3.Black();
   lintelDark.specularColor = Color3.Black();
   const lintelWarm = new StandardMaterial('exit-lintel-warm', scene);
   lintelWarm.diffuseColor = Color3.FromHexString('#FFF1D6'); lintelWarm.emissiveColor = Color3.FromHexString('#FFF1D6');
@@ -142,9 +150,12 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   wallCap('east-wall', 19, -10, 0.8, 114); wallCap('west-wall', -19, -10, 0.8, 114);
   wallCap('north-wall', 0, 47, 38, 0.8); box('south-boundary-cap', 0, 2.85, -67, 38, 0.7, 0.8, p.dark, false);
   const rollerLeaf = box('loading-roller-door', 11, 4.5, 46.62, 10, 8, 0.18, p.dark);
+  rollerLeaf.metadata = { presentationDynamic: true };
   wallCap('loading-roller-door', 11, 46.62, 10.5, 0.8);
   const daylight = new StandardMaterial('roller-door-daylight', scene);
   daylight.diffuseColor = Color3.FromHexString('#E7F1F5'); daylight.emissiveColor = Color3.FromHexString('#BFDCE8'); daylight.disableLighting = true;
+  // Daylight is physically behind the shutter. Raising its slats reveals the bright exterior.
+  box('loading-daylight-opening', 11, 4.5, 46.67, 9.7, 7.8, 0.02, daylight, false);
   const rollerFrame = box('loading-roller-door-frame', 6, 4.5, 46.58, 0.35, 9, 0.9, daylight, false);
   const rollerFrameEast = box('loading-roller-door-frame', 16, 4.5, 46.58, 0.35, 9, 0.9, daylight, false);
   wallCap('loading-roller-door-frame', 6, 46.58, 0.8, 1.0);
@@ -176,7 +187,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   box('entry-wall-right', 11, 2.35, -55, 16, 4.7, 0.5, p.paint); kneeCap('entry-wall-right', 11, -55, 16, 0.8);
   box('entry-glass-left', -12.5, 6.85, -55, 13, 4.3, 0.16, p.glass); glassRail('entry-glass-left', -12.5, -55, 13);
   box('entry-glass-right', 11, 6.85, -55, 16, 4.3, 0.16, p.glass); glassRail('entry-glass-right', 11, -55, 16);
-  box('entry-header', -1.5, 8.5, -55, 9, 1, 0.6, p.wood); wallCap('entry-header', -1.5, -55, 9, 0.8);
+  box('entry-header', -1.5, 8.82, -55, 9, 0.12, 0.12, p.dark);
   partitionTrim('entry-partition', -55, [[-12.5, 13], [11, 16]]);
   desk('reception', -6.5, -49, 7);
   sign('reception-sign', '02 RECEPTION', '', 2, 2.6, -54.6, 6);
@@ -193,8 +204,8 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   box('vent-sill', -5, 4.8, -43, 5, 0.22, 4, p.metal);
   for (const x of [-7.5, -2.5]) box('vent-frame-lamp', x, 6.45, -43.36, 0.16, 3.1, 0.16, lintelWarm, false);
   box('vent-frame-lamp', -5, 4.95, -43.36, 5, 0.12, 0.16, lintelWarm, false);
-  box('vent-left', -7.6, 6.4, -43, 0.2, 3.4, 5, p.metal, true, true);
-  box('vent-right', -2.4, 6.4, -43, 0.2, 3.4, 5, p.metal, true, true);
+  box('vent-left', -7.6, 6.4, -43, 0.2, 3.4, 4, p.metal, true, true);
+  box('vent-right', -2.4, 6.4, -43, 0.2, 3.4, 4, p.metal, true, true);
   // Office cooperative pocket: PIX on the desktop; NEE at the under-desk patch bay.
   desk('office-pix', -5, -33, 9);
   desk('office-nee', 7, -31, 8);
@@ -206,7 +217,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   box('office-glass-west', -11.5, 6.85, -26, 15, 4.3, 0.16, p.glass); box('office-glass-east', 10.5, 6.85, -26, 17, 4.3, 0.16, p.glass);
   glassRail('office-glass-west', -11.5, -26, 15); glassRail('office-glass-east', 10.5, -26, 17);
   partitionTrim('office-partition', -26, [[-11.5, 15], [10.5, 17]]);
-  box('office-door-header', -1, 8.5, -26, 6, 1, 0.6, p.wood); wallCap('office-door-header', -1, -26, 6, 0.8);
+  box('office-door-header', -1, 8.82, -26, 6, 0.12, 0.12, p.dark);
   exitStrip('G2', -1, -26.35, 5.6, false);
   // Server gallery: alternating aisle ends and a high maintenance shelf. All flight gaps ≥ 2.4 units.
   for (const x of [-8.5, 8.5] as const) {
@@ -224,10 +235,10 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   for (let i = 0; i < 3; i++) box('catwalk-ramp-step', -3, 4.6 - i * 1.2, -8.9 - i * 1.0, 3, 0.3, 1.0, p.metal);
   sign('server-sign', '04 SERVERS', '', -3, 2.6, -4.8, 5.5);
   const memoryGlass = new StandardMaterial('memory-array-indigo', scene);
-  memoryGlass.diffuseColor = Color3.FromHexString('#293B82'); memoryGlass.emissiveColor = Color3.FromHexString('#283961');
+  memoryGlass.diffuseColor = Color3.FromHexString('#30465B'); memoryGlass.emissiveColor = Color3.FromHexString('#142032');
   memoryGlass.alpha = 0.9; memoryGlass.specularColor = Color3.FromHexString('#9EA8FF');
-  const memoryArray = CreateCylinder('memory-array', { diameter: 3.2, height: 8.5, tessellation: 32 }, scene);
-  memoryArray.position.set(3, 4.25, -5.5); memoryArray.material = memoryGlass; memoryArray.isPickable = false;
+  const memoryArray = CreateCylinder('memory-array', { diameter: 2.8, height: 7.8, tessellation: 32 }, scene);
+  memoryArray.position.set(-4, 3.9, -4.5); memoryArray.material = memoryGlass; memoryArray.isPickable = false;
   exitStrip('G3', 0, 1.6, 5.6, false);
   // Main lab partition: the replicated HackSession door occupies the central opening.
   box('lab-door-left', -10.9, 2.35, 2, 16.2, 4.7, 0.7, p.paint); kneeCap('lab-door-left', -10.9, 2, 16.2, 1.0);
@@ -235,7 +246,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   box('lab-glass-left', -10.9, 6.85, 2, 16.2, 4.3, 0.16, p.glass); box('lab-glass-right', 10.4, 6.85, 2, 15.2, 4.3, 0.16, p.glass);
   glassRail('lab-glass-left', -10.9, 2, 16.2); glassRail('lab-glass-right', 10.4, 2, 15.2);
   partitionTrim('lab-partition', 2, [[-10.9, 16.2], [10.4, 15.2]]);
-  box('lab-door-header', 0, 8.5, 2, 5.6, 1, 0.7, p.wood); wallCap('lab-door-header', 0, 2, 5.6, 0.9);
+  box('lab-door-header', 0, 8.82, 2, 5.6, 0.12, 0.12, p.dark);
   sign('lab-sign', '05 LAB', '', 3, 2.6, 2.5, 5);
   sign('dock-sign', '06 DOCK', '', 11, 2.6, 46.5, 5);
   // Hero lab: real-scale benches, clear central floor and a display at human worktop height.
@@ -400,10 +411,10 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   let alarmLightTamed = false;
   let statusLed: PBRMaterial | null | undefined;
   let completeTintTimer = 0;
+  let rollerOpen = 0;
   levels.set(scene, { update(dt, state) {
     elapsed += dt;
     const lessonOpen = arrivalLesson.update(dt, state.drones ?? [], !!state.stage && state.stage !== 'infiltrate');
-    if (officeDoor.isOpen !== state.officeOpen) gameEvents.emit('mechanism', { kind: 'door', position: officeDoor.mesh.position.clone(), complete: state.officeOpen });
     officeDoor.setOpen(state.officeOpen); officeDoor.update(dt);
     const vaultOpen = state.alarm || state.complete;
     vaultDoorLeft.setOpen(vaultOpen); vaultDoorRight.setOpen(vaultOpen);
@@ -412,9 +423,12 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     for (const [id, strip] of exitStrips) strip.material = stripsLit.has(id) ? lintelWarm : lintelDark;
     const hacked = state.hacked ?? {};
     for (const [i, id] of ['terminal-a', 'terminal-b', 'terminal-c'].entries()) circuits[i].setPowered(!!hacked[id]);
-    const padLevel = state.prototypeHeld ? 0.7 + 0.3 * Math.sin(elapsed * 3) : 0.22;
-    padMat.emissiveColor.set(0.16 * padLevel, padLevel, 0.4 * padLevel);
-    rollerLeaf.material = vaultOpen ? daylight : p.dark;
+    const padLevel = state.prototypeHeld ? 0.9 + 0.2 * Math.sin(elapsed * 3) : 0.65;
+    padMat.emissiveColor.set(0.12 * padLevel, 1.8 * padLevel, 0.45 * padLevel);
+    rollerOpen += ((vaultOpen ? 1 : 0) - rollerOpen) * (1 - Math.exp(-dt * 1.8));
+    rollerLeaf.scaling.y = Math.max(0.015, 1 - rollerOpen);
+    rollerLeaf.position.y = 4.5 + rollerOpen * 4;
+    rollerLeaf.isVisible = rollerOpen < 0.995;
     p.escape.emissiveColor.set(state.alarm ? 0.22 : 0.06, state.alarm ? 0.8 : 0.17, state.alarm ? 0.43 : 0.1);
 
     // ── Vault reveal ──
@@ -456,14 +470,15 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     alarmBlend = Scalar.Lerp(alarmBlend, alarmTarget, 1 - Math.exp(-dt * (alarmActive ? 6 : 3)));
     if (Math.abs(alarmBlend - alarmTarget) < 0.001) alarmBlend = alarmTarget;
     alarmStage = !alarmActive ? 0 : alarmTime < 1.5 ? 1 : alarmTime < 30 ? 2 : 3;
-    const hz = alarmStage === 1 ? 3 : alarmStage === 3 ? 2 : 1.2;
+    const reducedMotion = effectiveReducedMotion(getSettings());
+    const hz = reducedMotion ? 0 : alarmStage === 3 ? 1.4 : 1.0;
     alarmPhase += dt * hz * 2 * Math.PI;
-    const lampPulse = 0.5 + 0.5 * Math.sin(alarmPhase);
+    const lampPulse = reducedMotion ? 0.65 : 0.5 + 0.5 * Math.sin(alarmPhase);
     const lampLevel = alarmStage === 1 ? (lampPulse > 0.5 ? 1.25 : 0.35) : (alarmStage === 3 ? 0.55 : 0.4) + (alarmStage === 3 ? 0.7 : 0.6) * lampPulse;
     if (sunLight) sunLight.intensity = origSunIntensity * (1 - 0.6 * alarmBlend);
     if (fillLight) fillLight.intensity = origFillIntensity * (1 - 0.15 * alarmBlend);
     Color4.LerpToRef(origClearColor, alarmClear, alarmBlend, scene.clearColor);
-    beaconRedMat.emissiveColor.copyFrom(SECURITY_AMBER).scaleInPlace(alarmActive ? lampLevel : 1);
+    beaconRedMat.emissiveColor.copyFromFloats(1, 0.22, 0.12).scaleInPlace(alarmActive ? lampLevel : 1);
     // Screens: instrument displays and rack status LEDs blink amber with the lamps.
     displayMat.emissiveColor.copyFrom(SCREEN_IDLE);
     if (alarmBlend > 0) Color3.LerpToRef(SCREEN_IDLE, SECURITY_AMBER, alarmBlend * (0.35 + 0.5 * lampPulse), displayMat.emissiveColor);
@@ -494,7 +509,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     }
 
     // ── scene.metadata for PrototypeVisual p01Excited ──
-    scene.metadata = { ...(scene.metadata ?? {}), p01Excited: state.alarm ? 1 : state.vaultOpen ? 0.4 : 0 };
+    scene.metadata = { ...(scene.metadata ?? {}), heistAlarm: state.alarm, p01Excited: state.alarm ? 1 : state.vaultOpen ? 0.4 : 0 };
 
   } });
   scene.onDisposeObservable.addOnce(() => levels.delete(scene));

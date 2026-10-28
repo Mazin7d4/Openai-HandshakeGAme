@@ -61,4 +61,7 @@ export function dressLabCrate(body: Mesh, size: number, scene: Scene): void {
   lamp.position.set(s * 0.6, s * 0.15, s * 0.99);
   root.computeWorldMatrix(true);
   mergeRigidChildren(root);
+  // The carry case can sit between the camera and a drone at extraction. Fade the prop,
+  // just like a rack; architectural walls retain their permanent cutaway geometry.
+  for (const mesh of root.getChildMeshes()) mesh.metadata = { ...mesh.metadata, cameraOccluder: true };
 }
