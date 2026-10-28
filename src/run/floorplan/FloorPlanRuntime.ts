@@ -86,6 +86,10 @@ export class FloorPlanRuntime {
           if (message.phase && this.layout.plan?.phases && message.phase - 1 !== this.phaseIndex) {
             this.phaseIndex = Math.max(0, Math.min(this.layout.plan.phases.length - 1, message.phase - 1));
             this.activeObjectivePlan = this.layout.plan.phases[this.phaseIndex];
+            this.objectiveVisuals?.dispose();
+            this.objectiveVisuals = new ObjectiveVisuals(this.scene, this.activeObjectivePlan, {
+              mesh: this.prototype.mesh, cradle: point(this.layout.loot),
+            }, Boolean(this.layout.plan.campaign));
           }
           applyObjectiveSnapshot(this.objectiveState, message.state);
           this.advanceCampaignPhaseIfReady();
@@ -125,7 +129,7 @@ export class FloorPlanRuntime {
     this.elapsed = 0;
     this.objectiveGate = new HazardTripGate();
     const generation = ++this.generation;
-    void buildRooms(this.scene, plan.rooms, plan.job.boss).then((handle) => {
+    void buildRooms(this.scene, plan.rooms, plan.job.boss && !plan.campaign).then((handle) => {
       if (generation !== this.generation) {
         handle.dispose();
         return;
@@ -148,12 +152,14 @@ export class FloorPlanRuntime {
     if (!plan || !state) return;
     const delta = Math.max(0, Math.min(0.25, dt));
     this.elapsed += delta;
+    for (const input of this.playerInputs) {
+      const drone = drones.get(input.role);
+      if (drone) this.writePlayer(input, drone, cordState.strain);
+    }
     if (!this.session) {
       const pix = drones.get('pix');
       const nee = drones.get('nee');
       if (pix && nee) {
-        this.writePlayer(this.playerInputs[0], pix, cordState.strain);
-        this.writePlayer(this.playerInputs[1], nee, cordState.strain);
         const events = stepObjective(state, this.activeObjectivePlan ?? plan.objective, {
           dt: delta,
           players: this.playerInputs,
@@ -180,7 +186,7 @@ export class FloorPlanRuntime {
         this.hazardVisuals?.flash(trip.id);
       }
     }
-    this.objectiveVisuals?.update(delta, this.objectiveState ?? state, [...drones.values()].map((drone) => ({ role: drone.role, x: drone.position.x, y: drone.position.y, z: drone.position.z })));
+    this.objectiveVisuals?.update(delta, this.objectiveState ?? state, this.playerInputs);
     this.hazardVisuals?.update(this.elapsed, hazardPhase);
     this.mission.setObjectiveState(this.activeObjectivePlan, state);
   }

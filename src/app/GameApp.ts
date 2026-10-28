@@ -468,7 +468,7 @@ export class GameApp {
       campaignGenerator = generateCampaignRun;
       setCampaignLayoutGenerator(generateCampaignRun);
     }
-    const runLayout = mode === 'campaign' && campaignId
+    const runLayout = campaignId
       ? campaignGenerator?.(campaignId) ?? null
       : runSeed ? generateNightShiftRun(runSeed.seed, runSeed.floor) : null;
     if (runLayout?.plan?.campaign) applyCampaignPalette(scene, runLayout.plan.campaign.index);

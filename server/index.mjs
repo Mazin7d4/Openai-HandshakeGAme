@@ -756,7 +756,7 @@ class HandshakeRoom extends Room {
     }, finite(this.state.mission.elapsedSeconds, 0));
     const campaign = run.mode === 'campaign' ? this.floorPlan?.campaign : null;
     if (campaign) {
-      const parSeconds = [150, 180, 210, 240, 300][campaign.index - 1] ?? 300;
+      const parSeconds = [150, 180, 210, 240, 240][campaign.index - 1] ?? 300;
       const scoredCampaign = scoreCampaignLevel({
         seconds: this.state.mission.elapsedSeconds,
         parSeconds,
@@ -1174,6 +1174,7 @@ class HandshakeRoom extends Room {
       return;
     }
     if (object.id === 'prototype' && ((this.state.run.mode !== 'campaign' && !this.state.hack.doorOpen) || this.objectiveSim.locked)) return;
+    if (object.id === 'prototype' && this.floorPlan?.campaign?.index === 1 && !this.state.hack.stationCComplete) return;
     const now = Date.now();
     if (now - (this.lastGrabMs.get(sessionId) ?? 0) < GRAB_COOLDOWN_MS) return;
     this.lastGrabMs.set(sessionId, now);

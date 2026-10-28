@@ -45,7 +45,7 @@ function authoredPlan(level, layout) {
       { ...vec(0, 5), role: 'pix' }, { ...vec(3, 12), role: 'nee' }],
     padRadius: 2, stepSeconds: 9, fragileLoot: { cracksToShatter: 3 },
   }, fragile()];
-  if (level.index === 5) phases = [twin(-8), pylon(), fragile()];
+  if (level.index === 5) phases = [twin(-18), pylon(), fragile()];
   return {
     ...source,
     // The existing annex already supplies the architecture and landmarks.
@@ -80,9 +80,9 @@ export function campaignLayout(levelId) {
   const raw = generateRun(level.seed, 1);
   const layout = {
     ...raw, floor: level.index,
-    spawn: vec(0, level.index >= 4 ? -16 : level.index === 1 ? -10 : -3, 2.2),
+    spawn: vec(0, level.index === 5 ? -25 : level.index === 4 ? -16 : level.index === 3 ? 2.5 : 3.8, 2.2),
     loot: vec(0, 18, 5.25), extraction: vec(11, 43.5, 2),
-    terminals: { ...raw.terminals, 'terminal-c': vec(0, -5, 2.2) },
+    terminals: { ...raw.terminals, 'terminal-c': vec(0, 8, 2.2) },
     patrolRoutes: [], cameras: [],
     cord: { restLength: 7, maxLength: 10 },
   };

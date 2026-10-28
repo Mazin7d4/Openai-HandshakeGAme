@@ -64,6 +64,17 @@ export function applyCampaignPalette(scene: Scene, index: number): void {
   const sun = scene.getLightByName('sun');
   if (sun) sun.diffuse = Color3.Lerp(sun.diffuse, Color3.FromHexString(palettes.light), 0.45);
   scene.metadata = { ...(scene.metadata ?? {}), campaignPalette: index };
+  for (const mesh of scene.meshes) {
+    // The old decorative column sits directly in the campaign's starting view.
+    if (mesh.material?.name === 'memory-array-indigo') mesh.setEnabled(false);
+  }
+  if (index === 5) {
+    const gold = new StandardMaterial('campaign-vault-bronze', scene);
+    gold.diffuseColor = Color3.FromHexString('#9F793E'); gold.specularColor = Color3.FromHexString('#F6D59B');
+    for (const name of ['vault-backdrop-door-left', 'vault-backdrop-door-right']) {
+      const leaf = scene.getMeshByName(name); if (leaf) leaf.material = gold;
+    }
+  }
 }
 
 /** Hand-authored first mission. Geometry owns no mission or network state. */
@@ -261,6 +272,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     for (const z of [16, 24]) box('vault-mullion', x, 4.4, z, 0.13, 8, 0.13, p.metal);
   }
   const halo = CreateTorus('vault-halo', { diameter: 7.7, thickness: 0.08, tessellation: 80 }, scene);
+  halo.setEnabled(false);
   halo.position.set(0, 6.2, 25.9); halo.rotation.x = Math.PI / 2; halo.material = p.light; halo.isPickable = false;
   // ── Vault bell jar: decorative frosted glass cylinder with aluminium cap ──
   const protoX = layout.objects.prototype.x;
@@ -340,6 +352,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   const plinthRingMat = new StandardMaterial('plinth-ring-mat', scene);
   plinthRingMat.disableLighting = true; plinthRingMat.emissiveColor = Color3.FromHexString('#FFE2B0');
   const plinthRing = CreateTorus('plinth-ring', { diameter: 3.6, thickness: 0.05, tessellation: 60 }, scene);
+  plinthRing.setEnabled(false);
   plinthRing.position.set(protoX, 4.62, protoZ); plinthRing.material = plinthRingMat; plinthRing.isPickable = false;
   plinthRing.visibility = 0.1;
   // ── Alarm beacon lamps (6 rotating beacons). Security = amber (ANTI_VIBECODED colour code). ──

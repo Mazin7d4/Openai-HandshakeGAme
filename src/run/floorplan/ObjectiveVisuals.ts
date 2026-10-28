@@ -9,7 +9,9 @@ import type { Scene } from '@babylonjs/core/scene.js';
 import type { ObjectivePlan, ObjectiveState, Vec3 } from '../../../shared/nightshift/types.d.ts';
 import { getQuality } from '../../scene/createScene.ts';
 import { floorMaterials } from './materials.ts';
+import { PowerConnection } from '../../gameplay/PowerConnection.ts';
 import { HackStation } from '../../gameplay/HackStation.ts';
+import { addStaticBody } from '../../physics/staticBody.ts';
 import type { DroneRole } from '../../network/NetworkTypes.ts';
 
 function point(value: Vec3): Vector3 {
@@ -46,7 +48,9 @@ export class ObjectiveVisuals {
   private readonly materials: ReturnType<typeof floorMaterials>;
   private readonly nodes: AbstractMesh[] = [];
   private readonly stations: HackStation[] = [];
-  private readonly cables: AbstractMesh[] = [];
+  private readonly lamps: AbstractMesh[] = [];
+  private readonly bodies: { dispose(): void }[] = [];
+  private readonly cables: PowerConnection[] = [];
   private readonly plan: ObjectivePlan;
   private readonly plates: AbstractMesh[] = [];
   private readonly handles: AbstractMesh[] = [];
@@ -90,17 +94,11 @@ export class ObjectiveVisuals {
         this.stations.push(station);
         // A physical electrical run terminates at the lock, never at a waypoint.
         const x = position.x + (role === 'pix' ? -1 : 1);
-        const parts: Mesh[] = [];
-        const cable = (a: Vector3, b: Vector3) => {
-          const d = b.subtract(a);
-          const m = CreateBox('objective-power-cable', { width: 0.06, height: 0.06, depth: d.length() }, scene);
-          m.position.copyFrom(a.add(b).scale(0.5)); m.lookAt(b); parts.push(m);
-        };
-        cable(new Vector3(position.x, 0.08, position.z), new Vector3(x, 0.08, position.z));
-        cable(new Vector3(x, 0.08, position.z), new Vector3(x, 0.08, loot.cradle.z - 1.5));
-        cable(new Vector3(x, 0.08, loot.cradle.z - 1.5), new Vector3(loot.cradle.x, 0.08, loot.cradle.z - 1.5));
-        const wire = mergeStatic(parts, `objective-lock-cable-${i}`, this.materials.metal);
-        if (wire) { this.nodes.push(wire); this.cables.push(wire); }
+        const wire = new PowerConnection(scene, `objective-lock-cable-${i}`, [
+          new Vector3(position.x, .08, position.z), new Vector3(x, .08, position.z),
+          new Vector3(x, .08, loot.cradle.z - 1.5), new Vector3(loot.cradle.x, .08, loot.cradle.z - 1.5),
+        ], this.materials[role].diffuseColor);
+        this.cables.push(wire);
       });
     }
 
@@ -185,8 +183,9 @@ export class ObjectiveVisuals {
 
     if (plan.pylon) {
       const pylon = point(plan.pylon);
-      const body = CreateCylinder('objective-pylon-body', { diameter: 0.72, height: 2.15, tessellation: 12 }, scene);
-      body.position.set(pylon.x, pylon.y + 1.075, pylon.z);
+      const body = CreateCylinder('objective-pylon-body', { diameter: 0.9, height: 4.2, tessellation: 12 }, scene);
+      body.position.set(pylon.x, 2.1, pylon.z);
+      this.bodies.push(addStaticBody(body, scene));
       body.material = this.materials.pylon;
       body.isPickable = false;
       this.pylonBody = body;
@@ -281,10 +280,17 @@ export class ObjectiveVisuals {
         cage.unfreezeWorldMatrix();
         this.cage = cage;
         this.nodes.push(cage);
+        this.stations.forEach((_station, i) => {
+          const lamp = CreateCylinder('objective-lock-key-lamp', { diameter: 0.3, height: 0.08, tessellation: 12 }, scene);
+          lamp.rotation.x = Math.PI / 2;
+          lamp.position.set(this.cageBase.x + (i - (this.stations.length - 1) / 2) * 0.38, this.cageBase.y + 1.55, this.cageBase.z - 0.98);
+          lamp.material = this.materials.metal; lamp.parent = cage; lamp.isPickable = false;
+          this.lamps.push(lamp); this.nodes.push(lamp);
+        });
       }
     }
 
-    this.drawCalls = this.nodes.length + this.stations.length * 3;
+    this.drawCalls = this.nodes.length + this.stations.length * 3 + this.cables.length;
   }
 
   update(dt: number, state: ObjectiveState, players: readonly { role: DroneRole; x: number; y: number; z: number }[] = []): void {
@@ -295,7 +301,8 @@ export class ObjectiveVisuals {
       const complete = state.done || (this.plan.kind === 'relay' && i < state.step);
       station.update(delta, nearby?.role ?? null, complete);
       const powered = complete || (this.plan.kind === 'twin-levers' && Boolean(nearby));
-      if (this.cables[i]) this.cables[i].material = powered ? this.materials[station.allowedRole] : this.materials.metal;
+      this.cables[i]?.setPowered(powered);
+      if (this.lamps[i]) this.lamps[i].material = powered ? this.materials[station.allowedRole] : this.materials.metal;
     });
     this.eventPulse = Math.max(0, this.eventPulse - delta);
     this.safeShake = Math.max(0, this.safeShake - delta * 0.8);
@@ -369,18 +376,20 @@ export class ObjectiveVisuals {
 
     if (this.shell) {
       const popping = this.popTimer > 0;
-      this.shell.setEnabled(!state.shatters || popping);
+      this.shell.setEnabled(true);
       const popScale = popping ? 1 + (0.32 - this.popTimer) * 2.5 : 1;
       const shake = Math.sin(this.pulseTime * 50) * this.crackShake * 0.06;
       this.shell.scaling.setAll(popScale);
       this.shell.rotation.z = shake;
       for (let i = 0; i < this.cracks.length; i++) {
-        this.cracks[i].setEnabled(!state.shatters && i < state.cracks * 2);
+        this.cracks[i].setEnabled(i < state.cracks * 2);
       }
     }
   }
 
   dispose(): void {
+    for (const cable of this.cables) cable.dispose();
+    for (const body of this.bodies) body.dispose();
     for (const station of this.stations) station.dispose();
     for (const node of this.nodes) {
       node.dispose(false, false);

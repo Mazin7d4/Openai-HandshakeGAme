@@ -8,6 +8,7 @@ import type { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole, HackNetworkState, RoomStatus } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
 import { Door } from './Door.ts';
+import { PowerConnection } from './PowerConnection.ts';
 import type { HackMinigameView } from './HackMinigame.ts';
 import { HackStation, type HackStationId } from './HackStation.ts';
 import { MemoryTraceView } from './MemoryTraceView.ts';
@@ -49,6 +50,7 @@ export class HackSession {
   };
   private doorOpen = false;
   private campaignIndex = 0;
+  private tutorialWire: PowerConnection | null = null;
   private alarmed = false;
   private active: ActiveHack | null = null;
   private debugView = false;
@@ -61,6 +63,7 @@ export class HackSession {
     audio?: GameAudio,
     runLayout?: RunLayout | null,
   ) {
+    this.campaignIndex = runLayout?.plan?.campaign?.index ?? 0;
     this.multiplayer = multiplayer;
     this.uiParent = uiParent ?? null;
     this.audio = audio;
@@ -95,8 +98,11 @@ export class HackSession {
       }),
     ];
     this.door = new Door(scene, plugin, {
-      name: 'lab-access-door', x: 0, y: 4, z: 2, width: 5.6, height: 8, depth: 0.7, travel: -8.2,
+      name: 'lab-access-door', x: 0, y: this.campaignIndex === 1 ? 2.2 : 4, z: this.campaignIndex === 1 ? 12 : 2, width: 5.6, height: this.campaignIndex === 1 ? 4.4 : 8, depth: 0.7, travel: -8.2,
     });
+    if (this.campaignIndex > 1) { this.door.setOpen(true); this.door.update(10); }
+    if (this.campaignIndex === 1) this.tutorialWire = new PowerConnection(scene, 'terminal-c-door-cable',
+      [new Vector3(0, .1, 8), new Vector3(2, .1, 8), new Vector3(2, .1, 12), new Vector3(0, .1, 12)], Color3.White());
   }
 
   /** Re-apply terminal positions from a RunLayout (solo next-floor stub). */
@@ -206,6 +212,7 @@ export class HackSession {
     );
     this.door.setCloseBlocked(this.alarmed && inLabThreshold);
     const campaignOpen = this.campaignIndex > 1 || (this.campaignIndex === 1 && this.completeFor('terminal-c'));
+    this.tutorialWire?.setPowered(this.completeFor('terminal-c'));
     this.door.setOpen((this.doorOpen || campaignOpen) && !this.alarmed);
     this.door.update(dt);
     for (const [role, drone] of drones) {
@@ -252,6 +259,7 @@ export class HackSession {
     this.closeView();
     for (const station of this.stations) station.dispose();
     this.door.dispose();
+    this.tutorialWire?.dispose();
   }
 
   private applyState(state: HackNetworkState): void {

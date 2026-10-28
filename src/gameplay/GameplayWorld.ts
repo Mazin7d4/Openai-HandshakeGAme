@@ -142,7 +142,9 @@ export class GameplayWorld {
         },
         onThrow: () => this.mission.notifyThrow(),
         canGrab: (objectId) => objectId !== 'prototype' || (
-          (this.runLayout?.plan?.campaign || this.hack.allComplete()) && (this.floorPlanRuntime?.canGrabPrototype() ?? true)
+          (this.runLayout?.plan?.campaign || this.hack.allComplete()) &&
+          (this.runLayout?.plan?.campaign?.index !== 1 || this.hack.isComplete('terminal-c')) &&
+          (this.floorPlanRuntime?.canGrabPrototype() ?? true)
         ),
       },
     );
