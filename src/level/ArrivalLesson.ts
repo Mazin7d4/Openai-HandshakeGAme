@@ -5,7 +5,6 @@ import { ConsoleDisplay } from '../gameplay/ConsoleDisplay.ts';
 import { Door } from '../gameplay/Door.ts';
 import { createRoundedBox } from '../scene/roundedBox.ts';
 import { PowerCircuit } from './PowerCircuit.ts';
-import { gameEvents } from '../gameplay/GameEvents.ts';
 
 /** Safe automatic plug-in lesson: approach the console, watch its conduit power the delivery door. */
 export class ArrivalLesson {
@@ -37,7 +36,6 @@ export class ArrivalLesson {
     const nearby = positions.some(p => Vector3.DistanceSquared(p, this.position) < 3.4 ** 2);
     if (!this.opened && (nearby || progressed || positions.some(p => p.z > -54))) {
       this.opened = true;
-      gameEvents.emit('mechanism', { kind: 'door', position: this.position, complete: true });
     }
     this.display.update(this.time, nearby, false, this.opened);
     this.circuit.setPowered(this.opened);

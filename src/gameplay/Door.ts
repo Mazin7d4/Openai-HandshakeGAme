@@ -7,6 +7,7 @@ import { addStaticBody } from '../physics/staticBody.ts';
 import { applySolidColor } from '../scene/solidMaterial.ts';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { gameEvents } from './GameEvents.ts';
 
 const CLOSED_Y = 2.2;
 const OPEN_Y = 7.1;
@@ -78,6 +79,7 @@ export class Door {
 
   setOpen(open: boolean): void {
     if (this.open !== open) {
+      gameEvents.emit('mechanism', { kind: 'door', position: this.mesh.position.clone(), complete: open });
       this.lockMaterial.emissiveColor.copyFromFloats(open ? 0.25 : 1, open ? 1 : 0.32, open ? 0.45 : 0.07);
       this.mesh.metadata.open = open;
     }

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import layout from '../src/level/heist-layout.json' with { type: 'json' };
 import { Security, createSecurityState, SecuritySim } from './security.mjs';
 import { canPass, facingYaw } from './passRules.mjs';
+import { prototypeRecovery } from '../shared/prototypeSafety.mjs';
 import { BotPilot, createBotPlayer } from './botSeat.mjs';
 import {
   createRunState,
@@ -1226,6 +1227,15 @@ class HandshakeRoom extends Room {
     object.orientation.pitch = finite(orientation.pitch, object.orientation.pitch);
     object.orientation.yaw = finite(orientation.yaw, object.orientation.yaw);
     object.orientation.roll = finite(orientation.roll, object.orientation.roll);
+    if (object.id === 'prototype' && object.mode !== 'held') {
+      const recover = prototypeRecovery(object.position, this.runLayout?.loot ?? layout.objects.prototype, this.state.mission.alarm);
+      if (recover) {
+        Object.assign(object.position, recover);
+        Object.assign(object.velocity, { x: 0, y: 0, z: 0 });
+        object.revision += 1;
+        object.lastEvent = 'reset';
+      }
+    }
   }
 
   setOwnership(object, holder, event, freeAuthority = holder?.role ?? object.authority) {

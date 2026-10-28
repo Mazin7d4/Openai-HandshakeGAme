@@ -36,6 +36,8 @@ export class GameHud {
   private readonly runSeed: number | null;
   private readonly nav = new MenuNavigator();
   private controlsTimer = 0;
+  private toastTimer = 0;
+  private readonly toastQueue: { text: string; tone: 'pix' | 'nee' | 'good' }[] = [];
   private paused = false;
   private promptKey = '';
   private activeDroneText = '';
@@ -171,13 +173,22 @@ export class GameHud {
 
   /** Punchy, short-lived callout for tether moves (SLINGSHOT!, RESCUE!, CLOTHESLINED!). */
   toast(text: string, tone: 'pix' | 'nee' | 'good' = 'good'): void {
-    if (this.toastLayer.lastElementChild?.textContent === text) return;
+    if (this.toastLayer.lastElementChild?.textContent === text || this.toastQueue.some(item => item.text === text)) return;
+    this.toastQueue.push({ text, tone });
+    if (this.toastQueue.length > 4) this.toastQueue.shift();
+    if (!this.toastTimer) this.showNextToast();
+  }
+
+  private showNextToast(): void {
+    const next = this.toastQueue.shift();
+    if (!next) return;
     const item = document.createElement('div');
-    item.className = `juice-toast ${tone}`;
-    item.textContent = text;
+    item.className = `juice-toast ${next.tone}`;
+    item.textContent = next.text;
     this.toastLayer.append(item);
-    while (this.toastLayer.childElementCount > 3) this.toastLayer.firstElementChild?.remove();
-    window.setTimeout(() => item.remove(), 1500);
+    this.toastTimer = window.setTimeout(() => {
+      item.remove(); this.toastTimer = 0; this.showNextToast();
+    }, 1500);
   }
 
   /** Hide the keyboard controls card while the first-run coach is speaking. */
@@ -212,6 +223,8 @@ export class GameHud {
     this.pauseOverlay.remove();
     window.clearTimeout(this.controlsTimer);
     this.controlsCard.remove();
+    window.clearTimeout(this.toastTimer);
+    this.toastQueue.length = 0;
     this.toastLayer.remove();
     document.removeEventListener('fullscreenchange', this.updateFullscreenLabel);
     document.removeEventListener('webkitfullscreenchange', this.updateFullscreenLabel as EventListener);

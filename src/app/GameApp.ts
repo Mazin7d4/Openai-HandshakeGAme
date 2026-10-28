@@ -2,6 +2,8 @@ import { cordState } from '../gameplay/Tether.ts';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { Engine } from '@babylonjs/core/Engines/engine.js';
 import type { Scene } from '@babylonjs/core/scene.js';
+import { SceneInstrumentation } from '@babylonjs/core/Instrumentation/sceneInstrumentation.js';
+import type { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { AssetLoader } from '../assets/AssetLoader.ts';
 import { audio as audioHub } from '../audio/AudioManager.ts';
 import { CinematicCamera } from '../camera/CinematicCamera.ts';
@@ -252,6 +254,17 @@ export class GameApp {
         }
       }),
       gameEvents.on('toast', (e) => this.hud?.toast(e.text, e.tone)),
+      gameEvents.on('mechanism', (e) => {
+        const nearby = this.players.some(player => Vector3.DistanceSquared(player.drone.position, e.position) < 24 ** 2);
+        if (e.kind === 'door') audioHub.play('doorMotor', { position: e.position, volume: 0.55 });
+        else if (!e.complete) audioHub.play('hackStart', { position: e.position });
+        if (!nearby) return;
+        this.cameraRig.addShake(e.complete ? 0.09 : 0.025);
+        if (e.kind === 'hack' && e.complete) {
+          this.juice.burst('zap', e.position, 14);
+          this.cameraRig.kickFov(0.018);
+        }
+      }),
       gameEvents.on('camera-blind', (e) => {
         this.juice.burst('impact', e.position, 16);
         audio.bump();
@@ -364,6 +377,7 @@ export class GameApp {
             setTimeout(() => { if (!this.disposed) this.hud?.toast('Alarm! Security drones online', 'good'); }, 900);
             break;
           case 'extract':
+            if (!reducedMotion) this.slowMo = 0.65;
             this.juice.burst('confetti', pos, 120);
             setTimeout(() => { if (!this.disposed) this.juice.burst('confetti', pos.add(new Vector3(0, 2, 0)), 120); }, 250);
             setTimeout(() => { if (!this.disposed) this.juice.burst('confetti', pos.add(new Vector3(0, 4, 0)), 120); }, 500);
@@ -607,6 +621,8 @@ export class GameApp {
   }
 
   start(): void {
+    const instrumentation = this.autopilot ? new SceneInstrumentation(this.scene) : null;
+    if (instrumentation) this.scene.onDisposeObservable.addOnce(() => instrumentation.dispose());
     this.autopilot?.install({
       /** Multiplayer agreement checks: rendered + server security state on this client. */
       security: () => this.gameplay.debugSecurity(),
@@ -628,6 +644,24 @@ export class GameApp {
         eyeY: this.cameraRig.camera.position.y,
         objectiveMarkers: this.scene.meshes.filter(mesh => /(?:-beacon(?:-ring)?$|-floor-ring$|^vault-halo$|^plinth-ring$)/.test(mesh.name)).map(mesh => mesh.name),
         cameraOccluders: this.cameraRig.fadeableOccluderNames(),
+      }),
+      /** Retained evidence: actual presentation state and render counters, never game controls. */
+      presentationDiagnostics: () => ({
+        circuits: this.scene.meshes.filter(mesh => mesh.metadata?.circuit).map(mesh => ({
+          name: mesh.name, powered: mesh.metadata.powered, scale: mesh.scaling.x,
+        })),
+        doors: this.scene.meshes.filter(mesh => mesh.name.endsWith('-door') || mesh.name === 'office-access-shutter').map(mesh => ({
+          name: mesh.name, open: !!mesh.metadata?.open, y: mesh.position.y,
+        })),
+        screens: this.scene.materials.filter(mat => mat.name.endsWith('-screen-glow')).map(mat => ({
+          name: mat.name, color: (mat as StandardMaterial).emissiveColor.asArray(),
+        })),
+        lintels: this.scene.meshes.filter(mesh => mesh.name.startsWith('exit-lintel-strip-')).map(mesh => ({
+          name: mesh.name, lit: mesh.material?.name === 'exit-lintel-warm',
+        })),
+        drawCalls: (this.scene.getEngine() as unknown as { _drawCalls: { current: number } })._drawCalls.current,
+        activeMeshes: this.scene.getActiveMeshes().length,
+        fps: this.scene.getEngine().getFps(),
       }),
       /** Ask the server for a test stage (needs HANDSHAKE_TEST_HOOKS=1 on the server). */
       debugStage: (stage: 'hack-security' | 'steal-prototype' | 'escape') => {
