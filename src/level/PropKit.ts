@@ -1,13 +1,13 @@
 import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader.js';
 import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
-import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import '../assets/registerGltf.ts';
 import '../assets/meshopt.ts';
+import { finishDecorMaterial } from './DecorMaterials.ts';
 
-export type PropName = 'Sofa' | 'Chair' | 'Rack' | 'Shelving' | 'Plant' | 'PlantSmall' | 'Cooling' | 'Duct' | 'Bookshelf' | 'Monitor';
+export type PropName = 'Sofa' | 'Chair' | 'Rack' | 'Shelving' | 'Plant' | 'PlantSmall' | 'Cooling' | 'Duct' | 'Bookshelf' | 'Monitor' | 'Lockers' | 'ParcelTrolley' | 'AcousticPanel';
 export interface PropPlacement { prop: PropName; x: number; y?: number; z: number; ry?: number; scale?: number | [number, number, number] }
 
 /**
@@ -28,24 +28,7 @@ export async function loadPropKit(scene: Scene) {
       child.isPickable = false;
       child.receiveShadows = true;
       child.metadata = { ...child.metadata, castShadow: true };
-      if (child.material instanceof PBRMaterial) child.material.maxSimultaneousLights = 4;
-      if (node.name === 'Prop_Rack') {
-        const mat = child.material as PBRMaterial;
-        mat.unfreeze();
-        mat.albedoColor.set(0.34, 0.43, 0.47);
-        if (mat.name.includes('Emissive')) {
-          mat.emissiveColor.set(0.18, 0.78, 0.95);
-          mat.emissiveIntensity = 0.9;
-        }
-        mat.freeze();
-      }
-      if (node.name === 'Prop_Duct' && child.material instanceof PBRMaterial) {
-        const mat = child.material;
-        mat.unfreeze();
-        mat.albedoColor.set(0.29, 0.40, 0.42);
-        mat.roughness = 0.62;
-        mat.freeze();
-      }
+      finishDecorMaterial(child.material);
     }
     sources.set(node.name.slice(5), parts);
   }

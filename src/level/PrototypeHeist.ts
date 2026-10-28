@@ -31,11 +31,10 @@ import { loadPropKit } from './PropKit.ts';
 import layout from './heist-layout.json';
 import { mergeRigidChildren } from '../scene/mergeChildren.ts';
 import { createRoundedBox } from '../scene/roundedBox.ts';
+import { finishDecorMaterial } from './DecorMaterials.ts';
 import { addHeroLighting } from './HeroLighting.ts';
 
 const SECURITY_AMBER = Color3.FromHexString('#FFB84D');
-const SCREEN_IDLE = new Color3(0.35, 0.35, 0.35);
-const STATUS_IDLE = Color3.FromHexString('#D8CBB2');
 
 export interface HeistPresentation {
   alarm: boolean; complete: boolean; officeOpen: boolean; vaultOpen?: boolean;
@@ -76,7 +75,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     }
   };
   const signGlow = new StandardMaterial('sign-lip-glow', scene);
-  signGlow.diffuseColor = new Color3(1, 0.86, 0.62); signGlow.emissiveColor = new Color3(1, 0.8, 0.52);
+  signGlow.diffuseColor = Color3.FromHexString('#A5ADAD');
   signGlow.specularColor = Color3.Black();
   const lintelDark = new StandardMaterial('exit-lintel-dark', scene);
   lintelDark.diffuseColor = Color3.FromHexString('#443D36'); lintelDark.emissiveColor = Color3.FromHexString('#221F1C');
@@ -95,7 +94,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     c.fillStyle = '#f3eee0'; c.font = '600 70px sans-serif'; c.fillText(title, 45, 110);
     c.fillStyle = '#afd0ba'; c.font = '32px sans-serif'; c.fillText(sub, 48, 185); t.update();
     const m = new StandardMaterial(`${name}-ink`, scene); m.diffuseTexture = t;
-    m.emissiveColor = new Color3(0.2, 0.2, 0.2); m.specularColor = Color3.Black();
+    m.specularColor = Color3.Black();
     const mesh = CreatePlane(name, { width, height: width / 4 }, scene);
     mesh.position.set(x, y, z); mesh.material = m; mesh.isPickable = false;
     // Contextual mounting instead of a floating card: aluminium frame, ceiling hangers, warm lip light.
@@ -207,8 +206,8 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   for (let i = 0; i < 3; i++) box('catwalk-ramp-step', -3, 4.6 - i * 1.2, -8.9 - i * 1.0, 3, 0.3, 1.0, p.metal);
   sign('server-sign', '04 SERVERS', '', -3, 2.6, -4.8, 5.5);
   const memoryGlass = new StandardMaterial('memory-array-indigo', scene);
-  memoryGlass.diffuseColor = Color3.FromHexString('#293B82'); memoryGlass.emissiveColor = Color3.FromHexString('#4E57D8');
-  memoryGlass.alpha = 0.72; memoryGlass.specularColor = Color3.FromHexString('#9EA8FF');
+  memoryGlass.diffuseColor = Color3.FromHexString('#6E7883');
+  memoryGlass.alpha = 1; memoryGlass.specularColor = Color3.FromHexString('#A5ADAD');
   const memoryArray = CreateCylinder('memory-array', { diameter: 3.2, height: 8.5, tessellation: 32 }, scene);
   memoryArray.position.set(3, 4.25, -5.5); memoryArray.material = memoryGlass; memoryArray.isPickable = false;
   exitStrip('G3', 0, 1.6, 5.6, false);
@@ -285,8 +284,8 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   // Archivo is preloaded by index.html; redraw once it is actually ready so the plaque never keeps the fallback face.
   if (typeof document !== 'undefined' && document.fonts) void document.fonts.load("800 58px Archivo").then(drawPlaque, () => undefined);
   const plaqueMat = new StandardMaterial('vault-plaque-ink', scene);
-  plaqueMat.diffuseTexture = plaqueTex; plaqueMat.emissiveTexture = plaqueTex;
-  plaqueMat.emissiveColor.set(0.45, 0.45, 0.45); plaqueMat.specularColor.set(0.15, 0.15, 0.15);
+  plaqueMat.diffuseTexture = plaqueTex;
+  plaqueMat.specularColor.set(0.15, 0.15, 0.15);
   const plaque = CreatePlane('vault-plaque', { width: 1.62, height: 0.506 }, scene);
   plaque.position.set(protoX, 2.9, 16.255); plaque.material = plaqueMat; plaque.isPickable = false;
   // Visible source for the hero spotlight: a ceiling can (merged with the pendant fixtures below).
@@ -358,7 +357,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   exitStrip('G1', -5, -43.35, 5, true);
   exitStrip('G5', 11, 46.4, 10, true);
   const indigo = new StandardMaterial('morrow-indigo', scene);
-  indigo.diffuseColor = Color3.FromHexString('#25316B'); indigo.emissiveColor = Color3.FromHexString('#4C59C7'); indigo.disableLighting = true;
+  indigo.diffuseColor = Color3.FromHexString('#737B8B'); indigo.specularColor = Color3.Black();
   const morrowDisc = CreateCylinder('morrow-disc', { diameter: 4.2, height: 0.14, tessellation: 48 }, scene);
   morrowDisc.position.set(-5, 2.5, -43.32); morrowDisc.rotation.x = Math.PI / 2; morrowDisc.material = indigo; morrowDisc.isPickable = false;
   const lampCyan = new StandardMaterial('key-lamp-cyan', scene); lampCyan.diffuseColor = Color3.FromHexString('#37D7FF'); lampCyan.emissiveColor = lampCyan.diffuseColor.clone(); lampCyan.disableLighting = true;
@@ -389,7 +388,6 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   let alarmPhase = 0;
   let alarmStage = 0;
   let alarmLightTamed = false;
-  let statusLed: PBRMaterial | null | undefined;
   let completeTintTimer = 0;
   // Objective beacons: a slowly spinning diamond and a breathing floor ring above the next goal(s).
   // Purely presentational and driven from replicated mission state, so they are identical for both players.
@@ -486,16 +484,9 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     if (fillLight) fillLight.intensity = origFillIntensity * (1 - 0.15 * alarmBlend);
     Color4.LerpToRef(origClearColor, alarmClear, alarmBlend, scene.clearColor);
     beaconRedMat.emissiveColor.copyFrom(SECURITY_AMBER).scaleInPlace(alarmActive ? lampLevel : 1);
-    // Screens: instrument displays and rack status LEDs blink amber with the lamps.
-    displayMat.emissiveColor.copyFrom(SCREEN_IDLE);
-    if (alarmBlend > 0) Color3.LerpToRef(SCREEN_IDLE, SECURITY_AMBER, alarmBlend * (0.35 + 0.5 * lampPulse), displayMat.emissiveColor);
-    if (statusLed === undefined) {
-      statusLed = scene.getMaterialByName('dress-status-led-warm') as PBRMaterial | null;
-      statusLed?.unfreeze();
-    }
-    if (statusLed) {
-      Color3.LerpToRef(STATUS_IDLE, SECURITY_AMBER, alarmBlend * lampPulse, statusLed.emissiveColor);
-    }
+    // Printed instrument panels remain neutral throughout the alarm.
+    displayMat.emissiveColor.setAll(0);
+
     // Hero beam: museum-soft when closed, full when revealed, dimmed with the key during the alarm.
     beamMat.alpha = (0.22 + 0.16 * eased) * (1 - 0.55 * alarmBlend);
     halo.material = alarmActive ? beaconRedMat : p.light;
@@ -549,7 +540,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   for (const mesh of art.meshes) {
     mesh.isPickable = false; mesh.receiveShadows = true;
     if (mesh.material?.name === 'Oak') mesh.material = p.wood;
-    if (mesh.material instanceof PBRMaterial) mesh.material.maxSimultaneousLights = 4;
+    finishDecorMaterial(mesh.material);
   }
   // Legible, restrained instrument graphics; two screens share one 512px atlas.
   const display = new DynamicTexture('instrument-display', { width: 512, height: 256 }, scene, true);
@@ -563,8 +554,8 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   }
   dc.fillStyle = '#d8b18b'; dc.font = '18px sans-serif'; dc.fillText('CALIBRATED  /  98.4%', 24, 230); display.update();
   const displayMat = new StandardMaterial('instrument-ink', scene);
-  displayMat.diffuseTexture = display; displayMat.emissiveTexture = display;
-  displayMat.emissiveColor.set(0.35, 0.35, 0.35); displayMat.specularColor.setAll(0);
+  displayMat.diffuseTexture = display;
+  displayMat.specularColor.setAll(0);
   for (const [x, z] of [[-7, 8], [9, 11]] as const) {
     const screen = CreatePlane('instrument-screen', { width: 2.52, height: 1.52 }, scene);
     screen.position.set(x + 1.6, 5.4, z + 0.835); screen.material = displayMat; screen.isPickable = false;
@@ -572,7 +563,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   const kit = await loadPropKit(scene);
   // Server gallery: replace the flat rack slabs with instanced Blender rack units (collision box stays).
   for (const x of [-8.5, 8.5] as const) {
-    for (let z = -22.5; z <= -9.5; z += 2.4) kit.place({ prop: 'Rack', x, z, scale: [0.88, 0.48, 0.82] });
+    for (let z = -22.5; z <= -9.5; z += 2.4) kit.place({ prop: 'Rack', x, z, scale: [0.96, 0.64, 0.82] });
     const row = scene.getMeshByName(`rack-row-${x}`); if (row) row.isVisible = false;
   }
   for (const name of ['rack-upright', 'rack-tray', 'rack-status']) for (const m of scene.meshes.filter(m => m.name === name)) m.dispose();
