@@ -67,5 +67,16 @@ await runTest('heist-presentation', async (browser, notes) => {
   });
   assert(!errors.length, errors.join('\n'));
   notes.lesson = true; notes.independentKeys = true; notes.proximity = true; notes.lockedStrips = true;
+  await page.goto(url({ mode: 'nightshift', seed: '1', floor: '6', bot: '1' }));
+  await waitForGame(page);
+  await page.waitForFunction(() => window.__autotest?.presentationDiagnostics().circuits.filter(c => c.source).length === 3);
+  const seeded = await page.evaluate(() => window.__autotest.presentationDiagnostics());
+  for (const terminal of seeded.terminals) {
+    const wire = seeded.circuits.find(c => c.name === `circuit-${terminal.id}-conduit`);
+    assert(wire?.source && Math.hypot(wire.source.x - terminal.x, wire.source.y - terminal.y, wire.source.z - terminal.z) < 0.01,
+      `seeded cable detached from ${terminal.id}: ${JSON.stringify(wire?.source)} vs ${JSON.stringify(terminal)}`);
+  }
+  assert(seeded.terminals.some(t => before.terminals.some(old => old.id === t.id && Math.hypot(old.x - t.x, old.z - t.z) > 1)), 'test did not relocate any console');
+  notes.seededCircuits = true;
   await closePage(page);
 });

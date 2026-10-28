@@ -422,7 +422,9 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     const stripsLit = new Set([...(lessonOpen ? ['G0'] : []), 'G1', ...(state.officeOpen ? ['G2'] : []), ...((state.vaultOpen && !state.alarm) ? ['G3'] : []), ...(vaultOpen ? ['G4'] : []), 'G5']);
     for (const [id, strip] of exitStrips) strip.material = stripsLit.has(id) ? lintelWarm : lintelDark;
     const hacked = state.hacked ?? {};
-    for (const [i, id] of ['terminal-a', 'terminal-b', 'terminal-c'].entries()) circuits[i].setPowered(!!hacked[id]);
+    for (const [i, id] of ['terminal-a', 'terminal-b', 'terminal-c'].entries()) {
+      circuits[i].syncSource(); circuits[i].setPowered(!!hacked[id]);
+    }
     const padLevel = state.prototypeHeld ? 0.9 + 0.2 * Math.sin(elapsed * 3) : 0.65;
     padMat.emissiveColor.set(0.12 * padLevel, 1.8 * padLevel, 0.45 * padLevel);
     rollerOpen += ((vaultOpen ? 1 : 0) - rollerOpen) * (1 - Math.exp(-dt * 1.8));

@@ -79,13 +79,13 @@ export class ObjectiveVisuals {
       const posts: Mesh[] = [];
       const dashes: Mesh[] = [];
       for (const leverPoint of leverPoints) {
-        const plate = CreateTorus('objective-lever-plate', {
-          diameter: (plan.leverRadius ?? 0.8) * 2,
-          thickness: 0.09,
-          tessellation: 16,
+        const plate = CreateBox('objective-lever-plate', {
+          width: (plan.leverRadius ?? 0.8) * 2,
+          height: (plan.leverRadius ?? 0.8) * 2,
+          depth: 0.12,
         }, scene);
         plate.position.set(leverPoint.x, leverPoint.y + 0.03, leverPoint.z);
-        plate.rotation.x = Math.PI / 2;
+        plate.rotation.x = 0.55;
         plate.material = this.materials.goalDim;
         plate.isPickable = false;
         this.plates.push(plate);
@@ -93,11 +93,11 @@ export class ObjectiveVisuals {
         this.beacons.push(leverPoint.clone());
 
         const post = CreateCylinder('objective-lever-post', {
-          diameter: 0.18,
-          height: 0.75,
+          diameter: 0.22,
+          height: leverPoint.y + 0.4,
           tessellation: 8,
         }, scene);
-        post.position.set(leverPoint.x, leverPoint.y + 0.4, leverPoint.z);
+        post.position.set(leverPoint.x, (leverPoint.y + 0.4) / 2, leverPoint.z + 0.12);
         posts.push(post);
 
         const handle = CreateBox('objective-lever-handle', {

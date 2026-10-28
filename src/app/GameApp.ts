@@ -648,7 +648,10 @@ export class GameApp {
       /** Retained evidence: actual presentation state and render counters, never game controls. */
       presentationDiagnostics: () => ({
         circuits: this.scene.meshes.filter(mesh => mesh.metadata?.circuit).map(mesh => ({
-          name: mesh.name, powered: mesh.metadata.powered, scale: mesh.scaling.x,
+          name: mesh.name, powered: mesh.metadata.powered, scale: mesh.scaling.x, source: mesh.metadata.source,
+        })),
+        terminals: this.scene.meshes.filter(mesh => /^terminal-[abc]$/.test(mesh.name)).map(mesh => ({
+          id: mesh.name, x: mesh.position.x, y: mesh.position.y, z: mesh.position.z,
         })),
         doors: this.scene.meshes.filter(mesh => mesh.name.endsWith('-door') || mesh.name === 'office-access-shutter').map(mesh => ({
           name: mesh.name, open: !!mesh.metadata?.open, y: mesh.position.y,

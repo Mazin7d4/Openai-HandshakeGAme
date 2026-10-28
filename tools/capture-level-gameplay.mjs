@@ -48,7 +48,7 @@ try {
       localStorage.setItem('handshake.onboardingDone', '1');
       localStorage.setItem('handshake.controlsSeen', '1');
     });
-    const u = new URL(base); u.searchParams.set('autotest', '1'); u.searchParams.set('quality', process.env.QUALITY ?? 'medium');
+    const u = new URL(base); u.searchParams.set('autotest', '1'); u.searchParams.set('quality', process.env.QUALITY ?? (width === 844 ? 'low' : 'medium'));
     u.searchParams.set('server', `ws://127.0.0.1:${server.port}`);
     await page.goto(u.toString()); await page.getByTestId('dev-local').click(); await waitForGame(page);
     await page.waitForFunction(() => window.__autotest?.presentationDiagnostics, null, { timeout: 60000 }).catch(error => { throw new Error(`${error.message} ${errors.join('; ')}`); });
@@ -65,7 +65,7 @@ try {
       if (name === '00-spawn') await page.screenshot({ path: `${out}/${width}x${height}-00-spawn-hud.png` });
       await page.addStyleTag({ content: '.mission-objective,.onboarding-coach,.active-drone-hud,.juice-toasts,.interaction-prompt {visibility:hidden!important}' });
       const path = `${out}/${width}x${height}-${name}.png`;
-      await page.screenshot({ path });
+      await page.screenshot({ path, timeout: 120000 });
       const stats = await page.evaluate(() => ({
         ...window.__autotest.presentationDiagnostics(), ...window.__autotest.cameraDiagnostics(),
         pix: window.__autotest.position('pix'), nee: window.__autotest.position('nee'),
