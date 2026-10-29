@@ -70,6 +70,9 @@ function isOriginAllowed(origin) {
 
 // --- Live-room tracking --------------------------------------------------------
 const liveRooms = new Set();
+const MAX_ROOMS = Number.parseInt(process.env.MAX_ROOMS ?? '100', 10);
+const MAX_MEMORY_MB = Number.parseInt(process.env.MAX_MEMORY_MB ?? '450', 10);
+let isShuttingDown = false;
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_WORLD_COORDINATE = 200;
 const MAX_PLAYER_SPEED = 28;
@@ -320,7 +323,34 @@ class HandshakeRoom extends Room {
   leaderboardEntry = null;
   leaderboardDecisionSerial = 0;
 
+  clientMessageRates = new Map();
+
+  checkRateLimit(client, isSnapshot = false) {
+    if (!client?.sessionId) return false;
+    const now = Date.now();
+    let rate = this.clientMessageRates.get(client.sessionId);
+    if (!rate || now - rate.windowStart >= 1000) {
+      rate = { windowStart: now, count: 0, snapshots: 0 };
+      this.clientMessageRates.set(client.sessionId, rate);
+    }
+    rate.count++;
+    if (isSnapshot) rate.snapshots++;
+    if (isSnapshot && rate.snapshots > 45) return false;
+    if (rate.count > 90) return false;
+    return true;
+  }
+
   static async onAuth(token, options = {}, context) {
+    if (isShuttingDown) {
+      throw new Error('Server is restarting. Please reconnect shortly.');
+    }
+    if (liveRooms.size >= MAX_ROOMS) {
+      throw new Error('Server at capacity. Please try again shortly.');
+    }
+    const memRssMb = process.memoryUsage().rss / (1024 * 1024);
+    if (memRssMb >= MAX_MEMORY_MB) {
+      throw new Error('Server memory threshold reached. Please try again shortly.');
+    }
     const ip = clientIp(context);
     if (options.quickMatch === true) checkQuickMatchLimit(ip);
     return { ip };
@@ -366,53 +396,118 @@ class HandshakeRoom extends Room {
     }
     this.initRun(options);
     this.onMessage('snapshot', (client, message) => {
-      this.applySnapshot(client.sessionId, message);
+      if (!this.checkRateLimit(client, true)) return;
+      try { this.applySnapshot(client.sessionId, message); } catch (_) {}
     });
-    this.onMessage('grab-object', (client, message) => this.grabObject(client.sessionId, message));
-    this.onMessage('handoff-object', (client, message) => this.handoffObject(client.sessionId, message));
-    this.onMessage('release-object', (client, message) => this.releaseObject(client.sessionId, message));
-    this.onMessage('object-snapshot', (client, message) => this.applyObjectSnapshot(client.sessionId, message));
-    this.onMessage('hack-start', (client, message) => this.startHack(client.sessionId, message));
-    this.onMessage('hack-complete', (client, message) => this.completeHack(client.sessionId, message));
-    this.onMessage('hack-cancel', (client, message) => this.cancelHack(client.sessionId, message));
-    this.onMessage('mission-tether-save', (client) => this.reportTetherSave(client.sessionId));
-    this.onMessage('mission-retry', () => {
-      this.resetPlayerStats();
-      if (this.state.run.mode === 'nightshift') {
-        this.state.run.floorCleared = false;
-        this.nightshiftEscapedFloor = 0;
-        this.nsFloors = dropFloorsFrom(this.nsFloors, this.state.run.floor);
-        this.nsTwangs.clear();
-        this.resetMission();
-      } else {
-        this.resetMission();
-      }
+    this.onMessage('grab-object', (client, message) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.grabObject(client.sessionId, message); } catch (_) {}
     });
-    this.onMessage('rematch-vote', (client, message) => this.handleRematchVote(client, message));
+    this.onMessage('handoff-object', (client, message) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.handoffObject(client.sessionId, message); } catch (_) {}
+    });
+    this.onMessage('release-object', (client, message) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.releaseObject(client.sessionId, message); } catch (_) {}
+    });
+    this.onMessage('object-snapshot', (client, message) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.applyObjectSnapshot(client.sessionId, message); } catch (_) {}
+    });
+    this.onMessage('hack-start', (client, message) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.startHack(client.sessionId, message); } catch (_) {}
+    });
+    this.onMessage('hack-complete', (client, message) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.completeHack(client.sessionId, message); } catch (_) {}
+    });
+    this.onMessage('hack-cancel', (client, message) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.cancelHack(client.sessionId, message); } catch (_) {}
+    });
+    this.onMessage('mission-tether-save', (client) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.reportTetherSave(client.sessionId); } catch (_) {}
+    });
+    this.onMessage('mission-retry', (client) => {
+      if (!this.checkRateLimit(client)) return;
+      try {
+        this.resetPlayerStats();
+        if (this.state.run.mode === 'nightshift') {
+          this.state.run.floorCleared = false;
+          this.nightshiftEscapedFloor = 0;
+          this.nsFloors = dropFloorsFrom(this.nsFloors, this.state.run.floor);
+          this.nsTwangs.clear();
+          this.resetMission();
+        } else {
+          this.resetMission();
+        }
+      } catch (_) {}
+    });
+    this.onMessage('rematch-vote', (client, message) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.handleRematchVote(client, message); } catch (_) {}
+    });
     this.onMessage('quickmatch-bot', (client) => {
-      if (!this.quickMatch || !this.state.players.get(client.sessionId)?.connected || this.state.players.size !== 1 || this.state.players.get('bot')) return;
-      const human = this.state.players.get(client.sessionId);
-      this.botEnabled = true;
-      this.setMetadata({ code: this.roomId, bot: true, quickMatch: true, qmKey: this.qmKey });
-      this.addBotSeat(human.role === 'pix' ? 'nee' : 'pix', human.position);
-      console.log(`[quickmatch] room ${this.roomId} key=${this.qmKey} bot`);
+      if (!this.checkRateLimit(client)) return;
+      try {
+        if (!this.quickMatch || !this.state.players.get(client.sessionId)?.connected || this.state.players.size !== 1 || this.state.players.get('bot')) return;
+        const human = this.state.players.get(client.sessionId);
+        this.botEnabled = true;
+        this.setMetadata({ code: this.roomId, bot: true, quickMatch: true, qmKey: this.qmKey });
+        this.addBotSeat(human.role === 'pix' ? 'nee' : 'pix', human.position);
+        console.log(`[quickmatch] room ${this.roomId} key=${this.qmKey} bot`);
+      } catch (_) {}
     });
-    this.onMessage('leaderboard-name', (client, message) => this.handleLeaderboardName(client, message));
+    this.onMessage('leaderboard-name', (client, message) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.handleLeaderboardName(client, message); } catch (_) {}
+    });
     // Scores are server-observed only; a client-posted score is dropped without disconnecting the sender.
     this.onMessage('leaderboard-submit', () => {});
-    this.onMessage('run-next-floor', (_client, message) => {
-      const run = this.state.run;
-      if (run.mode !== 'nightshift' || run.ended || !run.floorCleared || message?.floor !== run.floor) return;
-      this.handleEscape();
+    this.onMessage('run-next-floor', (client, message) => {
+      if (!this.checkRateLimit(client)) return;
+      try {
+        const run = this.state.run;
+        if (run.mode !== 'nightshift' || run.ended || !run.floorCleared || message?.floor !== run.floor) return;
+        this.handleEscape();
+      } catch (_) {}
     });
-    this.onMessage('run-twang', (client) => this.reportTwang(client.sessionId));
-    this.onMessage('tether-yank', (client, message) => this.relayTetherYank(client, message));
-    this.onMessage('ping', (client, message) => this.relayPing(client, message));
-    this.onMessage('emote', (client, message) => this.relayEmote(client, message));
-    this.onMessage('patrol-stun', (client, message) => this.stunPatrol(client, message));
+    this.onMessage('run-twang', (client) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.reportTwang(client.sessionId); } catch (_) {}
+    });
+    this.onMessage('tether-yank', (client, message) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.relayTetherYank(client, message); } catch (_) {}
+    });
+    this.onMessage('ping', (client, message) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.relayPing(client, message); } catch (_) {}
+    });
+    this.onMessage('emote', (client, message) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.relayEmote(client, message); } catch (_) {}
+    });
+    this.onMessage('patrol-stun', (client, message) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.stunPatrol(client, message); } catch (_) {}
+    });
     // Captures are server-owned (onCaptureOutcome). Old clients may still send this: accept and ignore,
     // so one client can't count a team capture twice.
     this.onMessage('run-capture', () => {});
+    this.onMessage('capture-struggle', (client) => {
+      if (!this.checkRateLimit(client)) return;
+      try { this.reportStruggle(client.sessionId); } catch (_) {}
+    });
+    this.onMessage('rtt-ping', (client, message) => {
+      if (!this.checkRateLimit(client)) return;
+      if (!message || typeof message !== 'object') return;
+      const t = typeof message.t === 'number' && Number.isFinite(message.t) ? message.t : 0;
+      client.send('rtt-pong', { t, serverTime: Date.now() });
+    });
     this.onMessage('capture-struggle', (client) => this.reportStruggle(client.sessionId));
     if (TEST_HOOKS) {
       console.log('[handshake] TEST HOOKS enabled');
@@ -1107,6 +1202,7 @@ class HandshakeRoom extends Room {
     this.refreshReservedPilot();
     this.pingTimes.delete(client.sessionId);
     this.emoteTimes.delete(client.sessionId);
+    this.clientMessageRates.delete(client.sessionId);
   }
 
   freezePlayer(player) {
@@ -2023,11 +2119,18 @@ httpServer.on('request', (req, res) => {
     for (const room of liveRooms) {
       totalClients += room.clients.length;
     }
+    const mem = process.memoryUsage();
     const body = JSON.stringify({
       ok: true,
       uptime: Math.floor(process.uptime()),
       rooms: liveRooms.size,
+      maxRooms: MAX_ROOMS,
       clients: totalClients,
+      memory: {
+        rssMb: Math.round(mem.rss / (1024 * 1024)),
+        heapUsedMb: Math.round(mem.heapUsed / (1024 * 1024)),
+        heapTotalMb: Math.round(mem.heapTotal / (1024 * 1024)),
+      },
       quickMatchWaiting: [...liveRooms].filter((room) => room.quickMatch && !room.locked &&
         [...room.state.players.values()].filter((player) => !player.bot && player.connected).length === 1).length,
       version: pkg.version || 'dev',
@@ -2086,3 +2189,31 @@ if (permissive) {
 console.log(`[handshake] reconnect grace ${RECONNECT_SECONDS}s`);
 console.log(`[handshake] leaderboard file: ${LEADERBOARD_FILE || 'memory'}`);
 console.log(`[handshake] listening on port ${PORT}`);
+
+// --- Graceful shutdown on Render redeploys (SIGTERM / SIGINT) ------------------
+function gracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`[handshake] received ${signal}, initiating graceful shutdown...`);
+  for (const room of liveRooms) {
+    try {
+      room.broadcast('server-shutdown', { reason: 'redeploy', reconnectInMs: 2500 });
+      for (const client of room.clients) {
+        client.leave(4001, 'server-restart');
+      }
+    } catch (_) {}
+  }
+  httpServer.close(() => {
+    console.log('[handshake] HTTP server closed gracefully.');
+    try { leaderboardStore.flushSync(); } catch (_) {}
+    process.exit(0);
+  });
+  setTimeout(() => {
+    console.warn('[handshake] graceful shutdown timed out, exiting');
+    try { leaderboardStore.flushSync(); } catch (_) {}
+    process.exit(0);
+  }, 4000).unref();
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
