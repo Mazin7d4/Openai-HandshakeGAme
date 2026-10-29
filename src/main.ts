@@ -313,7 +313,7 @@ function openTitleSettings(): void {
 }
 
 function showSinglePlayer(): void {
-  const panel = menuPanel('Solo heist', 'You fly PIX. A CPU NEE rides the other end of the cord. It follows you, but it can\'t hack yet.');
+  const panel = menuPanel('Solo heist', 'You fly PIX. NEE follows, handles its consoles, and helps you escape.');
   const start = menuButton('Start', 'start-singleplayer', () => {
     void startGame('singleplayer');
   }, 'btn--primary');

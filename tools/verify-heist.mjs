@@ -151,7 +151,7 @@ try {
   const travel = async (points) => {
     for (const point of points) {
       await pilot(['pix'], point);
-      await pilot(['nee'], point);
+      await pilot(['nee'], point.partner ?? point);
       if (process.env.TRACE) console.log(JSON.stringify(point), (await readout()).match(/prototype:\S+/)?.[0]);
     }
   };
@@ -216,6 +216,10 @@ try {
   // Both drones advance through the dock. Holding NEE back in the lab overstretches the tether.
   // A carried prototype is already excluded from PIX's free-object grab candidates.
   await travel(clearCrate.approach);
+  // The free crate can drift when the drones pass through the dock. Approach
+  // its current position through flight controls rather than assuming its spawn.
+  const pickupCrate = await cratePosition();
+  await pilot(['pix'], { x: pickupCrate.x, y: 3, z: pickupCrate.z - 3.5, tolerance: 0.3 });
   await ensureActive('player-1');
   for (let attempt = 0; attempt < 4 && !(await readout()).includes('crate-blue:pix'); attempt++) {
     await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));

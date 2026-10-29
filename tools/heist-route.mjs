@@ -31,8 +31,10 @@ export const clearCrate = {
     // Clear the pedestal above its 4.6-unit top, then descend beyond it into the dock.
     { x: 0, y: 6.4, z: 10 }, { x: 0, y: 6.4, z: 15 }, { x: 0, y: 6.4, z: 20 },
     { x: 0, y: 3, z: 24 }, { x: 0, y: 3, z: 30 },
-    // Stop south of the crate (it rests at z 37): flying onto it shoves it out of reach.
-    { x: 8, y: 3, z: 32 }, { x: 8, y: 3, z: 35, tolerance: 0.8 },
+    // Park separately south of the crate: stacking both drones at the pickup
+    // point repels NEE into the crate and pushes it beyond PIX's grab radius.
+    { x: 8, y: 3, z: 32 },
+    { x: 8, y: 3, z: 34, tolerance: 0.5, partner: { x: 5, y: 3, z: 34, tolerance: 0.5 } },
   ],
   drag: [
     { x: 8, y: 3, z: 37, tolerance: 1.0 },
