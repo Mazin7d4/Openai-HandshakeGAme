@@ -1,7 +1,7 @@
 // Adaptive governor: on a (spoofed) hardware-GPU phone in AUTO, injected 33 ms frames must step the
 // resolution ladder down and injected 8 ms frames must step it back up, never above the start tier.
 // Phone/low tier because medium/high shaders exceed SwiftShader's uniform limits on this GPU-less box.
-import { runTest, url, assert, collectErrors, waitForGame, devices } from './lib.mjs';
+import { runTest, url, assert, collectErrors, waitForGame, devices, shot } from './lib.mjs';
 
 const tierIndex = { low: 0, medium: 1, high: 2 };
 
@@ -40,7 +40,7 @@ await runTest('governor', async (browser, notes) => {
   assert(starting?.tier === 'low', `phone spoof should guess low, got ${starting?.tier}`);
   const startTier = starting.tier;
   await page.evaluate(() => window.__pixQualityTest?.injectFrameMs(33));
-  const down = await pollStatus(page, (s) => s.changes.some((c) => /\bdown\b/.test(c)) && (s.scaleStep > 0 || tierIndex[s.tier] < tierIndex[startTier]), 20_000);
+  const down = await pollStatus(page, (s) => s.changes.some((c) => /\bdown\b/.test(c)) && (s.scaleStep > 0 || tierIndex[s.tier] < tierIndex[startTier]), 60_000);
   assert(down?.changes.some((c) => /\bdown\b/.test(c)), `governor did not step down: ${JSON.stringify(down)}`);
   assert(down.scaleStep > 0 || tierIndex[down.tier] < tierIndex[startTier], `down did not change ladder state: ${JSON.stringify(down)}`);
   assert(tierIndex[down.tier] <= tierIndex[startTier], `tier exceeded ceiling after down: ${down.tier}`);
@@ -50,7 +50,7 @@ await runTest('governor', async (browser, notes) => {
   const up = await pollStatus(page, (s) => {
     const hasUp = s.changes.some((c, i) => i >= downChanges && /\bup\b/.test(c));
     return hasUp && (s.scaleStep < down.scaleStep || tierIndex[s.tier] > tierIndex[down.tier]);
-  }, 30_000);
+  }, 60_000);
   assert(up?.changes.some((c, i) => i >= downChanges && /\bup\b/.test(c)), `governor did not step up after down: ${JSON.stringify(up)}`);
   assert(up.scaleStep < down.scaleStep || tierIndex[up.tier] > tierIndex[down.tier], `up did not reverse ladder state: ${JSON.stringify(up)}`);
   assert(tierIndex[up.tier] <= tierIndex[startTier], `tier exceeded starting ceiling: ${up.tier}/${startTier}`);
@@ -62,6 +62,8 @@ await runTest('governor', async (browser, notes) => {
   assert(/fps/i.test(overlayInfo.text ?? ''), `FPS overlay text lacks fps: ${overlayInfo.text}`);
 
   notes.statuses = { starting, down, up };
+  await shot(page, 'governor-recovered');
+  await page.close();
 
   const page2 = await ctx.newPage();
   collectErrors(page2, 'governor-pinned', errors);

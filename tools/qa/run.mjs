@@ -1,14 +1,17 @@
 // Runs the QA suite sequentially (one browser at a time). Usage: npm run qa [-- smoke coop ...]
 import { spawn } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { runQaProcess } from './process.mjs';
 import { freePort, startTestServer } from '../test-server.mjs';
 
-const all = ['qa-deadline', 'phone-ui', 'seeds', 'bundle-budget', 'pass-rules', 'messages', 'interp', 'challenge', 'night-shift', 'smoke', 'solo-boot', 'no-cdn', 'bot-solo', 'coop', 'coop-capture', 'grab-carry', 'rematch', 'bot-server', 'bot-hack-server', 'leaderboard-server', 'quickmatch-server', 'quickmatch', 'quickmatch-cancel', 'quickmatch-bot', 'quickmatch-private', 'nightshift-coop', 'ping-emote', 'reconnect', 'mobile', 'quality-phone', 'governor', 'mobile-layout', 'join-mobile', 'join-qr', 'rematch-mobile', 'leaderboard', 'leaderboard-solo', 'title-best-crew', 'wake', 'emote-mobile', 'gamepad', 'escape-replay', 'no-test-hooks', 'settings', 'a11y-keyboard', 'floorplan-sweep', 'objectives-unit', 'hazards-unit', 'variety-coop', 'nightshift-9floors', 'variety-solo'];
+const all = ['qa-deadline', 'phone-ui', 'seeds', 'bundle-budget', 'pass-rules', 'messages', 'interp', 'remote-unit', 'challenge', 'night-shift', 'smoke', 'solo-boot', 'no-cdn', 'bot-solo', 'coop', 'coop-capture', 'grab-carry', 'rematch', 'bot-server', 'migration', 'bot-hack-server', 'leaderboard-server', 'quickmatch-server', 'quickmatch', 'quickmatch-cancel', 'quickmatch-bot', 'quickmatch-private', 'nightshift-coop', 'ping-emote', 'reconnect', 'mobile', 'quality-phone', 'governor', 'governor-unit', 'mobile-layout', 'join-mobile', 'join-qr', 'rematch-mobile', 'leaderboard', 'leaderboard-solo', 'title-best-crew', 'wake', 'emote-mobile', 'gamepad', 'escape-replay', 'no-test-hooks', 'settings', 'a11y-keyboard', 'floorplan-sweep', 'objectives-unit', 'hazards-unit', 'variety-coop', 'nightshift-9floors', 'variety-solo'];
 const args = process.argv.slice(2);
 const ownServers = process.env.QA_OWN_SERVERS === '1' || args.includes('--own-servers');
+const unknown = args.filter((a) => a !== '--own-servers' && !all.includes(a));
+if (unknown.length) throw new Error(`Unknown QA tests/options: ${unknown.join(', ')}`);
 const pick = args.filter((a) => a !== '--own-servers' && all.includes(a));
 const tests = pick.length ? pick : all;
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -17,6 +20,7 @@ if (process.env.QA_TIMEOUT_MS && (!Number.isFinite(configuredTimeout) || configu
 const testTimeout = (test) => process.env.QA_TIMEOUT_MS ? configuredTimeout : test === 'mobile' ? 600_000 : 300_000;
 
 function report(test, res) {
+  if (process.env.QA_RESULTS_FILE) appendFileSync(process.env.QA_RESULTS_FILE, JSON.stringify({ ...res, recordedAt: new Date().toISOString() }) + '\n');
   console.log(`${res.pass ? 'PASS' : 'FAIL'} ${test} (${res.seconds ?? '?'}s)${res.error ? ' - ' + res.error.split('\n')[0] : ''}`);
   // Print the whole failure reason (multi-line asserts like "errors:\n..." used to show as an empty list).
   if (!res.pass && res.error) for (const line of res.error.split('\n').slice(1).filter(Boolean)) console.log(`    ${line}`);

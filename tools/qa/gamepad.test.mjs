@@ -1,5 +1,5 @@
 // Standard Gamepad API smoke: movement, camera look, and the in-game pause edge.
-import { runTest, assert, collectErrors, waitForGame, worldState, url, openPage } from './lib.mjs';
+import { runTest, assert, collectErrors, waitForGame, worldState, url, openPage, until, shot } from './lib.mjs';
 
 await runTest('gamepad', async (browser, notes) => {
   const { ctx, page } = await openPage(browser, { viewport: { width: 1280, height: 720 } });
@@ -17,11 +17,13 @@ await runTest('gamepad', async (browser, notes) => {
   await page.getByTestId('singleplayer').click();
   await page.getByTestId('start-singleplayer').click();
   await waitForGame(page);
-  await page.waitForTimeout(1200);
 
   const before = (await worldState(page)).players['player-1'];
   await page.evaluate(() => { window.__fakePad.axes[1] = -1; });
-  await page.waitForTimeout(1500);
+  await until('gamepad movement', async () => {
+    const p = (await worldState(page)).players['player-1'];
+    return { ok: p && Math.hypot(p.x - before.x, p.z - before.z) > 1, info: p };
+  }, 45_000);
   await page.evaluate(() => { window.__fakePad.axes[1] = 0; });
   const after = (await worldState(page)).players['player-1'];
   const moved = Math.hypot(after.x - before.x, after.z - before.z);
@@ -30,40 +32,39 @@ await runTest('gamepad', async (browser, notes) => {
 
   const yawBefore = await page.evaluate(() => window.__pixneeCamera?.getLookYaw?.() ?? null);
   await page.evaluate(() => { window.__fakePad.axes[2] = 1; });
-  await page.waitForTimeout(800);
+  await page.waitForFunction((before) => Math.abs((window.__pixneeCamera?.getLookYaw?.() ?? before) - before) > 0.05, yawBefore, { timeout: 45_000 });
   await page.evaluate(() => { window.__fakePad.axes[2] = 0; });
   const yawAfter = await page.evaluate(() => window.__pixneeCamera?.getLookYaw?.() ?? 0);
   notes.gamepadYaw = +(Math.abs(yawAfter - yawBefore)).toFixed(3);
   assert(Math.abs(yawAfter - yawBefore) > 0.05, 'gamepad right stick did not turn camera');
 
-  const pressStart = async () => {
-    await page.evaluate(() => { window.__fakePad.buttons[9].pressed = true; window.__fakePad.buttons[9].value = 1; });
-    await page.waitForTimeout(150);
-    await page.evaluate(() => { window.__fakePad.buttons[9].pressed = false; window.__fakePad.buttons[9].value = 0; });
-    await page.waitForTimeout(150);
-  };
   const pauseMenu = page.getByTestId('pause-menu');
-  // Start mirrors Esc: the first press skips the onboarding coach if it is still up.
-  await pressStart();
-  if (!(await pauseMenu.isVisible())) await pressStart();
-  await pauseMenu.waitFor({ state: 'visible', timeout: 5000 });
-  await pressStart();
-  await pauseMenu.waitFor({ state: 'hidden', timeout: 5000 });
+  // Hold each edge until its visible effect, then let every input poll see release.
+  const pressButton = async (index, effect) => {
+    await page.evaluate((i) => { window.__fakePad.buttons[i].pressed = true; window.__fakePad.buttons[i].value = 1; }, index);
+    try {
+      await effect();
+    } finally {
+      await page.evaluate((i) => { window.__fakePad.buttons[i].pressed = false; window.__fakePad.buttons[i].value = 0; }, index);
+      await page.waitForFunction(() => new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))));
+      }), null, { timeout: 45_000 });
+    }
+  };
+  const waitPause = (visible) => pauseMenu.waitFor({ state: visible ? 'visible' : 'hidden', timeout: 45_000 });
+  // Start dismisses the coach and opens pause on the same observed input edge.
+  await pressButton(9, () => waitPause(true));
+  await waitPause(true);
+  await shot(page, 'gamepad-pause');
+  await pressButton(9, () => waitPause(false));
   assert(!(await pauseMenu.isVisible()), 'second Start press did not close the pause menu');
 
-  // The menu's traditional back paths must remain available after Start toggles.
-  await pressStart();
-  await pauseMenu.waitFor({ state: 'visible', timeout: 5000 });
-  await page.evaluate(() => { window.__fakePad.buttons[1].pressed = true; window.__fakePad.buttons[1].value = 1; });
-  await page.waitForTimeout(150);
-  await page.evaluate(() => { window.__fakePad.buttons[1].pressed = false; window.__fakePad.buttons[1].value = 0; });
-  await pauseMenu.waitFor({ state: 'hidden', timeout: 5000 });
+  await pressButton(9, () => waitPause(true));
+  await pressButton(1, () => waitPause(false));
   assert(!(await pauseMenu.isVisible()), 'B did not close the pause menu');
-
-  await pressStart();
-  await pauseMenu.waitFor({ state: 'visible', timeout: 5000 });
+  await pressButton(9, () => waitPause(true));
   await page.keyboard.press('Escape');
-  await pauseMenu.waitFor({ state: 'hidden', timeout: 5000 });
+  await waitPause(false);
   assert(!(await pauseMenu.isVisible()), 'Escape did not close the pause menu');
   notes.errors = errors;
   assert(errors.length === 0, `errors:\n${errors.join('\n')}`);

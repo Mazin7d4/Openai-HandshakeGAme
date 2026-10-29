@@ -72,7 +72,7 @@ export async function closePage(page) {
 
 export async function shot(page, name) {
   const path = `${SHOTS}/${name}.png`;
-  await page.screenshot({ path });
+  await page.screenshot({ path, timeout: 60_000 });
   return path;
 }
 

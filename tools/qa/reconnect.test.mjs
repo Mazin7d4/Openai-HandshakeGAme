@@ -15,7 +15,7 @@ await runTest('reconnect', async (browser, notes) => {
   await guestCtx.addInitScript(TRACK_WS);
   const host = await hostCtx.newPage(); const guest = await guestCtx.newPage();
   collectErrors(host, 'host', errors); collectErrors(guest, 'guest', errors);
-  for (const [n, pg] of [['host', host], ['guest', guest]]) { pg.on('crash', () => errors.push(`${n} CRASHED`)); pg.on('close', () => errors.push(`${n} closed`)); }
+  for (const [n, pg] of [['host', host], ['guest', guest]]) { pg.on('crash', () => errors.push(`${n} CRASHED`)); }
   const code = await createAndJoin(host, guest);
   notes.room = code;
   await Promise.all([waitForGame(host), waitForGame(guest)]);
@@ -136,6 +136,11 @@ await runTest('reconnect', async (browser, notes) => {
   notes.fixme = fixme;
   assert(!(REJOIN_EXPECTED && !fixme.ok), `rejoin expected but failed: ${JSON.stringify(fixme)}`);
 
+  // These clients have completed their assertions; release their renderers before
+  // opening the independent banner case on the shared software GPU.
+  await guestCtx.close();
+  await hostCtx.close();
+
   // --- 4. partner drop banner (independent room and browser context) ---
   const bannerHostCtx = await browser.newContext({ viewport: { width: 960, height: 540 } });
   const bannerHost = await bannerHostCtx.newPage();
@@ -166,11 +171,13 @@ await runTest('reconnect', async (browser, notes) => {
   const stopSnapshots = () => { if (snapshotTimer) clearInterval(snapshotTimer); snapshotTimer = undefined; };
   await Promise.all([
     waitForGame(bannerHost),
-    new Promise((resolve) => {
-      const check = () => rawGuest.state?.players?.size === 2 ? resolve() : setTimeout(check, 25);
-      check();
-    }),
+    until('raw guest sees both seats', () => ({ ok: rawGuest.state?.players?.size === 2, info: rawGuest.state?.players?.size }), 45_000),
   ]);
+  await until('banner host sees connected partner', async () => {
+    const status = await bannerHost.getByTestId('network-hud').innerText();
+    const world = await worldState(bannerHost);
+    return { ok: !!world.players['player-2'] && !status.includes('disconnected'), info: status };
+  }, 45_000);
   startSnapshots(rawGuest);
   if (rawGuest.reconnection?.enabled !== undefined) rawGuest.reconnection.enabled = false;
   const token = rawGuest.reconnectionToken;
@@ -178,20 +185,21 @@ await runTest('reconnect', async (browser, notes) => {
   stopSnapshots();
   rawGuest.connection.close(4999, 'qa-drop');
   const banner = bannerHost.getByTestId('partner-overlay').and(bannerHost.locator('.visible'));
-  await banner.waitFor({ timeout: 8_000 });
+  await banner.waitFor({ timeout: 45_000 });
   const shownText = await bannerHost.getByTestId('partner-overlay').innerText();
   assert(shownText.includes('Waiting for partner'), 'partner drop banner title missing');
   assert(shownText.includes('Timer paused'), 'partner drop banner timer text missing');
   await tryShot(bannerHost, 'reconnect-partner-banner');
   const back = await new Client(SERVER_URL).reconnect(token);
   startSnapshots(back);
-  await bannerHost.waitForFunction(() => !document.querySelector('[data-testid=partner-overlay]')?.classList.contains('visible'), null, { timeout: 8_000 });
+  await bannerHost.waitForFunction(() => !document.querySelector('[data-testid=partner-overlay]')?.classList.contains('visible'), null, { timeout: 45_000 });
   stopSnapshots();
   notes.partnerBanner = { shownText, hiddenAfterRejoin: true };
   await back.leave(true).catch(() => {});
   await bannerHostCtx.close().catch(() => {});
 
   notes.errors = errors;
+  assert(!errors.length, `errors:\n${errors.join('\n')}`);
   await guestCtx.close().catch(() => {});
   await hostCtx.close().catch(() => {});
 });

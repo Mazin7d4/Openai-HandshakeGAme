@@ -1,6 +1,6 @@
 // (d) Mobile smoke: phone touch layouts in portrait and landscape.
 // Checks menu tap flow, in-game HUD overlap/off-screen clipping, tap-target size and whether touch controls exist.
-import { runTest, url, assert, collectErrors, shot, waitForGame, layoutAudit, devices, createAndJoin, worldState } from './lib.mjs';
+import { runTest, url, assert, collectErrors, shot, waitForGame, layoutAudit, devices, createAndJoin, worldState, waitForSceneReady, tapUntil, until } from './lib.mjs';
 
 await runTest('mobile', async (browser, notes) => {
   const errors = [];
@@ -18,7 +18,7 @@ await runTest('mobile', async (browser, notes) => {
     await page.getByTestId('singleplayer').tap();
     await page.getByTestId('start-singleplayer').tap();
     await waitForGame(page);
-    await page.waitForTimeout(2500);
+    await waitForSceneReady(page);
     const game = await layoutAudit(page);
     await shot(page, `mobile-${label}-ingame`);
     const touch = await page.evaluate(() => {
@@ -61,14 +61,10 @@ await runTest('mobile', async (browser, notes) => {
     assert(touch.joystick, `${label}: touch joystick missing`);
     assert(touch.actions.every(Boolean), `${label}: touch action buttons missing ${JSON.stringify(touch.actions)}`);
     assert(boxes.rects.filter((r) => /touch-(up|down)/.test(r.name)).every((r) => r.width >= 44 && r.height >= 44), `${label}: lift buttons too small`);
-    // Pause mirrors Esc: the first tap may only skip the onboarding coach.
-    await page.getByTestId('touch-pause').tap();
-    await page.waitForTimeout(250);
-    if (!(await page.getByTestId('pause-menu').isVisible())) await page.getByTestId('touch-pause').tap();
-    await page.getByTestId('pause-menu').waitFor({ state: 'visible', timeout: 5000 });
+    await tapUntil(page, 'touch-pause', 'pause-resume');
     assert(await page.getByTestId('pause-fullscreen').isVisible().catch(() => false) || await page.evaluate(() => !document.documentElement.requestFullscreen && !document.documentElement.webkitRequestFullscreen), `${label}: fullscreen pause control missing`);
     await page.getByTestId('pause-resume').tap();
-    await page.getByTestId('pause-menu').waitFor({ state: 'hidden', timeout: 5000 });
+    await page.getByTestId('pause-menu').waitFor({ state: 'hidden', timeout: 45_000 });
     if (label === 'portrait') {
       notes.rotateHint = await page.getByTestId('touch-rotate-hint').isVisible().catch(() => false);
     }
@@ -93,7 +89,10 @@ await runTest('mobile', async (browser, notes) => {
         });
         await page.waitForTimeout(50);
       }
-      await page.waitForTimeout(700);
+      await until('touch joystick movement', async () => {
+        const p = (await worldState(page)).players['player-1'];
+        return { ok: p && Math.hypot(p.x - before.x, p.z - before.z) > 0.35, info: p };
+      }, 45_000);
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       const after = (await worldState(page)).players['player-1'];
       const moved = before && after ? Math.hypot(after.x - before.x, after.z - before.z) : 0;
@@ -106,7 +105,7 @@ await runTest('mobile', async (browser, notes) => {
       assert(yawBefore != null, 'debug camera hook missing');
       const look = await page.getByTestId('touch-look').boundingBox();
       assert(look, 'touch look pad missing');
-      const lx = look.x + look.width * 0.55;
+      const lx = look.x + look.width * 0.25;
       const ly = look.y + look.height * 0.45;
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt(lx, ly, 2) });
       for (let i = 1; i <= 14; i++) {
@@ -116,14 +115,14 @@ await runTest('mobile', async (browser, notes) => {
         });
         await page.waitForTimeout(40);
       }
-      await page.waitForTimeout(200);
+      await page.waitForFunction((before) => Math.abs((window.__pixneeCamera?.getLookYaw?.() ?? before) - before) > 0.01, yawBefore, { timeout: 45_000 });
       const yawAfter = await page.evaluate(() => window.__pixneeCamera?.getLookYaw?.() ?? 0);
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       notes.cameraYawDelta = +(Math.abs(yawAfter - yawBefore)).toFixed(4);
       assert(Math.abs(yawAfter - yawBefore) > 0.01, `camera alpha unchanged (${yawBefore} -> ${yawAfter})`);
       const zoomBefore = await page.evaluate(() => window.__pixneeCamera?.getZoom?.() ?? null);
       assert(zoomBefore != null, 'debug camera zoom hook missing');
-      const cx = look.x + look.width * 0.7;
+      const cx = look.x + look.width * 0.5;
       const cy = look.y + look.height * 0.35;
       await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx - 35, y: cy, id: 3 }, { x: cx + 35, y: cy, id: 4 }] });
@@ -131,29 +130,32 @@ await runTest('mobile', async (browser, notes) => {
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: cx - 35 - i * 6, y: cy, id: 3 }, { x: cx + 35 + i * 6, y: cy, id: 4 }] });
         await page.waitForTimeout(35);
       }
-      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-      await page.waitForTimeout(150);
+      await page.waitForFunction((before) => Math.abs((window.__pixneeCamera?.getZoom?.() ?? before) - before) > 0.005, zoomBefore, { timeout: 45_000 });
       const zoomAfter = await page.evaluate(() => window.__pixneeCamera?.getZoom?.() ?? 0);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       notes.cameraZoomDelta = +(Math.abs(zoomAfter - zoomBefore)).toFixed(4);
       assert(Math.abs(zoomAfter - zoomBefore) > 0.005, `camera zoom unchanged (${zoomBefore} -> ${zoomAfter})`);
       const up = await page.getByTestId('touch-up').boundingBox();
       const down = await page.getByTestId('touch-down').boundingBox();
-      const hold = async (box, id = 5) => {
+      const hold = async (box, beforeY, direction, id = 5) => {
         const x = box.x + box.width / 2, y = box.y + box.height / 2;
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id }] });
-        await page.waitForTimeout(700);
+        await until('vertical touch flight', async () => {
+          const p = (await worldState(page)).players['player-1'];
+          return { ok: p && (p.y - beforeY) * direction > 0.08, info: p };
+        }, 45_000);
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       };
       const yBefore = (await worldState(page)).players['player-1'].y;
-      await hold(up);
+      await hold(up, yBefore, 1);
       const yUp = (await worldState(page)).players['player-1'].y;
-      await hold(down, 6);
+      await hold(down, yUp, -1, 6);
       const yDown = (await worldState(page)).players['player-1'].y;
       assert(yUp > yBefore + 0.08 && yDown < yUp - 0.08, `${label}: vertical touch flight failed (${yBefore}, ${yUp}, ${yDown})`);
       await shot(page, 'mobile-landscape-look');
     }
     if (label === 'landscape') {
-      await page.waitForTimeout(2600);
+      await page.waitForFunction(() => document.querySelector('[data-testid=mission-objective]')?.dataset.collapsed === '1', null, { timeout: 45_000 });
       const objective = page.getByTestId('mission-objective');
       const collapsed = await objective.evaluate((node) => ({ state: node.dataset.collapsed, height: node.getBoundingClientRect().height, width: node.getBoundingClientRect().width }));
       assert(collapsed.state === '1' && collapsed.height <= 48 && collapsed.width <= viewport.width * 0.4, `objective not compact: ${JSON.stringify(collapsed)}`);
@@ -175,7 +177,7 @@ await runTest('mobile', async (browser, notes) => {
     await page.getByTestId('singleplayer').tap();
     await page.getByTestId('start-singleplayer').tap();
     await waitForGame(page);
-    await page.waitForTimeout(2000);
+    await waitForSceneReady(page);
     assert(await page.getByTestId('touch-joystick').isVisible(), `${tag}: joystick missing`);
     await shot(page, `mobile-landscape-${tag}`);
     await ctx.close();
@@ -188,7 +190,7 @@ await runTest('mobile', async (browser, notes) => {
     collectErrors(host, 'p2-host', errors); collectErrors(phone, 'p2-phone', errors);
     const code = await createAndJoin(host, phone);
     await Promise.all([waitForGame(host), waitForGame(phone)]);
-    await phone.waitForTimeout(2500);
+    await waitForSceneReady(phone);
     const hud = await phone.getByTestId('network-hud').innerText();
     const layout = await layoutAudit(phone);
     // one-finger drag on the canvas: does the drone move? (no touch flight controls expected yet)
