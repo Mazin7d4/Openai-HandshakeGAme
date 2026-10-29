@@ -67,7 +67,7 @@ await runTest('reconnect', async (browser, notes) => {
   notes.dropFixme = { name: 'auto-reconnect-after-drop', status: 'pass' };
 
   // --- 2. full reload: host may flash partner-overlay, or guest resumes so fast the overlay is skipped ---
-  await guest.reload();
+  await guest.reload({ waitUntil: 'domcontentloaded', timeout: 60_000 });
   const overlayShown = await host.waitForFunction(() => document.querySelector('[data-testid=partner-overlay]')?.classList.contains('visible'), null, { timeout: 8_000 }).then(() => true, () => false);
   notes.hostOverlayAfterGuestReload = (await host.getByTestId('partner-overlay').innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
   await tryShot(host, 'reconnect-reload-host-waiting');
