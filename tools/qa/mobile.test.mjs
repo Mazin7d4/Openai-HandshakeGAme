@@ -40,7 +40,7 @@ await runTest('mobile', async (browser, notes) => {
         document.querySelector('[data-testid="mission-objective"]'),
         document.querySelector('[data-testid="floor-counter"]'),
         document.querySelector('.active-drone-hud'),
-      ].filter((node) => node && (node.dataset?.testid !== 'interaction-prompt' || node.textContent.trim()));
+      ].filter((node) => node && node.checkVisibility({ visibilityProperty: true, opacityProperty: true }) && (node.dataset?.testid !== 'interaction-prompt' || node.textContent.trim()));
       const rects = nodes.map((node) => {
         const r = node.getBoundingClientRect();
         return { tap: /^touch-/.test(node.dataset?.testid ?? ''), name: node.dataset?.testid || node.className, left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };

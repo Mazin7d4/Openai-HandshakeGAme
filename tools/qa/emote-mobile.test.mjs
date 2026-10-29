@@ -41,6 +41,7 @@ await runTest('emote-mobile', async (browser, notes) => {
   await touch(cdp, 'touchStart', [e]);
   await page.waitForTimeout(350);
   assert(await radial.isVisible(), 'radial did not open on hold');
+  assert(!await page.getByTestId('touch-grab').isVisible() && !await page.getByTestId('touch-jump').isVisible(), 'emote picker left overlapping flight actions visible');
   const fitsPortrait = await radialFits(page);
   assert(fitsPortrait.every((f) => f.ok), `portrait radial items: ${JSON.stringify(fitsPortrait)}`);
   await shot(page, 'emote-mobile-radial-portrait');
@@ -50,6 +51,7 @@ await runTest('emote-mobile', async (browser, notes) => {
   await touch(cdp, 'touchEnd', []);
   await page.waitForFunction(() => window.__autotest?.pingEmote?.emotes?.().some((x) => x.id === 'go'), null, { timeout: 1000 });
   assert(!(await radial.isVisible()), 'radial stayed open after drag-release');
+  assert(await page.getByTestId('touch-grab').isVisible() && await page.getByTestId('touch-jump').isVisible(), 'emote picker did not restore flight actions');
 
   // Hold and release without dragging cancels.
   await page.waitForTimeout(600);
