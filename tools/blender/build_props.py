@@ -14,7 +14,8 @@ OUT.mkdir(parents=True, exist_ok=True)
 COLORS = dict(oak=(.43,.34,.25), ivory=(.70,.68,.61), felt=(.23,.27,.26),
               metal=(.40,.44,.44), rubber=(.065,.077,.080), slate=(.18,.22,.25),
               linen=(.47,.44,.37), leaf=(.22,.25,.22), leaf2=(.32,.35,.30),
-              clay=(.34,.29,.25), paper=(.76,.74,.67), glass=(.16,.20,.22))
+              clay=(.34,.29,.25), paper=(.76,.74,.67), glass=(.16,.20,.22),
+              rackFrame=(.30,.34,.37), rackFace=(.15,.17,.19))
 mat = bpy.data.materials.new('DecorMatte')
 mat.use_nodes = True
 bsdf = mat.node_tree.nodes.get('Principled BSDF')
@@ -92,11 +93,11 @@ for i in range(5):
 commit('Chair')
 
 # Server cabinet: readable perforated doors, brushed rails, tiny unlit indicator insets.
-box((0,3,0),(2.8,6,2.6),'slate',.08)
+box((0,3,0),(2.8,6,2.6),'rackFrame',.08)
 for x in (-1.27,1.27): box((x,3,-1.34),(.12,5.7,.13),'metal',.02)
 for i in range(8):
     y=.5+i*.69
-    box((0,y,-1.33),(2.32,.56,.08),'rubber',.02)
+    box((0,y,-1.33),(2.32,.56,.08),'rackFace',.02)
     box((.78,y,-1.39),(.24,.08,.03),'metal',0)
     for x in (-.82,-.52,-.22): box((x,y,-1.39),(.12,.25,.025),'slate',0)
 box((0,5.95,0),(2.88,.12,2.68),'metal',.03)
@@ -172,6 +173,53 @@ box((0,3.6,0),(4.1,7.2,.5),'rubber',.06)
 for i in range(9): box((-1.7+i*.425,3.6,-.34),(.18,6.7,.38),'metal',.035)
 commit('AcousticPanel')
 
-bpy.ops.export_scene.gltf(filepath=str(OUT/'office-kit.glb'),export_format='GLB',export_yup=True,
-                          export_apply=True,export_vertex_color='ACTIVE',export_texcoords=False,export_materials='EXPORT')
-print('PROP_KIT_COMPLETE', (OUT/'office-kit.glb').stat().st_size)
+# Laboratory analyzer: recessed sample chamber, ceramic housing, service drawers.
+# The dark viewport is unlit and rectilinear, clearly distinct from a console's glowing bezel.
+box((0,1.3,0),(5.1,2.6,2.2),'ivory',.12)
+box((0,3.6,.2),(4.9,2.1,1.7),'ivory',.12)
+box((0,3.6,-.68),(3.8,1.3,.08),'rubber',.04)
+for x in (-1.35,-.45,.45,1.35):
+    box((x,3.5,-.75),(.45,.65,.05),'metal',.03)
+box((0,2.75,-.92),(5.3,.16,2.6),'metal',.04)
+for x in (-1.3,1.3):
+    for y in (.6,1.5):
+        box((x,y,-1.13),(2.25,.78,.08),'paper',.03)
+        box((x,y+.2,-1.2),(.7,.07,.04),'metal',.01)
+for x in (-2.1,2.1):
+    for z in (-.8,.8): box((x,.12,z),(.25,.24,.25),'rubber',.025)
+commit('LabInstrument')
+
+# Mail sorting wall: open cubbies and staggered paper parcels. No arrow or screen glyphs.
+box((0,.22,0),(7.7,.44,1.7),'rubber',.05)
+box((0,3.25,.69),(7.5,6.1,.15),'oak',.03)
+for x in (-3.75,-1.25,1.25,3.75): box((x,3.25,0),(.13,6.1,1.55),'metal',.025)
+for row in range(4):
+    y=.5+row*1.48
+    box((0,y,0),(7.6,.12,1.55),'metal',.025)
+    for col in range(3):
+        x=-2.5+col*2.5
+        box((x,y+.45,.12),(1.95,.78,1.12),'clay' if (row+col)%2 else 'paper',.045)
+        box((x,y+.5,-.46),(.7,.23,.015),'paper',0)
+commit('MailSorter')
+
+# Office archive cabinet: inset drawers and desaturated acoustic slats above the storage.
+box((0,1.5,0),(6.4,3,1.7),'oak',.08)
+for x in (-2.1,0,2.1):
+    for y in (.8,2.2):
+        box((x,y,-.87),(2,1.25,.08),'ivory',.035)
+        box((x,y+.3,-.94),(.65,.08,.04),'metal',.01)
+for i in range(13): box((-3+i*.5,4.8,.6),(.2,3.4,.26),'felt',.025)
+commit('OfficeArchive')
+
+# Separate small downloads, with the same material and batching contract in both files.
+setpieces = {'Lockers', 'ParcelTrolley', 'AcousticPanel', 'LabInstrument', 'MailSorter', 'OfficeArchive'}
+for filename, extras in [('office-kit.glb', False), ('room-setpieces.glb', True)]:
+    bpy.ops.object.select_all(action='DESELECT')
+    for root in bpy.data.objects:
+        if root.name.startswith('Prop_') and ((root.name[5:] in setpieces) == extras):
+            root.select_set(True)
+            for child in root.children_recursive: child.select_set(True)
+    bpy.ops.export_scene.gltf(filepath=str(OUT/filename),export_format='GLB',export_yup=True,
+                              use_selection=True,export_apply=True,export_vertex_color='ACTIVE',
+                              export_texcoords=False,export_materials='EXPORT')
+    print('PROP_KIT_COMPLETE', filename, (OUT/filename).stat().st_size)

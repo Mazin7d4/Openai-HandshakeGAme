@@ -57,8 +57,8 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   for (const x of [10.3, 13.3]) for (const z of [-50.6, -47]) cyl(x, 0.69, z, 1.38, 0.13, p.metal);
   box(11.3, 1.69, -49.1, 1.35, 0.14, 1.8, p.coral);
   box(11.4, 1.81, -49, 1.2, 0.1, 1.65, p.paint);
-  cup(12.6, 1.62, -47.8); keyboard(-3.1, -48.5); cup(-6.7, 3.92, -49.8);
-  kit.place({ prop: 'PlantSmall', x: -7, y: 3.92, z: -48.5, scale: 0.6 });
+  cup(12.6, 1.62, -47.8); keyboard(-5.3, -49.8); cup(-6.7, 3.92, -49.8);
+  kit.place({ prop: 'PlantSmall', x: -9.1, y: 3.92, z: -48.5, scale: 0.6 });
   box(-1.5, 0.038, -53, 7, 0.025, 2.1, p.dark);
   // Far wall has a fluted wall panel, distinguished by profile instead of illumination.
   for (let i = 0; i < 13; i++) box(5.2 + i * 0.62, 2.35, -43.36, 0.25, 4.5, 0.16, p.wood);
@@ -71,16 +71,17 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   // Office: low-contrast chairs and work objects on the existing desktops.
   kit.place({ prop: 'Chair', x: -5, z: -37.1, ry: Math.PI, scale: 0.85 });
   kit.place({ prop: 'Chair', x: 10.9, z: -34, ry: Math.PI + 0.35, scale: 0.85 });
-  keyboard(-6, -34); keyboard(7.2, -32.4);
+  keyboard(-6, -34); keyboard(8.9, -32);
   cup(-1.8, 3.92, -33.6); cup(9.7, 3.92, -30.4);
   box(-8.1, 4.005, -33.8, 1.4, 0.16, 1.9, p.coral, 0.1);
-  box(9.5, 4.005, -32, 1.3, 0.16, 1.7, p.paint, -0.1);
+  box(5.4, 4.005, -30, 1.3, 0.16, 1.1, p.paint, -0.1);
   kit.place({ prop: 'Bookshelf', x: 17.3, z: -36, scale: 0.92 });
   kit.place({ prop: 'Lockers', x: 12, z: -27.3, scale: 0.85 });
   kit.place({ prop: 'Plant', x: -15.8, z: -28.8, scale: 0.8 });
   box(-18.61, 5.8, -35, 0.1, 3.8, 6.8, p.metal);
   box(-18.54, 5.8, -35, 0.04, 3.55, 6.55, p.paint);
   for (let i = 0; i < 3; i++) box(-18.507, 6.4 - i * 0.65, -35.5, 0.02, 0.07, 3.8 - i * 0.6, p.coral);
+  kit.place({ prop: 'OfficeArchive', x: -12.2, z: -27.4, scale: 0.8 });
   fixture(17, -31); fixture(-17, -36);
 
   // Server gallery: clear central aisle; no glowing status bars or overhead rails across the view.
@@ -97,6 +98,10 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   }
   fixture(17, -16, 7); fixture(-17, -16, 7);
 
+  // Lab: precision equipment along the perimeter, clear of the vault and the central approach.
+  kit.place({ prop: 'LabInstrument', x: -16.8, z: 12, ry: -Math.PI / 2, scale: 0.85 });
+  kit.place({ prop: 'LabInstrument', x: 16.8, z: 21, ry: Math.PI / 2, scale: 0.85 });
+
   // Dock: service storage, a parked trolley, and matte parcel labels.
   kit.place({ prop: 'ParcelTrolley', x: -15, z: 30.8, ry: Math.PI / 2 });
   kit.place({ prop: 'Shelving', x: -17.7, z: 42, scale: 0.9 });
@@ -105,6 +110,7 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
     box(x, 2.02, z, 0.2, 0.03, d, p.paint);
     box(x, 1.2, z - d / 2 - 0.015, w * 0.38, 0.42, 0.02, p.paint);
   }
+  kit.place({ prop: 'MailSorter', x: -10.5, z: 45.5, scale: 0.85 });
   fixture(17, 34, 6); fixture(-17, 37, 6);
   dressRoomFinishes(scene);
 
