@@ -176,7 +176,13 @@ export class SettingsMenu {
       seed.textContent = `Seed ${options.runSeed}`;
       this.panel.append(seed);
     }
-    this.panel.append(this.tablist, this.body, back);
+    const versionEl = document.createElement('p');
+    versionEl.className = 'panel__body settings-version';
+    versionEl.dataset.testid = 'settings-version';
+    const commit = (import.meta.env.VITE_COMMIT_SHA as string | undefined) ?? 'dev';
+    versionEl.textContent = `PIX & NEE · build ${commit.slice(0, 7)}`;
+
+    this.panel.append(this.tablist, this.body, versionEl, back);
     parent.append(this.root);
     window.addEventListener('keydown', this.onKeyDown, true);
     this.setTab('audio');

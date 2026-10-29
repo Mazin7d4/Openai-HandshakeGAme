@@ -424,6 +424,13 @@ body.hack-session-open :is(.mission-objective, .juice-toasts, .interaction-promp
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
+.settings-version {
+  font-size: 11px;
+  color: var(--smoke);
+  text-align: center;
+  margin: 8px 0 0;
+  opacity: 0.7;
+}
 .mission-status-badge {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   margin: 4px auto 2px; padding: 4px 10px;
@@ -1360,4 +1367,32 @@ body.escape-replay-on :is(.mission-objective, .onboarding-coach, .interaction-pr
   .hack-panel .hack-grid { width: min(100%, 220px); }
   .hack-panel .hack-status { min-height: 16px; margin-bottom: 0; }
   .hack-panel .hack-cancel { min-height: 42px; }
+}
+
+/* Global Error Boundary Fallback */
+.global-error-fallback {
+  position: fixed; inset: 0; z-index: 99999;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(13, 17, 23, 0.94);
+  backdrop-filter: blur(8px);
+  padding: 24px;
+}
+.global-error-card {
+  max-width: 420px; width: 100%;
+  background: var(--paper, #fff);
+  border: var(--rim, 2px solid #000);
+  border-radius: var(--r-panel, 12px);
+  padding: 28px 24px;
+  box-shadow: var(--lip, 0 4px 0 #000);
+  text-align: center;
+}
+.global-error-card h2 {
+  margin: 0 0 12px;
+  font: 800 24px/1.1 var(--font-title, sans-serif);
+  color: var(--graphite, #111);
+}
+.global-error-card p {
+  margin: 0 0 24px;
+  font: 500 15px/1.4 var(--font-body, sans-serif);
+  color: var(--smoke, #555);
 }

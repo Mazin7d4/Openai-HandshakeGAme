@@ -693,6 +693,18 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   canvas.id = 'game-canvas';
   canvas.dataset.testid = 'game-canvas';
   canvas.tabIndex = 0;
+  canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    console.warn('[handshake] WebGL context lost. Disposing game session.');
+    try {
+      game?.dispose();
+      game = null;
+    } catch (_) {}
+  });
+  canvas.addEventListener('webglcontextrestored', () => {
+    console.warn('[handshake] WebGL context restored. Reloading page.');
+    window.location.reload();
+  });
   const boot = element('div', 'boot-card');
   boot.id = 'boot-status';
   const bootStep = element('p', 'boot-step', 'Loading physics…');
@@ -943,6 +955,65 @@ function preloadWhenIdle(): void {
     if (idle) idle(go, { timeout: 1500 }); else setTimeout(go, 200);
   };
   if (document.readyState === 'complete') run(); else window.addEventListener('load', run, { once: true });
+}
+
+function initGlobalErrorBoundary(): void {
+  const showFallback = (msg: string) => {
+    let el = document.getElementById('global-error-fallback');
+    if (el) return;
+    el = document.createElement('div');
+    el.id = 'global-error-fallback';
+    el.className = 'global-error-fallback';
+    el.dataset.testid = 'global-error-fallback';
+
+    const card = document.createElement('div');
+    card.className = 'global-error-card';
+
+    const title = document.createElement('h2');
+    title.textContent = 'Something went wrong';
+
+    const desc = document.createElement('p');
+    desc.textContent = msg || 'An unexpected error occurred. Please reload to resume your heist.';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn--primary';
+    btn.dataset.testid = 'error-reload-btn';
+    btn.textContent = 'Reload game';
+    btn.addEventListener('click', () => {
+      window.location.reload();
+    });
+
+    card.append(title, desc, btn);
+    el.append(card);
+    document.body.append(el);
+  };
+
+  window.addEventListener('error', (event) => {
+    console.error('[handshake:global-error]', event.error ?? event.message);
+    const msg = event.error?.message || event.message || '';
+    if (document.getElementById('app')?.childElementCount === 0 || /webgl|context|fatal|out of memory/i.test(msg)) {
+      showFallback(msg);
+    }
+  });
+
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('[handshake:unhandled-rejection]', event.reason);
+  });
+
+  if (typeof window !== 'undefined') {
+    (window as unknown as { __triggerFatalError?: (m: string) => void }).__triggerFatalError = (m) => {
+      showFallback(m);
+    };
+  }
+}
+initGlobalErrorBoundary();
+
+if ('serviceWorker' in navigator && !window.location.search.includes('no-sw')) {
+  window.addEventListener('load', () => {
+    const swUrl = `${import.meta.env.BASE_URL}sw.js`;
+    navigator.serviceWorker.register(swUrl, { scope: import.meta.env.BASE_URL }).catch(() => {});
+  });
 }
 
 const bootParams = new URLSearchParams(window.location.search);

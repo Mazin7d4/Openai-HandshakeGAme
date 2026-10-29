@@ -1,7 +1,14 @@
 import { readdirSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execSync } from 'node:child_process';
 import { defineConfig, searchForWorkspaceRoot, type Plugin } from 'vite';
+
+let commitSha = 'dev';
+try {
+  commitSha = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+} catch (_) {}
+process.env.VITE_COMMIT_SHA = commitSha;
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 
