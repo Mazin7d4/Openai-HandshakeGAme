@@ -252,8 +252,10 @@ export class QualityManager {
     const now = performance.now();
     const realDt = now - this.lastFrame;
     this.lastFrame = now;
-    if (document.hidden || !Number.isFinite(realDt) || realDt > 250) return;
-    const dt = this.injectedFrameMs ?? realDt;
+    // A foreground frame slower than 250 ms is evidence of overload too.
+    // Cap its weight instead of dropping every sample on a struggling device.
+    if (document.hidden || !Number.isFinite(realDt) || realDt <= 0) return;
+    const dt = this.injectedFrameMs ?? Math.min(realDt, 250);
     if (!Number.isFinite(dt) || dt <= 0 || dt > 250) return;
     const elapsed = now - this.startedAt;
     if (elapsed < 1000) return;
