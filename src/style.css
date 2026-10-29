@@ -753,6 +753,7 @@ html[data-reduced-motion='1'] *::after {
   .heist-report__actions .btn,
   .heist-report__actions .btn--primary,
   .heist-report__actions .btn--quiet { min-height: 48px; }
+  .heist-report__actions .btn { height: 48px; min-width: 0; padding: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .heist-report__actions .btn--primary { font-size: 16px; }
 }
 
