@@ -1,3 +1,5 @@
+import { facingYaw } from '../gameplay/passRules.ts';
+import '../ui/campaign.css';
 import { cordState } from '../gameplay/Tether.ts';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { Engine } from '@babylonjs/core/Engines/engine.js';
@@ -451,7 +453,6 @@ export class GameApp {
     const engine = createEngine(options.canvas);
     const scene = createScene(engine);
     const plugin = await enableHavok(scene);
-    const levelSpawn = await options.createLevel(scene);
     const mode = options.mode ?? 'dev-local';
     const multiplayer = options.multiplayer ?? null;
     // Solo + Night Shift share generateRun; multiplayer waits on server applySeedFloor (prod-net sync).
@@ -471,6 +472,8 @@ export class GameApp {
     const runLayout = campaignId
       ? campaignGenerator?.(campaignId) ?? null
       : runSeed ? generateNightShiftRun(runSeed.seed, runSeed.floor) : null;
+    if (campaignId) scene.metadata = { ...(scene.metadata ?? {}), campaignLevel: campaignGenerator?.(campaignId).plan?.campaign?.index };
+    const levelSpawn = await options.createLevel(scene);
     if (runLayout?.plan?.campaign) applyCampaignPalette(scene, runLayout.plan.campaign.index);
     else if (campaignId && campaignGenerator) applyCampaignPalette(scene, campaignGenerator(campaignId).plan?.campaign?.index ?? 1);
     // TEST-ONLY: ?autotest&stage=escape starts local modes in the alarm escape, beside the heavy crate.
@@ -532,6 +535,10 @@ export class GameApp {
             zipping: () => live.drones?.[1]?.isZipping ?? false,
             leaderHolding: () => live.gameplay?.heldObjectId('pix') !== null,
             leaderForward: () => {
+              if (runLayout?.plan?.campaign && live.drones?.[0]) {
+                const yaw = facingYaw(live.drones[0].yaw);
+                return { x: Math.sin(yaw), z: Math.cos(yaw) };
+              }
               const forward = live.camera!.getPlanarBasis().forward;
               return { x: forward.x, z: forward.z };
             },

@@ -246,7 +246,8 @@ function showMainMenu(): void {
   startWarmup();
 }
 
-function showCampaignSelect(): void {
+async function showCampaignSelect(): Promise<void> {
+  await import('./ui/campaign.css');
   const panel = menuPanel('Campaign', 'Five handmade levels. Each one adds a new tether trick.');
   panel.classList.add('campaign-select-panel');
   panel.dataset.testid = 'level-select';

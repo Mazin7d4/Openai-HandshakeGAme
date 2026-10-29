@@ -61,6 +61,10 @@ await runTest('campaign-solo', async (browser, notes) => {
         await capture(page, level, `paired-lock-${phase}`);
         await waitPhase(page, phase);
       } else if (objective.kind === 'pylon-safe') {
+        if (level.index === 5) {
+          await move(page, { x: 2, y: 2.2, z: -16 });
+          await move(page, { x: 2, y: 2.2, z: -2 });
+        }
         await move(page, { x: 0, y: 2.2, z: 3.6 });
         await move(page, { ...objective.safe, z: objective.safe.z - 0.7 }, 0.6);
         await capture(page, level, `pylon-${phase}`);
@@ -80,6 +84,13 @@ await runTest('campaign-solo', async (browser, notes) => {
     await capture(page, level, 'core');
     await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
     await page.waitForFunction(() => window.__autotest.heldObject?.('pix') === 'prototype', null, { timeout: 10_000 });
+    if (level.index === 4) {
+      await move(page, { x: 0, y: 6.5, z: 23 });
+      await page.waitForFunction(() => document.querySelector('[data-testid="touch-grab"]')?.textContent?.includes('Pass'), null, { timeout: 15_000 });
+      await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
+      await page.waitForFunction(() => window.__autotest.heldObject?.('nee') === 'prototype', null, { timeout: 10_000 });
+      await capture(page, level, 'handoff');
+    }
     await move(page, { x: 0, y: 5.8, z: 25 });
     await move(page, { x: 0, y: 4.5, z: 30 });
     await capture(page, level, 'dock');
@@ -92,7 +103,9 @@ await runTest('campaign-solo', async (browser, notes) => {
       stars: document.querySelector('[data-testid="campaign-stars"]')?.textContent }));
     assert(state.objective.done, `${level.id}: unfinished objective ${JSON.stringify(state)}`);
     assert(state.stars?.length, `${level.id}: missing stars`);
-    notes.levels.push({ id: level.id, realRun: true, seconds: Math.round((Date.now() - started) / 1000), ...state });
+    const runEvidence = { id: level.id, realRun: true, seconds: Math.round((Date.now() - started) / 1000), ...state };
+    notes.levels.push(runEvidence);
+    await import('node:fs').then(({ writeFileSync }) => writeFileSync(`${shotDir}/${level.id}-run.json`, JSON.stringify(runEvidence, null, 2)));
     if (level.index === 1) {
       await page.goto(url()); await page.getByTestId('campaign').click();
       assert.equal(await page.getByTestId('level-card-l2-twin-levers').getAttribute('data-locked'), '0');

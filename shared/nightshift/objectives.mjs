@@ -5,10 +5,10 @@ export const OBJECTIVE_TUNING = Object.freeze({
   leverRadius: 3,
   leverHoldSeconds: 1,
   pylonHookRadius: 2.5,
-  // The bot intentionally settles just inside its 1.2 m hold radius. A
-  // qualifying wrap therefore needs to begin below the visual redline so the
-  // safe remains inside its hook radius while the first pull lands.
-  pylonPullStrain: 0.35,
+  // Real companion flights settle near 0.33 strain against the spring.
+  // Leave headroom below that equilibrium so a wrapped sustained pull works
+  // for the bot as well as two humans, without requiring repeated yanks.
+  pylonPullStrain: 0.28,
   pylonPullSeconds: 0.6,
   pylonCooldown: 0.8,
   pylonWrapRadius: 2,

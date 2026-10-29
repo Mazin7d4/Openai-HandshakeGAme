@@ -1348,40 +1348,8 @@ html[data-reduced-motion='1'] .wake-progress span { transition: none; }
 @media (max-height: 420px) { .escape-replay__stamp { top: 83%; padding: 8px 16px; border-width: 4px; } .escape-replay__bar { height: 10%; } .escape-replay__tag { top: calc(10% + 8px); } .escape-replay__skip { bottom: calc(10% + 8px); } }
 .heist-report__replay[hidden] { display: none !important; }
 
-.campaign-select-panel { width: min(560px, 100%); max-height: calc(100dvh - 24px); overflow: auto; }
-.campaign-level-grid { display: grid; gap: 8px; padding: 2px; }
-.campaign-level-card { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: 'main stars actions' 'teaches stars actions'; align-items: center; gap: 4px 10px; padding: 9px 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; background: rgba(15,25,27,.72); }
-.campaign-level-card__header { grid-area: main; display: grid; grid-template-columns: auto minmax(0, 1fr); min-width: 0; align-items: baseline; gap: 10px; }
-.campaign-level-card__number { color: var(--pix); font: 800 13px/1 var(--font-screen); }
-.campaign-level-card h2 { min-width: 0; margin: 0; overflow: visible; color: var(--paper); text-overflow: clip; white-space: nowrap; font: 700 18px/1.1 var(--font-title); }
-.campaign-level-card p { grid-area: teaches; min-width: 0; max-width: none; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.campaign-level-card[data-locked="1"] { opacity: .62; }
-.campaign-stars { display: flex; gap: 2px; color: #6b7775; }
-.heist-report__campaign { margin: 8px auto 14px; text-align: center; }
-.heist-report__campaign p { margin: 4px 0; }
-.heist-report__campaign-stars { color: #d99a2b; font-size: 1.8rem; letter-spacing: .12em; }
-.campaign-star { font-size: 18px; line-height: 1; }
-.campaign-star--earned { color: #ffd23f; }
-.campaign-level-card__actions { grid-area: actions; display: flex; gap: 6px; }
-.campaign-level-card .menu-button { min-height: 40px; padding: 7px 10px; white-space: nowrap; }
-.campaign-unlock { min-height: 44px; border: 0; background: none; color: var(--muted); text-decoration: underline; cursor: pointer; }
-@media (max-width: 600px) {
-  .campaign-select-panel { width: min(440px, 100%); }
-  .campaign-level-card { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'main stars' 'teaches teaches' 'actions actions'; }
-  .campaign-level-card p { max-width: none; min-width: 0; }
-  .campaign-level-card__actions { justify-content: stretch; }
-  .campaign-level-card__actions .menu-button { flex: 1; }
-}
 /* The replay is a clean cinematic: hide the play HUD while it runs. */
 body.escape-replay-on :is(.mission-objective, .onboarding-coach, .interaction-prompt, .active-drone-hud, .controls-card, .juice-toasts, .touch-controls, .network-hud, .run-hud, .floor-card, #dev-readout, #dev-controls) { visibility: hidden !important; }
-
-/* Campaign names must remain readable as a single identity chip, including
-   the short landscape touch layout. */
-.run-hud:has(.floor-chip--campaign) { max-width: min(360px, calc(100% - 168px)); }
-.touch-play .run-hud:has(.floor-chip--campaign) { max-width: min(360px, calc(100% - 120px)); }
-@media (orientation: landscape) and (max-height: 460px) {
-  .touch-play .run-hud:has(.floor-chip--campaign) { max-width: min(360px, calc(100% - 200px)); }
-}
 
 @media (orientation: landscape) and (max-height: 420px) {
   .hack-panel { padding-block: 4px; }
@@ -1392,42 +1360,10 @@ body.escape-replay-on :is(.mission-objective, .onboarding-coach, .interaction-pr
   .hack-panel .hack-cancel { min-height: 42px; }
 }
 
-/* Campaign names live at the top edge while the rooms teach the interaction. */
-.floor-card--campaign {
-  top: 8px; left: auto; right: 12px; margin: 0;
-  max-width: min(240px, 30vw); padding: 6px 10px;
-  border-radius: 8px; text-align: right; pointer-events: none;
-}
-.floor-card--campaign > :not(.floor-card__kicker) { display: none; }
-
-@media (orientation: landscape) and (max-height: 500px) {
-  .campaign-select-panel { width: min(1080px, calc(100vw - 32px)); margin: 0; padding: 14px 18px; }
-  .campaign-select-panel h1 { margin: 2px 0; font-size: 28px; }
-  .campaign-select-panel .menu-subtitle { margin: 2px 0 8px; font-size: 13px; }
-  .campaign-level-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
-  .campaign-level-card { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'main' 'teaches' 'stars' 'actions'; gap: 8px; padding: 10px; align-content: start; }
-  .campaign-level-card__header { grid-template-columns: minmax(0, 1fr); gap: 5px; }
-  .campaign-level-card h2 { font-size: 17px; white-space: normal; min-height: 38px; }
-  .campaign-level-card p { white-space: normal; font-size: 11px; min-height: 26px; color: #d1d6cf; }
-  .campaign-level-card__actions { display: grid; grid-template-columns: 1fr; gap: 6px; }
-  .campaign-level-card .menu-button { padding: 5px; min-height: 40px; font-size: 13px; }
-  .campaign-select-panel > .menu-actions { display: flex; justify-content: space-between; margin-top: 6px; }
-  .campaign-select-panel > .menu-actions .menu-button { min-height: 36px; padding: 5px 14px; }
-  .campaign-unlock { min-height: 36px; font-size: 12px; }
-}
-@media (orientation: landscape) and (max-height: 500px) {
-  .campaign-select-panel { width: 100%; max-width: 1080px; padding: 10px 14px; }
-  .campaign-select-panel .menu-subtitle { display: none; }
-  .campaign-level-card { gap: 6px; padding: 8px; }
-  .campaign-level-card h2 { font-size: 16px; min-height: 36px; }
-  .campaign-level-card p { min-height: 26px; }
-}
-.mission-objective--campaign { display: none !important; }
-.floor-card--campaign { display: none; }
 /* Phone proximity feedback belongs on the object. The duplicate touch action
    stays as a small glyph beside the permanent action cluster. */
 @media (orientation: landscape) and (max-height: 500px), (pointer: coarse) and (max-width: 900px) {
-  .touch-play .interaction-prompt { left: auto !important; right: 8px; bottom: 176px !important; width: 44px !important; max-width: 44px; padding: 0; background: transparent; border: 0; box-shadow: none; }
+  .touch-play .interaction-prompt { left: auto !important; right: 8px; bottom: 184px !important; width: 44px !important; max-width: 44px; padding: 0; background: transparent; border: 0; box-shadow: none; }
   .touch-play .interaction-prompt button { width: 44px; height: 40px; min-width: 0; padding: 7px; }
   .touch-play .interaction-prompt button > span { display: none; }
   .juice-toasts { width: min(21vw, 220px); max-width: 21vw; top: 64px; }

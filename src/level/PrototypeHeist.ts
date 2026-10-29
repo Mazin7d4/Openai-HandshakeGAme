@@ -619,6 +619,13 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     if (m.name !== 'Coral' || !(m instanceof PBRMaterial)) continue;
     const frozen = m.isFrozen; m.unfreeze(); m.albedoColor.copyFrom(p.coral.albedoColor); if (frozen) m.freeze();
   }
+  if (scene.metadata?.campaignLevel) {
+    // The near portal's high lintel obscures hover-height controls in the short
+    // lab lessons. Keep its collision cap, with the thin Door frame as the trim.
+    for (const name of ['lab-door-header', 'lab-door-header-cap']) {
+      const header = scene.getMeshByName(name); if (header) header.isVisible = false;
+    }
+  }
   // Collapse remaining static non-occluder decoration (desks, signs, floors, glass, apron leftovers) per material.
   mergeStaticByMaterial(scene, {
     namePrefix: 'batch',

@@ -136,6 +136,7 @@ export class GameplayWorld {
       mode === 'multiplayer' ? session?.currentStatus.localRole ?? null : null,
       scene,
       {
+        localHandoffs: Boolean(runLayout?.plan?.campaign),
         onGrab: (objectId, role) => {
           this.audio.pickup();
           this.mission.notifyGrab(objectId, role);
