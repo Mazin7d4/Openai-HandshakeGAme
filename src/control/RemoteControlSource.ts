@@ -5,6 +5,7 @@ import type { DroneNetworkState } from '../network/NetworkTypes.ts';
 import type { DroneControlFrame, DroneControlSource } from './DroneControlSource.ts';
 
 const VELOCITY_RESPONSE = 12;
+const ZERO_VELOCITY = { x: 0, y: 0, z: 0 };
 
 function damp(current: number, target: number, response: number, dt: number): number {
   return current + (target - current) * (1 - Math.exp(-response * dt));
@@ -19,6 +20,25 @@ function cloneState(state: DroneNetworkState): DroneNetworkState {
   };
 }
 
+/** Copy into owned storage; schema patches and callers may reuse their input objects. */
+function updateState(target: DroneNetworkState, state: DroneNetworkState): void {
+  const { position, velocity, orientation } = target;
+  Object.assign(position, state.position);
+  Object.assign(velocity, state.connected ? state.velocity : ZERO_VELOCITY);
+  Object.assign(orientation, state.orientation);
+  Object.assign(target, state);
+  target.position = position; target.velocity = velocity; target.orientation = orientation;
+  if (!state.connected) { target.boost = 'off'; target.movement = 'idle'; }
+}
+
+function samePose(a: DroneNetworkState, b: DroneNetworkState): boolean {
+  const av = a.connected ? a.velocity : ZERO_VELOCITY;
+  return a.connected === b.connected && a.captured === b.captured
+    && a.position.x === b.position.x && a.position.y === b.position.y && a.position.z === b.position.z
+    && av.x === b.velocity.x && av.y === b.velocity.y && av.z === b.velocity.z
+    && a.orientation.yaw === b.orientation.yaw && a.orientation.pitch === b.orientation.pitch && a.orientation.roll === b.orientation.roll;
+}
+
 /** Smooths the latest client-owned network snapshots for presentation. */
 export class RemoteControlSource implements DroneControlSource {
   readonly kind = 'remote' as const;
@@ -29,28 +49,17 @@ export class RemoteControlSource implements DroneControlSource {
   private readonly now: () => number;
   private target: DroneNetworkState | null = null;
   private current: DroneNetworkState | null = null;
-  private lastPoseKey = '';
+  private frame: DroneControlFrame = { actions: this.actions, interactions: this.interactions };
   constructor(now: () => number = () => performance.now()) { this.now = now; }
 
   push(state: DroneNetworkState): void {
-    const next = cloneState(state);
-    // Dropped seats are frozen server-side; keep the last pose still for the partner.
-    if (!next.connected) {
-      next.velocity = { x: 0, y: 0, z: 0 };
-      next.boost = 'off';
-      next.movement = 'idle';
-    }
-    this.target = next;
+    // Unrelated schema patches must update status without restamping the pose.
+    const changed = !this.target || !samePose(state, this.target);
+    if (!this.target) this.target = cloneState(state);
+    updateState(this.target, state);
+    const next = this.target;
+    if (!changed) return;
     const receivedAt = this.now();
-    // Status fires on every state patch (and on unrelated changes); only a changed pose is a new
-    // snapshot. Re-pushing an unchanged pose would stamp it with a later time and stutter (stop-go).
-    const p = next.position, v = next.velocity, o = next.orientation;
-    const poseKey = `${p.x},${p.y},${p.z},${v.x},${v.y},${v.z},${o.yaw},${o.pitch},${o.roll},${next.connected},${next.captured}`;
-    if (poseKey === this.lastPoseKey) {
-      if (!this.current) this.current = cloneState(next);
-      return;
-    }
-    this.lastPoseKey = poseKey;
     this.interpolator.push({
       t: receivedAt, pos: next.position, vel: next.velocity,
       yaw: next.orientation.yaw, pitch: next.orientation.pitch, roll: next.orientation.roll,
@@ -58,21 +67,22 @@ export class RemoteControlSource implements DroneControlSource {
     }, receivedAt);
     if (!this.current) {
       this.current = cloneState(next);
+      this.frame = { actions: this.actions, interactions: this.interactions, remoteState: this.current };
     }
   }
 
   sample(dt: number): DroneControlFrame {
     if (!this.target || !this.current) {
-      return { actions: this.actions, interactions: this.interactions };
+      return this.frame;
     }
 
     const target = this.target;
     const current = this.current;
     const pose = this.interpolator.sample(this.now());
     if (pose) {
-      current.position = { ...pose.pos };
-      current.velocity = { ...pose.vel };
-      current.orientation = { pitch: pose.pitch, yaw: pose.yaw, roll: pose.roll };
+      Object.assign(current.position, pose.pos);
+      Object.assign(current.velocity, pose.vel);
+      current.orientation.pitch = pose.pitch; current.orientation.yaw = pose.yaw; current.orientation.roll = pose.roll;
     }
     current.movement = target.movement;
     current.boost = target.boost;
@@ -89,16 +99,16 @@ export class RemoteControlSource implements DroneControlSource {
       current.position.x = target.position.x;
       current.position.y = target.position.y;
       current.position.z = target.position.z;
-      current.velocity = { x: 0, y: 0, z: 0 };
+      Object.assign(current.velocity, ZERO_VELOCITY);
     }
 
-    return { actions: this.actions, interactions: this.interactions, remoteState: current };
+    return this.frame;
   }
 
   dispose(): void {
     this.target = null;
     this.current = null;
     this.interpolator.reset();
-    this.lastPoseKey = '';
+    this.frame = { actions: this.actions, interactions: this.interactions };
   }
 }

@@ -382,9 +382,10 @@ function roleOrNull(value: string): DroneRole | null {
 function copyObject(object: SchemaObject): GrabbableNetworkState {
   return {
     id: object.id,
-    position: { ...object.position },
-    velocity: { ...object.velocity },
-    orientation: { ...object.orientation },
+    // Schema instances carry bookkeeping too; copy only the numeric wire fields.
+    position: { x: object.position.x, y: object.position.y, z: object.position.z },
+    velocity: { x: object.velocity.x, y: object.velocity.y, z: object.velocity.z },
+    orientation: { pitch: object.orientation.pitch, yaw: object.orientation.yaw, roll: object.orientation.roll },
     heldBy: roleOrNull(object.heldBy),
     holderId: object.holderId ?? '',
     lastEvent: object.lastEvent ?? '',
