@@ -9,6 +9,8 @@ export interface GameEventMap {
   knockback: { droneId: string; position: Vector3 };
   /** Authored heist beats, fired identically on both clients from replicated mission state. */
   heist: { beat: 'vault' | 'pickup' | 'extract'; position: Vector3; role?: DroneRole | null };
+  /** Physical control/door feedback; contains no mission state. */
+  mechanism: { kind: 'hack' | 'door'; position: Vector3; complete: boolean };
   /** The cord swept a free prop (knock / drag). */
   'cord-knock': { id: string; position: Vector3 };
   /** A thrown prop blinded the security camera. */

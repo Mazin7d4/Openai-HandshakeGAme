@@ -189,7 +189,8 @@ export class HackSession {
       }
     }
     for (const station of this.stations) {
-      station.update(dt, this.ownerFor(station.id), this.completeFor(station.id));
+      const nearby = [...drones.entries()].some(([role, drone]) => station.canInteract(role, drone.position, this.completeFor(station.id)));
+      station.update(dt, this.ownerFor(station.id), this.completeFor(station.id), nearby);
     }
     const inLabThreshold = [...drones.values()].some((drone) =>
       Math.abs(drone.position.x) < 3.1 && Math.abs(drone.position.z - 2) < 1.25 && drone.position.y < 8.2,
@@ -247,14 +248,15 @@ export class HackSession {
     this.owners['terminal-a'] = state.stationAOwner;
     this.owners['terminal-b'] = state.stationBOwner;
     this.owners['terminal-c'] = state.stationCOwner;
-    this.completed['terminal-a'] = state.stationAComplete;
-    this.completed['terminal-b'] = state.stationBComplete;
-    this.completed['terminal-c'] = state.stationCComplete;
+    this.setComplete('terminal-a', state.stationAComplete);
+    this.setComplete('terminal-b', state.stationBComplete);
+    this.setComplete('terminal-c', state.stationCComplete);
     this.doorOpen = state.doorOpen;
   }
 
   private openPuzzle(station: HackStation, role: DroneRole): void {
     if (!this.uiParent || this.active) return;
+    gameEvents.emit('mechanism', { kind: 'hack', position: station.position.clone(), complete: false });
     document.body.classList.add('hack-session-open');
     const done = () => this.completeCurrent();
     const cancel = () => this.cancelCurrent();
@@ -307,6 +309,10 @@ export class HackSession {
   }
 
   private setComplete(id: HackStationId, complete: boolean): void {
+    if (complete && !this.completed[id]) {
+      const station = this.stations.find(candidate => candidate.id === id);
+      if (station) gameEvents.emit('mechanism', { kind: 'hack', position: station.position.clone(), complete: true });
+    }
     this.completed[id] = complete;
   }
 

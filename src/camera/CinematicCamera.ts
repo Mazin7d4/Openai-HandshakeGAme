@@ -312,7 +312,9 @@ export class CinematicCamera {
     if (this.beatTarget && this.beatRemaining > 0 && safeDt > 0) {
       this.beatRemaining = Math.max(0, this.beatRemaining - safeDt);
       const easeOut = this.beatRemaining < 0.6 ? this.beatRemaining / 0.6 : 1;
-      const weight = 0.55 * easeOut;
+      // A distant unlock is allowed to invite the eye, never to pull either drone off screen.
+      const distanceToBeat = Vector3.Distance(targetLook, this.beatTarget);
+      const weight = Math.min(0.55 * easeOut, 3.2 / Math.max(3.2, distanceToBeat));
       Vector3.LerpToRef(targetLook, this.beatTarget, weight, targetLook);
       required += 3 * easeOut;
       if (this.beatRemaining <= 0) this.beatTarget = null;

@@ -34,7 +34,7 @@ export function createEngine(canvas: HTMLCanvasElement): Engine {
 }
 
 // Intentional glow include-list (prod-art): core, screens, face-screens, security lenses, alarm/objective beacons.
-const GLOW_NAMES = /^(p01-core|p01-core-halo|alarm-beacon-lamp|alarm-beacon-beam|security-camera|security-drone-\d+-eye|.*-beacon)$/;
+const GLOW_NAMES = /^(p01-core|p01-core-halo|alarm-beacon-lamp|alarm-beacon-beam|security-camera|security-drone-\d+-eye)$/;
 /** Glow include-list: face-screens, lenses, beacons and the core only. */
 function isGlowMesh(mesh: AbstractMesh): boolean {
   if (GLOW_NAMES.test(mesh.name)) return true;

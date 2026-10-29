@@ -1,15 +1,13 @@
-import { chromium } from 'playwright';
-import { arrival, toNee, servers, vault, clearCrate, escape } from './heist-route.mjs';
+import { launch } from './qa/lib.mjs';
+import { arrival, toNee, servers, vault, clearCrate } from './heist-route.mjs';
 
 const RAW_URL = process.argv[2] ?? 'http://localhost:5173/';
 // ?autotest enables the test-only position autopilot (src/dev/Autopilot.ts): frame-rate independent.
 const APP_URL = RAW_URL + (RAW_URL.includes('?') ? '&' : '?') + 'autotest';
 const ROLE = { 'player-1': 'pix', 'player-2': 'nee' };
-const browser = await chromium.launch({
-  headless: true,
-  args: ['--use-gl=angle', process.env.ANGLE ? `--use-angle=${process.env.ANGLE}` : '--use-angle=d3d11', '--enable-webgl', '--ignore-gpu-blocklist'],
-});
-const page = await browser.newPage();
+const browser = await launch();
+const [width, height] = (process.env.VIEWPORT ?? '1280x720').split('x').map(Number);
+const page = await browser.newPage({ viewport: { width, height } });
 const errors = [];
 page.on('pageerror', (error) => errors.push(error.message));
 page.on('console', (message) => {
@@ -215,10 +213,9 @@ try {
   await assertCameraInvariants();
   await shot('p4-pickup-alarm', 400);
   const initialCrate = await cratePosition();
-  // NEE keeps the prototype back from the vent so PIX's [E] targets the crate, not the core.
-  await pilot(['nee'], { x: -5, y: 4.5, z: 13 });
-  await page.evaluate(() => window.__autotest.goto('nee', -9, 4.5, 13, 1));
-  for (const point of clearCrate.approach) await pilot(['pix'], point);
+  // Both drones advance through the dock. Holding NEE back in the lab overstretches the tether.
+  // A carried prototype is already excluded from PIX's free-object grab candidates.
+  await travel(clearCrate.approach);
   await ensureActive('player-1');
   for (let attempt = 0; attempt < 4 && !(await readout()).includes('crate-blue:pix'); attempt++) {
     await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
@@ -226,14 +223,14 @@ try {
     if (process.env.TRACE) console.log('CRATE GRAB', attempt, await readout());
   }
   if (!(await readout()).includes('crate-blue:pix')) throw new Error(`PIX failed to grab crate: ${await readout()}`);
-  for (const point of clearCrate.drag) await pilot(['pix'], point);
+  await travel(clearCrate.drag);
   await ensureActive('player-1');
   await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
   await page.locator('#dev-readout').filter({ hasText: 'crate-blue:free' }).waitFor({ timeout: 10000 });
   const finalCrate = await cratePosition();
   const crateDist = Math.hypot(finalCrate.x - initialCrate.x, finalCrate.z - initialCrate.z);
   if (crateDist <= 3) throw new Error(`Crate only moved ${crateDist.toFixed(2)} units (expected > 3)`);
-  const remainingEscape = escape;
+  const remainingEscape = clearCrate.exit;
   await travel(remainingEscape.slice(0, Math.ceil(remainingEscape.length / 2)));
   await shot('p4-alarm-escape');
   await travel(remainingEscape.slice(Math.ceil(remainingEscape.length / 2)));

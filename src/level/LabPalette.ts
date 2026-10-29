@@ -34,7 +34,7 @@ export function createLabPalette(scene: Scene) {
   grain.update(); wood.albedoTexture = grain; wood.albedoColor = Color3.White();
   const floor = make('warm-resin', '#B9BBB1', 0.72);
   const glass = make('architectural-glass', '#C4CDCA', 0.12, 0.08);
-  glass.alpha = 0.17; glass.backFaceCulling = false;
+  glass.alpha = 0.055; glass.backFaceCulling = false;
   glass.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
   const light = make('warm-diffuser', '#FFF1D6', 0.6);
   // Fixtures are matte diffusers; interaction-only materials carry the glow.

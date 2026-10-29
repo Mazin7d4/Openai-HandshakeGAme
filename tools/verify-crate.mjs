@@ -2,7 +2,7 @@
 // NEE carrying the prototype) in the loading dock. Proves the drag clears the conveyor
 // route and the extraction is reachable, without the ~10 min software-WebGL heist route.
 import { chromium } from 'playwright';
-import { clearCrate, escape } from './heist-route.mjs';
+import { clearCrate } from './heist-route.mjs';
 
 const RAW_URL = process.argv[2] ?? 'http://localhost:5173/';
 const APP_URL = RAW_URL + (RAW_URL.includes('?') ? '&' : '?') + 'autotest&stage=escape';
@@ -43,8 +43,9 @@ try {
   step('escape stage');
   if (!/prototype:nee/.test(await readout())) throw new Error(`NEE not carrying prototype: ${await readout()}`);
   const initial = await cratePosition();
-  await page.evaluate(() => window.__autotest.goto('nee', -9, 4.5, 13, 1));
-  for (const point of clearCrate.approach) await pilot(['pix'], point);
+  for (const point of clearCrate.approach) {
+    await pilot(['pix'], point); await pilot(['nee'], point);
+  }
   step('pix at crate');
   for (let attempt = 0; attempt < 4 && !(await readout()).includes('crate-blue:pix'); attempt++) {
     await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
@@ -52,7 +53,9 @@ try {
   }
   if (!(await readout()).includes('crate-blue:pix')) throw new Error(`PIX failed to grab crate: ${await readout()}`);
   await shot('s7-crate-grab', 300);
-  for (const point of clearCrate.drag) await pilot(['pix'], point);
+  for (const point of clearCrate.drag) {
+    await pilot(['pix'], point); await pilot(['nee'], point);
+  }
   await shot('s7-crate-drag');
   await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
   await page.locator('#dev-readout').filter({ hasText: 'crate-blue:free' }).waitFor({ timeout: 10_000 });
@@ -60,7 +63,7 @@ try {
   const moved = Math.hypot(final.x - initial.x, final.z - initial.z);
   step(`crate moved ${moved.toFixed(2)}`);
   if (moved <= 4.5) throw new Error(`Crate only moved ${moved.toFixed(2)} units`);
-  for (const point of escape) {
+  for (const point of clearCrate.exit) {
     await pilot(['pix'], point);
     await pilot(['nee'], point);
     if (point.z === 3) step('vent cleared');
