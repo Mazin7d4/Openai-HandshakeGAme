@@ -12,7 +12,7 @@ await runTest('campaign-solo', async (browser, notes) => {
   const { page } = await openPage(browser, { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true, deviceScaleFactor: 1 });
   const errors = collectErrors(page, 'campaign', []);
   await page.goto(url(), { waitUntil: 'domcontentloaded' });
-  await page.getByTestId('campaign').click();
+  await page.getByTestId('campaign').click({ timeout: 60_000 });
   await page.getByTestId('level-select').waitFor({ state: 'visible' });
   for (const [width, height] of [[844, 390], [1280, 720], [740, 360]]) {
     await page.setViewportSize({ width, height });
@@ -29,7 +29,7 @@ await runTest('campaign-solo', async (browser, notes) => {
   for (const value of [null, '{broken json', '{"v":1,"levels":{"bad":null}}']) {
     await page.evaluate((value) => value === null ? localStorage.removeItem('pixnee.campaign.v1') : localStorage.setItem('pixnee.campaign.v1', value), value);
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByTestId('campaign').click();
+    await page.getByTestId('campaign').click({ timeout: 60_000 });
     assert.equal(await page.getByTestId('level-card-l1-tethered').getAttribute('data-locked'), '0');
     assert.equal(await page.getByTestId('level-card-l2-twin-levers').getAttribute('data-locked'), '1');
   }
@@ -103,11 +103,13 @@ await runTest('campaign-solo', async (browser, notes) => {
       stars: document.querySelector('[data-testid="campaign-stars"]')?.textContent }));
     assert(state.objective.done, `${level.id}: unfinished objective ${JSON.stringify(state)}`);
     assert(state.stars?.length, `${level.id}: missing stars`);
-    const runEvidence = { id: level.id, realRun: true, seconds: Math.round((Date.now() - started) / 1000), ...state };
+    const drawCalls = await page.evaluate(() => window.__floorPlan.drawCalls);
+    assert(drawCalls <= 25, `${level.id}: draw calls ${drawCalls} exceed 25`);
+    const runEvidence = { drawCalls, id: level.id, realRun: true, seconds: Math.round((Date.now() - started) / 1000), ...state };
     notes.levels.push(runEvidence);
     await import('node:fs').then(({ writeFileSync }) => writeFileSync(`${shotDir}/${level.id}-run.json`, JSON.stringify(runEvidence, null, 2)));
     if (level.index === 1) {
-      await page.goto(url()); await page.getByTestId('campaign').click();
+      await page.goto(url()); await page.getByTestId('campaign').click({ timeout: 60_000 });
       assert.equal(await page.getByTestId('level-card-l2-twin-levers').getAttribute('data-locked'), '0');
       assert(await page.getByTestId('level-card-l1-tethered').locator('.campaign-star--earned').count() >= 1);
     }

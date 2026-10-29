@@ -10,12 +10,6 @@ for (const file of readdirSync(shotDir)) {
   if (file.endsWith('.png')) unlinkSync(`${shotDir}/${file}`);
 }
 
-function doorwayAt(z, offset = 0) {
-  const doorway = DOORWAYS.find((candidate) => Math.abs((candidate.min.z + candidate.max.z) / 2 - z) < 1.5);
-  if (!doorway) throw new Error(`missing shared doorway near z=${z}`);
-  return { x: (doorway.min.x + doorway.max.x) / 2, y: (doorway.min.y + doorway.max.y) / 2, z: (doorway.min.z + doorway.max.z) / 2 + offset };
-}
-
 function routePoint(point) {
   assert(!STATIC_BLOCKERS.some((blocker) => pointInAabb(point, blocker, 0.3))
     || DOORWAYS.some((doorway) => pointInAabb(point, doorway, 0.05)), `fragile route intersects blocker: ${JSON.stringify(point)}`);
@@ -23,24 +17,17 @@ function routePoint(point) {
 }
 
 function fragileRoute(loot, extraction, toExtraction) {
-  const office = doorwayAt(-26, 1.2);
-  const vault = doorwayAt(2, 1.2);
-  const reception = doorwayAt(-43, 1.2);
-  const spine = doorwayAt(-34, -1.2);
-  const escape = doorwayAt(-9, -1.2);
   const route = toExtraction
     ? [
-        { x: doorwayAt(2, -1.2).x, y: 3.2, z: doorwayAt(2, -1.2).z },
-        { x: doorwayAt(-26, -1.2).x, y: 3.2, z: doorwayAt(-26, -1.2).z },
-        { x: doorwayAt(-43, -1.2).x, y: 6.2, z: doorwayAt(-43, -1.2).z },
-        { x: spine.x, y: 7, z: spine.z },
-        { x: escape.x, y: 3, z: escape.z },
+        { x: 0, y: 5.8, z: 25 },
+        { x: 0, y: 4.5, z: 30 },
+        { x: 11.5, y: 4.5, z: 32 },
+        { x: 11.5, y: 3.8, z: 41 },
       ]
     : [
-        { x: reception.x, y: reception.y, z: reception.z },
-        { x: office.x, y: 5.2, z: office.z },
-        { x: vault.x, y: 3.2, z: vault.z },
-        { x: loot.x, y: loot.y, z: loot.z },
+        // The showcase crew is already inside the vault; approach above the
+        // low benches and the plinth, then descend within grab range.
+        { x: loot.x, y: Math.max(5.8, loot.y + .8), z: loot.z - 2 },
       ];
   return route.map(routePoint);
 }

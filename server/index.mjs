@@ -1498,7 +1498,8 @@ class HandshakeRoom extends Room {
     dt = Math.max(0, Math.min(0.1, dt));
     if (this.state.mission.stage === 'complete') return;
     const now = Date.now();
-    const cameraDisabled = this.doorOpenedAt > 0 && (now - this.doorOpenedAt) < 18000;
+    const quietCampaign = this.state.run.mode === 'campaign' && this.runLayout?.cameras.length === 0;
+    const cameraDisabled = quietCampaign || (this.doorOpenedAt > 0 && (now - this.doorOpenedAt) < 18000);
     const players = Array.from(this.state.players.values()).map((p) => ({
       role: p.role,
       connected: p.connected,
@@ -1509,7 +1510,7 @@ class HandshakeRoom extends Room {
       position: { x: p.position.x, y: p.position.y, z: p.position.z },
     }));
     const result = this.securitySim.update(dt, {
-      active: this.state.mission.securityActive,
+      active: this.state.mission.securityActive && !(quietCampaign && this.runLayout?.patrolRoutes.length === 0),
       elapsed: this.state.mission.elapsedSeconds,
       cameraDisabled,
       players,

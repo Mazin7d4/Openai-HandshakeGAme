@@ -7,10 +7,10 @@ const EXTRACTION = { x: 11, y: 2, z: 43.5 };
 async function extract(page) {
   // Start a few metres out so the ring buffer holds a real approach, then fly both drones in.
   await page.evaluate(() => {
-    window.__autotest.teleport('nee', 8, 2.2, 41);
-    window.__autotest.teleport('pix', 9, 2.2, 40);
+    window.__autotest.teleport('nee', 12, 2.2, 36);
+    window.__autotest.teleport('pix', 14, 2.2, 35);
   });
-  await page.waitForTimeout(700);
+  await page.waitForFunction(() => window.__autotest.escapeReplay().hasFootage, null, { timeout: 15_000 });
   await page.evaluate((p) => {
     window.__autotest.goto('nee', p.x, p.y, p.z, 1);
     window.__autotest.goto('pix', p.x + 1.5, p.y, p.z + 1.5, 1);
