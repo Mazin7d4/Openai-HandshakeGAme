@@ -44,6 +44,12 @@ const CONNECT_ATTEMPT_TIMEOUT_MS = 8_000;
 const CONNECT_BACKOFFS_MS = [500, 1_000, 2_000, 3_000];
 export const SERVER_STATE_EVENTS = ['bot-seat', 'drone-captured', 'drone-freed', 'rescued', 'capture-outcome'] as const;
 
+export interface ConnectionQuality {
+  rttMs: number;
+  jitterMs: number;
+  unstable: boolean;
+}
+
 class ConnectTimeoutError extends Error {
   constructor() {
     super('Connection timed out');
@@ -428,6 +434,13 @@ export class MultiplayerSession {
   private readonly objectiveStateListeners = new Set<(message: ObjectiveStateMessage) => void>();
   private readonly hazardTripListeners = new Set<(message: HazardTripMessage) => void>();
   private readonly objectiveEventListeners = new Set<(message: ObjectiveEventMessage) => void>();
+  private readonly qualityListeners = new Set<(quality: ConnectionQuality) => void>();
+  private pingIntervalId: number | null = null;
+  private currentRttMs = 0;
+  private currentJitterMs = 0;
+  private lastPongAt = 0;
+  private lastPingSentAt = 0;
+  private isUnstable = false;
   private readonly players = new Map<DroneRole, DroneNetworkState>();
   private readonly objects = new Map<string, GrabbableNetworkState>();
   private status: RoomStatus;
@@ -460,6 +473,7 @@ export class MultiplayerSession {
       run: EMPTY_RUN,
     };
     this.bindRoom(room);
+    this.startPingLoop();
     this.persistToken();
     this.readState(room.state);
   }
@@ -809,9 +823,46 @@ export class MultiplayerSession {
     this.room.send('leaderboard-name', { name: name.slice(0, 16), team: team === true });
   }
 
+  private startPingLoop(): void {
+    if (this.pingIntervalId != null) return;
+    this.pingIntervalId = window.setInterval(() => {
+      if (this.disposed || !this.room.connection.isOpen) return;
+      const now = performance.now();
+      if (this.lastPingSentAt > 0 && now - this.lastPongAt > 3500) {
+        this.isUnstable = true;
+        for (const listener of this.qualityListeners) {
+          listener({
+            rttMs: Math.round(this.currentRttMs),
+            jitterMs: Math.round(this.currentJitterMs),
+            unstable: true,
+          });
+        }
+      }
+      this.lastPingSentAt = now;
+      this.room.send('rtt-ping', { t: now });
+    }, 2000);
+  }
+
+  onConnectionQuality(listener: (quality: ConnectionQuality) => void): () => void {
+    this.qualityListeners.add(listener);
+    if (this.currentRttMs > 0) {
+      listener({
+        rttMs: Math.round(this.currentRttMs),
+        jitterMs: Math.round(this.currentJitterMs),
+        unstable: this.isUnstable,
+      });
+    }
+    return () => this.qualityListeners.delete(listener);
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    if (this.pingIntervalId != null) {
+      clearInterval(this.pingIntervalId);
+      this.pingIntervalId = null;
+    }
+    this.qualityListeners.clear();
     this.networkState = 'disposed';
     this.reconnectDeadlineMs = null;
     this.listeners.clear();
@@ -930,6 +981,35 @@ export class MultiplayerSession {
       const role = roleOrNull(message?.role ?? '');
       if (!role) return;
       for (const listener of this.rematchPartnerLeftListeners) listener({ role });
+    });
+    room.onMessage('rtt-pong', (message: { t: number; serverTime?: number }) => {
+      if (!message || typeof message.t !== 'number') return;
+      const now = performance.now();
+      const rtt = Math.max(0, now - message.t);
+      this.lastPongAt = now;
+      if (this.currentRttMs === 0) {
+        this.currentRttMs = rtt;
+      } else {
+        this.currentJitterMs += (Math.abs(rtt - this.currentRttMs) - this.currentJitterMs) * 0.2;
+        this.currentRttMs += (rtt - this.currentRttMs) * 0.2;
+      }
+      const unstable = this.currentRttMs > 250 || this.currentJitterMs > 50;
+      this.isUnstable = unstable;
+      const quality: ConnectionQuality = {
+        rttMs: Math.round(this.currentRttMs),
+        jitterMs: Math.round(this.currentJitterMs),
+        unstable,
+      };
+      for (const listener of this.qualityListeners) listener(quality);
+    });
+    room.onMessage('server-shutdown', (message: { reason?: string; reconnectInMs?: number }) => {
+      reportStabilityIssue('network', 'Server indicated shutdown / restart. Preparing reconnect.', message);
+      const delay = Number.isFinite(message?.reconnectInMs) ? message.reconnectInMs! : 2500;
+      setTimeout(() => {
+        if (!this.disposed && this.room.reconnection.enabled) {
+          this.tryManualReconnect().catch(() => {});
+        }
+      }, delay);
     });
     // The client derives these from synced state; handlers exist so the SDK does not warn about unhandled messages.
     for (const type of SERVER_STATE_EVENTS) room.onMessage(type, () => {});

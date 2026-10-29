@@ -231,6 +231,10 @@ export class Grabbable implements Interactable {
     } else if (shouldBeLocal) {
       this.setMotionMode('dynamic');
     } else {
+      if (revisionChanged || Vector3.DistanceSquared(this.mesh.position, this.targetPosition) > 36) {
+        this.mesh.position.copyFrom(this.targetPosition);
+        this.teleportBody();
+      }
       this.setMotionMode('replicated');
     }
   }

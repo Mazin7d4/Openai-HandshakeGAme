@@ -213,6 +213,7 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
 }
 .network-hud { left: max(16px, env(safe-area-inset-left, 0px)); z-index: 3; }
 .network-hud.partner-disconnected { color: var(--security-ink); border-color: var(--security); }
+.network-hud.connection-unstable { color: var(--security-ink); border-color: var(--security); }
 .active-drone-hud { right: max(16px, env(safe-area-inset-right, 0px)); }
 /* Night Shift floor + beat chips: left stack inside safe areas, clear of right-side touch / active-drone. */
 .run-hud {

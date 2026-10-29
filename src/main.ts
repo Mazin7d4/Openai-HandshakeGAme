@@ -754,17 +754,27 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   if (session) {
     const networkHud = runHud;
     networkHud.dataset.testid = 'network-hud';
+    let currentRtt = 0;
+    let isUnstable = false;
     const updateHud = (status: RoomStatus) => {
       const localRole = status.localRole?.toUpperCase() ?? 'Player';
       const partnerRole = status.localRole === 'pix' ? 'nee' : 'pix';
       const partner = status.players.get(partnerRole);
       const partnerDisconnected = !partner || partner.connected === false;
       let base = `${status.roomCode} · ${localRole}`;
+      if (currentRtt > 0) base += ` · ${currentRtt}ms`;
+      if (isUnstable) base += ' · Connection unstable';
       if (partnerDisconnected) base += ' · Partner disconnected';
       networkHud.classList.toggle('partner-disconnected', partnerDisconnected);
+      networkHud.classList.toggle('connection-unstable', isUnstable);
       paintRunHud(base);
     };
     removeStatus = session.onStatus(updateHud);
+    const removeQuality = session.onConnectionQuality?.((q) => {
+      currentRtt = q.rttMs;
+      isUnstable = q.unstable;
+      updateHud(session.currentStatus);
+    });
 
     // Partner-left / connection-lost card. Read-only view of existing session state.
     const overlay = element('div', 'partner-overlay');
@@ -809,7 +819,7 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
       }
     }, 500);
     const previousRemove = removeStatus;
-    removeStatus = () => { previousRemove(); window.clearInterval(overlayTimer); overlay.remove(); };
+    removeStatus = () => { previousRemove(); removeQuality?.(); window.clearInterval(overlayTimer); overlay.remove(); };
   }
 
   try {
