@@ -12,6 +12,8 @@ const pick = args.filter((a) => a !== '--own-servers' && all.includes(a));
 const tests = pick.length ? pick : all;
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const timeoutMs = Number(process.env.QA_TIMEOUT_MS ?? 300_000);
+// The authored two-peer route renders two complete game clients and physically hauls the crate.
+const timeoutFor = test => test === 'heist-coop' ? Math.max(timeoutMs, 600_000) : timeoutMs;
 
 function parseResult(test, stdout, stderr, error) {
   const line = (stdout ?? '').split('\n').find((entry) => entry.startsWith('QA_RESULT '));
@@ -91,6 +93,7 @@ function killChild(child) {
 }
 
 function runTestAsync(test, env) {
+  const testTimeoutMs = timeoutFor(test);
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [`tools/qa/${test}.test.mjs`], {
       cwd: root,
@@ -109,7 +112,7 @@ function runTestAsync(test, env) {
       forceTimer = setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
       }, 1_000);
-    }, timeoutMs);
+    }, testTimeoutMs);
     const finish = (error) => {
       if (settled) return;
       settled = true;
@@ -123,7 +126,7 @@ function runTestAsync(test, env) {
     child.once('error', (error) => finish(error.message));
     child.once('close', (code, signal) => {
       const error = timedOut
-        ? `test timed out after ${timeoutMs}ms`
+        ? `test timed out after ${testTimeoutMs}ms`
         : (code === 0 || signal == null ? undefined : `test exited with code ${code ?? '?'} signal ${signal}`);
       finish(error);
     });
@@ -137,7 +140,7 @@ async function runDefault() {
     const result = spawnSync(process.execPath, [`tools/qa/${test}.test.mjs`], {
       cwd: root,
       encoding: 'utf8',
-      timeout: timeoutMs,
+      timeout: timeoutFor(test),
       env: process.env,
     });
     const res = parseResult(test, result.stdout, result.stderr, result.error?.message);
