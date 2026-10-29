@@ -96,6 +96,7 @@ export class Drone implements CameraSubject {
   private inputBoost = false;
   private visualYaw: number | null = null;
   private focused = false;
+  private carrying = false;
   private selfPowered = false;
   private tetherPull = 0;
   private yankCooldown = 0;
@@ -392,6 +393,12 @@ export class Drone implements CameraSubject {
     }
   }
 
+  /** Carry strain is presentation only; GrabSystem remains the source of truth. */
+  setCarrying(carrying: boolean): void { this.carrying = carrying; }
+
+  /** Celebrate without touching the physics body or controller heading. */
+  celebrate(): void { this.visual.celebrate(); }
+
   /** Gameplay interactions may request a focused face without affecting control. */
   setFocused(focused: boolean): void {
     this.focused = focused;
@@ -503,6 +510,7 @@ export class Drone implements CameraSubject {
       velocity: this.resolvedVelocity,
       boosting: this.inputBoost,
       focused: this.focused,
+      carrying: this.carrying,
       selfPowered: this.selfPowered,
       tetherPull: this.tetherPull,
       dt,

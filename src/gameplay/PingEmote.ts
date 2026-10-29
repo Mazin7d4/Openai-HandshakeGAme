@@ -104,6 +104,7 @@ export class PingEmote {
     const drone = this.drones.find((candidate) => candidate.role === message.role);
     const expression = ({ here: 'focused', wait: 'sheepish', go: 'proud', yay: 'happy' } as const)[message.id];
     drone?.react(expression, EMOTE_LIFETIME_MS / 1000);
+    if (message.id === 'yay') drone?.celebrate();
     audio.play('emote', { role: message.role, mood: expression === 'sheepish' ? 'neutral' : expression, position: drone?.position ?? null });
     this.overlay.root.classList.toggle('ping-emote-overlay--motion', !effectiveReducedMotion(getSettings()));
   }

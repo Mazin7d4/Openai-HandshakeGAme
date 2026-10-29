@@ -1,7 +1,8 @@
 import { getSettings, saveSettings, subscribeSettings } from '../ui/Settings.ts';
+import { RoomAmbience, ambienceRoomAt, type AmbienceRoom } from './RoomAmbience.ts';
 import { SFX_SPRITE, type SpriteKey } from './sfxSprite.ts';
 import {
-  alarmCycle, alarmKlaxon, alarmTension, chirpParams, passCue, roomTone, snap, stretchLoop, twang, whoosh, zz, ZZ,
+  alarmCycle, alarmKlaxon, alarmTension, chirpParams, passCue, snap, stretchLoop, twang, whoosh, zz, ZZ,
   type ChirpMood, type Voice,
 } from './synth.ts';
 
@@ -102,7 +103,8 @@ export class AudioManager {
   private music: MusicState = 'off';
   private musicBuffers: Promise<Record<'calm' | 'escape', AudioBuffer> | null> | null = null;
   private musicNodes: { calm: GainNode; escape: GainNode; srcs: AudioBufferSourceNode[] } | null = null;
-  private ambience: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
+  private ambience: RoomAmbience | null = null;
+  private ambienceRoom: AmbienceRoom = 'apron';
   private lastHover = 0;
   private installed = false;
   private hiddenSuspended = false;
@@ -604,7 +606,7 @@ export class AudioManager {
   debugState(): Record<string, unknown> {
     return {
       state: this.ctx?.state ?? 'none', sprite: this.sprite !== null, music: this.music, musicPlaying: this.musicNodes !== null,
-      alarm: this.alarm.stage, hums: [...this.hums.keys()], stretch: this.stretch !== null, ambience: this.ambience !== null,
+      alarm: this.alarm.stage, hums: [...this.hums.keys()], stretch: this.stretch !== null, ambience: this.ambience !== null, ambienceRoom: this.ambienceRoom,
       muted: this.muted, voices: this.activeTotal, maxVoices: this.maxTotal, stats: { ...this.stats },
     };
   }
@@ -656,22 +658,19 @@ export class AudioManager {
     });
   }
 
-  /** Quiet office room tone under everything while a game runs. */
+  /** Listener room follows the active drone, keeping the trailing camera out of zone selection. */
+  setRoomAmbience(z: number): void {
+    this.ambienceRoom = ambienceRoomAt(z);
+    this.ambience?.setRoom(this.ambienceRoom);
+  }
+
+  /** Quiet room beds route through SFX, master, mute, pause and the existing limiter. */
   setAmbience(on: boolean): void {
-    const ctx = this.ctx; const buses = this.buses;
+    if (!on) { this.ambience?.stop(); this.ambience = null; return; }
+    const ctx = this.ctx, buses = this.buses;
     if (!ctx || !buses || ctx.state !== 'running') return;
-    if (on && !this.ambience) {
-      const src = ctx.createBufferSource(); src.buffer = this.synth('room', roomTone); src.loop = true;
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
-      const gain = ctx.createGain(); gain.gain.value = 0;
-      src.connect(lp).connect(gain).connect(buses.sfx); src.start();
-      gain.gain.setTargetAtTime(0.12, ctx.currentTime, 1);
-      this.ambience = { src, gain };
-    } else if (!on && this.ambience) {
-      const a = this.ambience; this.ambience = null;
-      a.gain.gain.setTargetAtTime(0, ctx.currentTime, 0.3);
-      try { a.src.stop(ctx.currentTime + 1.5); } catch { /* ended */ }
-    }
+    this.ambience ??= new RoomAmbience(ctx, buses.sfx);
+    this.ambience.setRoom(this.ambienceRoom);
   }
 
   /** Start-of-game: called when gameplay begins (also retries after unlock). */
