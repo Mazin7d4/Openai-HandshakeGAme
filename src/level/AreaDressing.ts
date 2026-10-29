@@ -29,8 +29,8 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   const pink = make('sand-polymer', '#D6C2A4', 0.42); // was pink: NEE owns pink/coral
   const yellow = make('safety-yellow', '#F0C230', 0.55);
   const white = make('whiteboard', '#F7F6F1', 0.18);
-  const cyanLed = make('status-led-warm', '#F4EFE6', 0.4, 0, '#D8CBB2'); // was cyan: PIX owns cyan
-  const amberLed = make('status-led-soft', '#E6E1D6', 0.4, 0, '#9E978A'); // was amber: amber = security only
+  const cyanLed = make('status-led-warm', '#F4EFE6', 0.4, 0, '#2A2E30'); // was cyan: PIX owns cyan
+  const amberLed = make('status-led-soft', '#E6E1D6', 0.4, 0, '#242729'); // was amber: amber = security only
   const copper = make('copper-pipe', '#C27F55', 0.35, 0.9);
   const cable = make('cable-rubber', '#1E2528', 0.7);
   const apronWainscot = make('apron-wainscot', '#CFC9BB', 0.85);
@@ -182,9 +182,9 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   box(11, 1.82, -48.4, 1.6, 0.18, 2.1, pink); box(11.2, 1.98, -48.2, 1.5, 0.14, 2, teal);
   mug(12.4, 1.72, -46.6, yellow);
   // Reception desk dressing: monitor-facing keyboard, a mug and a tiny potted succulent.
-  keyboard(-3, 3.97, -48); mug(-8.5, 3.92, -48.6, p.coral); kit.place({ prop: 'PlantSmall', x: -9.4, y: 3.92, z: -50, scale: 0.6 });
+  keyboard(-6.5, 3.97, -49); mug(-8.5, 3.92, -48.6, p.coral);
   // Gallery wall: three colourful framed prints on the east wall.
-  frame(18.65, 8.5, -50, 4, 3, p.blue, true); frame(18.65, 8.5, -45, 2.8, 3.6, p.coral, true);
+  frame(18.65, 6.3, -50, 3, 2, p.blue, true); frame(18.65, 6.3, -45, 2.4, 2.4, p.coral, true);
   frame(18.65, 5.5, -42.6, 2.2, 1.6, yellow, true);
   pendant(4, -49); pendant(12, -46);
   // Floor: oak entry mat.
@@ -195,10 +195,10 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   for (let y = 5.4; y < 8; y += 0.45) {
     for (const x of [-9.6, -0.6]) box(x, y, -43.35, 3.6, 0.1, 0.2, p.metal);
   }
-  kit.place({ prop: 'Duct', x: -5, y: 8.2, z: -43, ry: Math.PI / 2, scale: 0.9 });
+  // The vent is an open, illuminated frame: no opaque duct above the flight gap.
   for (let i = 0; i < 5; i++) box(-7.2 + i * 1.1, 4.64, -45.7, 0.5, 0.06, 0.35, yellow, 0.6);
   box(-5, 4.66, -45.7, 5.2, 0.03, 0.08, cable);
-  kit.place({ prop: 'Plant', x: 14, z: -44.8, scale: 0.7 });
+  kit.place({ prop: 'Plant', x: 16, z: -44.8, scale: 0.45 });
 
   // ---------- 02 OFFICE ----------
   // PIX's desk chair stands south of its console; NEE's patch-bay desk is left clear underneath.
@@ -218,7 +218,7 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   kit.place({ prop: 'Bookshelf', x: 17.6, z: -33 });
 
   kit.place({ prop: 'Plant', x: 15.5, z: -40.5, scale: 0.85 }); kit.place({ prop: 'Plant', x: 15.8, z: -28.5, scale: 0.65 });
-  box(1, 0.06, -35, 18, 0.02, 0.3, mustard); box(1, 0.06, -35.6, 18, 0.02, 0.15, p.paint);
+
   pendant(-4, -34); pendant(7, -32);
 
   // ---------- 03 SERVER GALLERY ----------
@@ -238,8 +238,9 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
   }
   // Perforated cold-aisle tiles and subtle north-south architectural LED strips.
   for (let x = -11; x <= 17; x += 2.4) box(x, 0.02, -17, 2.2, 0.025, 2.2, x % 4.8 ? p.blue : p.metal);
-  const coldAisle = make('cold-aisle-led', '#4A5D91', 0.55, 0, '#536DD1');
-  box(-2, 0.045, -16, 0.12, 0.03, 14, coldAisle); box(2, 0.045, -16, 0.12, 0.03, 14, coldAisle);
+  const coldAisle = make('cold-aisle-led', '#4A5D91', 0.55, 0, '#1E2C44');
+  // Cold light belongs on the rack hardware, never in lines that imply a route.
+  box(-8.5, 4.8, -16, 2.8, 0.08, 14, coldAisle); box(8.5, 4.8, -16, 2.8, 0.08, 14, coldAisle);
   // Precision cooling units and copper refrigerant runs on the east wall.
   for (const z of [-22, -9]) {
     kit.place({ prop: 'Cooling', x: 17.4, z });

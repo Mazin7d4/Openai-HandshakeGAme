@@ -1,5 +1,5 @@
-import { chromium } from 'playwright';
-import { arrival, toNee, servers, vault, clearCrate, escape } from './heist-route.mjs';
+import { launch } from './qa/lib.mjs';
+import { arrival, toNee, servers, vault, clearCrate } from './heist-route.mjs';
 
 const APP_URL = process.argv[2] ?? process.env.APP_URL ?? 'http://127.0.0.1:5173/';
 const DEBUG_URL = new URL(APP_URL);
@@ -151,12 +151,9 @@ async function solveMemoryTrace(page) {
   await overlay.waitFor({ state: 'detached', timeout: 15_000 });
 }
 
-const browser = await chromium.launch({
-  headless: true,
-  args: ['--use-gl=angle', process.env.ANGLE ? `--use-angle=${process.env.ANGLE}` : '--use-angle=d3d11', '--enable-webgl', '--ignore-gpu-blocklist',
-    // Keep both peers simulating while the other tab is in front.
-    '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows'],
-});
+const browser = await launch([
+  '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows',
+]);
 const hostContext = await browser.newContext();
 const guestContext = await browser.newContext();
 const host = await hostContext.newPage();
@@ -286,7 +283,7 @@ try {
   assert(crateDist > 3, `Crate only moved ${crateDist.toFixed(2)} units (expected > 3)`);
 
   // The alarm opens the dock backdrop; take the straight east-side route around the conveyor.
-  await travel(escape);
+  await travel(clearCrate.exit);
 
   // 9. Mission complete appears for both
   await Promise.all([

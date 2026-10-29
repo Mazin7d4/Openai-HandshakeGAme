@@ -5,16 +5,15 @@ import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { freePort, startTestServer } from '../test-server.mjs';
 
-const all = ['phone-ui', 'seeds', 'bundle-budget', 'pass-rules', 'messages', 'interp', 'challenge', 'night-shift', 'smoke', 'solo-boot', 'no-cdn', 'bot-solo', 'coop', 'coop-capture', 'grab-carry', 'rematch', 'bot-server', 'bot-hack-server', 'leaderboard-server', 'quickmatch-server', 'quickmatch', 'quickmatch-cancel', 'quickmatch-bot', 'quickmatch-private', 'nightshift-coop', 'ping-emote', 'reconnect', 'mobile', 'quality-phone', 'governor', 'mobile-layout', 'join-mobile', 'join-qr', 'rematch-mobile', 'leaderboard', 'leaderboard-solo', 'title-best-crew', 'wake', 'emote-mobile', 'gamepad', 'escape-replay', 'no-test-hooks', 'settings', 'a11y-keyboard', 'floorplan-sweep', 'drawcall-sweep', 'objectives-unit', 'hazards-unit', 'variety-coop', 'nightshift-9floors', 'variety-solo', 'campaign-unit', 'campaign-solo', 'campaign-coop'];
+const all = ['prototype-safety', 'heist-main', 'heist-coop', 'heist-audio', 'heist-presentation', 'phone-ui', 'seeds', 'bundle-budget', 'pass-rules', 'messages', 'interp', 'challenge', 'night-shift', 'smoke', 'solo-boot', 'no-cdn', 'bot-solo', 'coop', 'coop-capture', 'grab-carry', 'rematch', 'bot-server', 'bot-hack-server', 'leaderboard-server', 'quickmatch-server', 'quickmatch', 'quickmatch-cancel', 'quickmatch-bot', 'quickmatch-private', 'nightshift-coop', 'ping-emote', 'reconnect', 'mobile', 'quality-phone', 'governor', 'mobile-layout', 'join-mobile', 'join-qr', 'rematch-mobile', 'leaderboard', 'leaderboard-solo', 'title-best-crew', 'wake', 'emote-mobile', 'gamepad', 'escape-replay', 'no-test-hooks', 'settings', 'a11y-keyboard', 'floorplan-sweep', 'drawcall-sweep', 'objectives-unit', 'hazards-unit', 'variety-coop', 'nightshift-9floors', 'variety-solo', 'campaign-unit', 'campaign-solo', 'campaign-coop'];
 const args = process.argv.slice(2);
 const ownServers = process.env.QA_OWN_SERVERS === '1' || args.includes('--own-servers');
 const pick = args.filter((a) => a !== '--own-servers' && all.includes(a));
 const tests = pick.length ? pick : all;
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const timeoutMs = Number(process.env.QA_TIMEOUT_MS ?? 300_000);
-// Long browser playthroughs get a larger budget.
-const slowTests = { 'campaign-solo': 540_000 };
-const testTimeout = (test) => Math.max(timeoutMs, slowTests[test] ?? 0);
+// The authored two-peer route renders two complete game clients and physically hauls the crate.
+const timeoutFor = test => Math.max(timeoutMs, ({ 'heist-coop': 600_000, 'campaign-solo': 540_000 })[test] ?? 0);
 
 function parseResult(test, stdout, stderr, error) {
   const line = (stdout ?? '').split('\n').find((entry) => entry.startsWith('QA_RESULT '));
@@ -94,6 +93,7 @@ function killChild(child) {
 }
 
 function runTestAsync(test, env) {
+  const testTimeoutMs = timeoutFor(test);
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [`tools/qa/${test}.test.mjs`], {
       cwd: root,
@@ -112,7 +112,7 @@ function runTestAsync(test, env) {
       forceTimer = setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
       }, 1_000);
-    }, testTimeout(test));
+    }, testTimeoutMs);
     const finish = (error) => {
       if (settled) return;
       settled = true;
@@ -126,7 +126,7 @@ function runTestAsync(test, env) {
     child.once('error', (error) => finish(error.message));
     child.once('close', (code, signal) => {
       const error = timedOut
-        ? `test timed out after ${testTimeout(test)}ms`
+        ? `test timed out after ${testTimeoutMs}ms`
         : (code === 0 || signal == null ? undefined : `test exited with code ${code ?? '?'} signal ${signal}`);
       finish(error);
     });
@@ -140,7 +140,7 @@ async function runDefault() {
     const result = spawnSync(process.execPath, [`tools/qa/${test}.test.mjs`], {
       cwd: root,
       encoding: 'utf8',
-      timeout: testTimeout(test),
+      timeout: timeoutFor(test),
       env: process.env,
     });
     const res = parseResult(test, result.stdout, result.stderr, result.error?.message);

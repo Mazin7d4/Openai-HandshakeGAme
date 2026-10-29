@@ -499,6 +499,7 @@ export class MissionDirector {
       stage: this.state.stage,
       hacked: { 'terminal-a': hack.isComplete('terminal-a'), 'terminal-b': hack.isComplete('terminal-b'), 'terminal-c': hack.isComplete('terminal-c') },
       prototypeHeld: this.state.prototypeHeldBy !== null,
+      drones: [...drones.values()].map(drone => drone.position),
     });
     if (this.multiplayer && this.securityState) {
       // Server-owned enemies: render/interpolate only. Shoves land on our own (client-owned) drone.

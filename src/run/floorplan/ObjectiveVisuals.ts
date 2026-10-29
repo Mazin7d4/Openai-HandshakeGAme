@@ -107,11 +107,11 @@ export class ObjectiveVisuals {
       const posts: Mesh[] = [];
       for (const leverPoint of leverPoints) {
         const post = CreateCylinder('objective-lever-post', {
-          diameter: 0.18,
-          height: 0.75,
+          diameter: 0.22,
+          height: leverPoint.y + 0.4,
           tessellation: 8,
         }, scene);
-        post.position.set(leverPoint.x, leverPoint.y + 0.4, leverPoint.z);
+        post.position.set(leverPoint.x, (leverPoint.y + 0.4) / 2, leverPoint.z + 0.12);
         posts.push(post);
 
         const handle = CreateBox('objective-lever-handle', {

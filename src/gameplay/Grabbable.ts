@@ -14,6 +14,7 @@ import { reportStabilityIssue } from '../dev/StabilityDiagnostics.ts';
 import { COLLISION_GROUP } from '../physics/CollisionGroups.ts';
 import { applySolidColor } from '../scene/solidMaterial.ts';
 import type { Interactable } from './Interactable.ts';
+import { prototypeRecovery } from '../../shared/prototypeSafety.mjs';
 
 const POSITION_RESPONSE = 14;
 const ROTATION_RESPONSE = 12;
@@ -362,6 +363,17 @@ export class Grabbable implements Interactable {
       this.aggregate.body.setLinearVelocity(this.zero);
       this.aggregate.body.setAngularVelocity(this.zero);
       return;
+    }
+    if (this.id === 'prototype') {
+      const recover = prototypeRecovery(this.mesh.position, this.cradlePosition, !!this.mesh.getScene().metadata?.heistAlarm);
+      if (recover) {
+        this.mesh.position.set(recover.x, recover.y, recover.z);
+        this.lastSafePosition.copyFrom(this.mesh.position);
+        this.teleportBody();
+        this.aggregate.body.setLinearVelocity(this.zero);
+        this.aggregate.body.setAngularVelocity(this.zero);
+        return;
+      }
     }
     this.aggregate.body.getLinearVelocityToRef(this.velocity);
     if (!isFiniteVector(this.mesh.position) || !isFiniteVector(this.velocity)) {

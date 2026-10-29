@@ -74,6 +74,7 @@ export function dressPrototype(body: Mesh, scene: Scene): void {
     const dt = scene.getEngine().getDeltaTime() / 1000; t += dt;
     const excited = (scene.metadata as { p01Excited?: number } | undefined)?.p01Excited ?? 0;
     const speed = 0.6 + excited * 3;
+    root.position.y = Math.sin(t * 2.2) * 0.08;
     ringA.rotation.x += dt * speed; ringB.rotation.z += dt * speed * 1.3;
     const pulse = 0.85 + 0.15 * Math.sin(t * (2 + excited * 6));
     core.scaling.setAll(pulse); halo.scaling.setAll(1 + 0.12 * Math.sin(t * 2.4) + excited * 0.25);
