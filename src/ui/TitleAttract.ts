@@ -64,24 +64,24 @@ export class TitleAttract {
 
       const floor = CreateGround('title-attract-floor', { width: 32, height: 26 }, scene);
       const floorMat = new PBRMaterial('title-attract-floor-mat', scene);
-      floorMat.albedoColor = Color3.FromHexString('#27383A');
+      floorMat.albedoColor = Color3.FromHexString('#616C70');
       floorMat.roughness = 0.82;
       floor.material = floorMat;
 
       const wall = CreateBox('title-attract-wall', { width: 22, height: 11, depth: 0.35 }, scene);
       wall.position.set(3.1, 5.3, -2.6);
       const wallMat = new PBRMaterial('title-attract-wall-mat', scene);
-      wallMat.albedoColor = Color3.FromHexString('#52666A');
+      wallMat.albedoColor = Color3.FromHexString('#989D96');
       wallMat.roughness = 0.88;
       wall.material = wallMat;
       const key = new PointLight('title-warm-key', new Vector3(1.5, 8, 7), scene);
-      key.diffuse = Color3.FromHexString('#FFD0A0'); key.intensity = 22; key.range = 18;
+      key.diffuse = Color3.FromHexString('#F5EEE2'); key.intensity = 22; key.range = 18;
       const cool = new PointLight('title-cool-fill', new Vector3(9, 4, 3), scene);
-      cool.diffuse = Color3.FromHexString('#86CFFF'); cool.intensity = 12; cool.range = 16;
+      cool.diffuse = Color3.FromHexString('#EDF1F4'); cool.intensity = 12; cool.range = 16;
 
       const props = await loadPropKit(scene);
       props.place({ prop: 'Plant', x: 0.3, y: 0, z: -1.8, scale: 1.25, ry: -0.2 });
-      props.place({ prop: 'Monitor', x: 7.4, y: 0.2, z: -1.9, scale: 1.1, ry: Math.PI });
+      props.place({ prop: 'Monitor', x: 7.4, y: 0, z: -1.9, scale: 1.1, ry: Math.PI });
       props.place({ prop: 'Sofa', x: 9.3, y: 0, z: -0.7, scale: 1.05, ry: Math.PI });
       props.commit();
 

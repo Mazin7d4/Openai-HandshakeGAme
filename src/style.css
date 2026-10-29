@@ -514,7 +514,7 @@ html[data-reduced-motion='1'] *::after {
   padding: 22px 24px 18px;
   text-align: left;
   background: var(--paper);
-  border-top: 6px solid var(--oak);
+  border-top: 6px solid #A79A84;
   overflow: auto;
 }
 /* Play again: lock dark fill + light text (same family as title Play now). Never paper on hover/focus. */

@@ -1,75 +1,52 @@
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { PointLight } from '@babylonjs/core/Lights/pointLight.js';
-import type { Scene } from '@babylonjs/core/scene.js';
 import { SpotLight } from '@babylonjs/core/Lights/spotLight.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 
-type RoomMood = {
-  id: 'arrival' | 'office' | 'server' | 'vault' | 'escape' | 'extraction';
-  source: string;
-  key: [number, number, number];
-  target: [number, number, number];
-  fill: [number, number, number];
-  objective: [number, number, number];
-  range: number;
-};
+// Warm and cool WHITES: colour belongs to interaction, never to an environmental light wash.
+const ROOMS = [
+  { id: 'apron', z: -61, y: 3, white: '#E8EDF0' },
+  { id: 'reception', z: -49, y: 3, white: '#F4EFE4' },
+  { id: 'office', z: -34, y: 3, white: '#EFF0E9' },
+  { id: 'server', z: -13, y: 4, white: '#E5EBF1' },
+  { id: 'lab', z: 17, y: 4, white: '#F6F0E5' },
+  { id: 'dock', z: 39, y: 3, white: '#E9EDEF' },
+] as const;
 
-// Keys are deliberately warm and broad; the small cool fills separate each room's silhouette.
-// These are presentation lights only: they never enter the sun's shadow map.
-const ROOMS: readonly RoomMood[] = [
-  { id: 'arrival', source: 'reception window/sign', key: [-2, 8.4, -56], target: [-4, 2, -50], fill: [0.48, 0.61, 0.88], objective: [-5.5, 1.8, -50], range: 24 },
-  { id: 'office', source: 'desk consoles', key: [1, 8.4, -35], target: [0, 3, -32], fill: [0.42, 0.56, 0.86], objective: [0, 3.7, -32], range: 25 },
-  { id: 'server', source: 'memory array', key: [3, 8.5, -5.5], target: [3, 4, -5.5], fill: [0.38, 0.52, 0.78], objective: [-4, 7.1, -5.8], range: 24 },
-  { id: 'vault', source: 'pendant can', key: [0, 8.7, 18], target: [0, 3, 18], fill: [0.46, 0.61, 0.86], objective: [0, 5.25, 18], range: 23 },
-  { id: 'escape', source: 'vault opening', key: [0, 8.6, 27], target: [0, 3, 32], fill: [0.42, 0.54, 0.82], objective: [0, 2, 34], range: 25 },
-  { id: 'extraction', source: 'roller-door daylight', key: [11, 8.8, 46], target: [11, 2, 43.5], fill: [0.34, 0.68, 0.48], objective: [11, 2, 43.5], range: 22 },
-];
-
+/** Nearest-room keys. Low tier uses only the shared hemisphere and sun. */
 export function addHeroLighting(scene: Scene): void {
-  const lights: { key: SpotLight; fill: PointLight; target: [number, number] }[] = [];
-  for (const room of ROOMS) {
-    const key = new SpotLight(`hero-key-${room.id}`, Vector3.FromArray(room.key), Vector3.FromArray([
-      room.target[0] - room.key[0], room.target[1] - room.key[1], room.target[2] - room.key[2],
-    ]), Math.PI * 0.72, 2, scene);
-    key.diffuse = Color3.FromHexString(room.id === 'extraction' ? '#FFD49A' : '#FFD7A8');
-    key.specular = new Color3(0.32, 0.27, 0.2);
-    key.intensity = room.id === 'vault' ? 0.7 : 0.85;
-    key.range = room.range;
-    key.metadata = { heroSource: room.source, objective: room.objective };
-
-    const fill = new PointLight(`hero-fill-${room.id}`, Vector3.FromArray([
-      room.target[0] - 4, room.target[1] + 3, room.target[2] + 5,
-    ]), scene);
-    fill.diffuse = new Color3(...room.fill);
-    fill.specular = Color3.Black();
-    fill.intensity = 0.18;
-    fill.range = room.range * 0.9;
-    fill.metadata = { heroSource: `${room.id} cool bounce`, mood: room.fill };
-    lights.push({ key, fill, target: [room.target[0], room.target[2]] });
-  }
-
-  // Keep the presentation lighting effect without compiling every room's lights into every
-  // material. Besides being wasteful, the full 12-light set exceeds reliable simultaneous-light
-  // limits on SwiftShader and some real mobile/integrated GPUs, which can drop opaque draw calls.
+  const lights = ROOMS.map(room => {
+    const key = new SpotLight(`hero-key-${room.id}`, new Vector3(4, 8.6, room.z + 3),
+      new Vector3(-4, room.y - 8.6, -1), Math.PI * 0.8, 2, scene);
+    key.diffuse = Color3.FromHexString(room.white);
+    key.specular.set(0.14, 0.14, 0.14); key.intensity = 0.55; key.range = 26;
+    const fill = new PointLight(`hero-fill-${room.id}`, new Vector3(-8, 7.5, room.z), scene);
+    fill.diffuse.set(0.91, 0.94, 0.97); fill.specular.setAll(0);
+    fill.intensity = 0.12; fill.range = 22;
+    key.setEnabled(false); fill.setEnabled(false);
+    return { key, fill };
+  });
+  // Scope the existing vault accent so no surface receives hemi + sun + two keys + vault.
+  const vault = scene.getLightByName('vault-spot');
+  if (vault) vault.includedOnlyMeshes = scene.meshes.filter(mesh => /^(vault-belljar|p01-|vault-plinth)/.test(mesh.name));
+  const keysExcluded = scene.meshes.filter(mesh => /^(vault-belljar|p01-|vault-plinth|alarm-beacon)/.test(mesh.name));
+  for (const { key, fill } of lights) { key.excludedMeshes = keysExcluded; fill.excludedMeshes = keysExcluded; }
+  let active = -2;
   scene.onBeforeRenderObservable.add(() => {
     const camera = scene.activeCamera;
-    const highEnough = document.documentElement.dataset.quality !== 'low';
-    if (!camera || !highEnough) {
-      for (const light of lights) { light.key.setEnabled(false); light.fill.setEnabled(false); }
-      return;
+    const low = document.documentElement.dataset.quality === 'low';
+    // Follow camera target (crew), rather than the eye that trails a room behind.
+    const focusZ = camera && 'getTarget' in camera ? (camera as typeof camera & { getTarget(): Vector3 }).getTarget().z : camera?.globalPosition.z ?? -61;
+    let nearest = -1, distance = Infinity;
+    if (camera && !low) for (let i = 0; i < ROOMS.length; i++) {
+      const d = Math.abs(focusZ - ROOMS[i].z);
+      if (d < distance) { nearest = i; distance = d; }
     }
-    const p = camera.globalPosition;
-    let nearest = 0;
-    let nearestDistance = Infinity;
+    if (active === nearest) return;
+    active = nearest;
     for (let i = 0; i < lights.length; i++) {
-      const [x, z] = lights[i].target;
-      const distance = (p.x - x) ** 2 + (p.z - z) ** 2;
-      if (distance < nearestDistance) { nearest = i; nearestDistance = distance; }
-    }
-    for (let i = 0; i < lights.length; i++) {
-      const enabled = i === nearest;
-      lights[i].key.setEnabled(enabled);
-      lights[i].fill.setEnabled(enabled);
+      lights[i].key.setEnabled(i === nearest); lights[i].fill.setEnabled(i === nearest);
     }
   });
 }

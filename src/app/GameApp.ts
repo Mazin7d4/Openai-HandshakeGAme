@@ -386,7 +386,7 @@ export class GameApp {
             setTimeout(() => { if (!this.disposed) this.juice.burst('confetti', pos.add(new Vector3(0, 4, 0)), 120); }, 500);
             this.juice.burst('pix', pos, 40);
             this.juice.burst('nee', pos, 40);
-            for (const drone of this.drones) drone.react('proud', 6);
+            for (const drone of this.drones) { drone.react('proud', 6); drone.celebrate(); }
             this.cameraRig.addShake(0.3);
             break;
         }
@@ -965,9 +965,12 @@ export class GameApp {
     const camera = this.scene.activeCamera;
     if (camera) audioHub.setListener(camera.globalPosition, camera.getDirection(Vector3.Right()));
     const local = this.hudRole();
+    const listener = this.players.find(player => player.role === local);
+    if (listener) audioHub.setRoomAmbience(listener.drone.position.z);
     const dt = Math.max(1e-3, this.engine.getDeltaTime() / 1000);
     for (const player of this.players) {
       // Speed from position change so remote (replicated) drones hum correctly too.
+      player.drone.setCarrying(this.gameplay.heldObjectId(player.role) !== null);
       const p = player.drone.position;
       const last = this.audioLastPos.get(player.role);
       const speed = last ? Math.min(30, Vector3.Distance(p, last) / dt) : 0;

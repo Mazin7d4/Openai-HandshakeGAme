@@ -1,170 +1,177 @@
-"""Reusable prop kit for reception, office, server, vent and service areas.
-Each prop is authored at the origin (game coords: 5 units/metre, +Y up, front faces -Z) under an
-empty named Prop_<Name>; its parts are joined per material so the game can instance one mesh per
-prop+material (one draw call each, however many placements). No collision is exported; the game
-adds simple static boxes for big props.
-Run: blender -b --python tools/blender/build_props.py
+"""Neutral miniature furniture. One vertex-coloured PBR mesh per prop, no collision or emission.
+Run: blender -b --factory-startup --python tools/blender/build_props.py
+PROP_OUT optionally selects an external preview directory. Compress with gltf-transform meshopt.
 """
-import bpy, math
+import bpy, math, os
 from pathlib import Path
 from mathutils import Vector
 
-bpy.ops.object.select_all(action='SELECT'); bpy.ops.object.delete(use_global=False)
-for m in list(bpy.data.materials): bpy.data.materials.remove(m)
-OUT = Path(__file__).resolve().parents[2] / 'public/assets/props'; OUT.mkdir(parents=True, exist_ok=True)
-
-def material(name, color, rough=.5, metal=0, emit=None, strength=1.0):
-    m = bpy.data.materials.new(name); m.use_nodes = True
-    s = m.node_tree.nodes.get('Principled BSDF')
-    s.inputs['Base Color'].default_value = (*color, 1)
-    s.inputs['Roughness'].default_value = rough; s.inputs['Metallic'].default_value = metal
-    if emit:
-        s.inputs['Emission Color'].default_value = (*emit, 1); s.inputs['Emission Strength'].default_value = strength
-    return m
-
-M = dict(
-  oak=material('Oak', (.65,.44,.24), .5), ivory=material('Porcelain', (.83,.82,.75), .42),
-  sage=material('Sage', (.30,.46,.39), .48), coral=material('Coral', (.82,.30,.16), .32),
-  metal=material('Aluminium', (.6,.66,.66), .29, .82), rubber=material('Rubber', (.035,.055,.05), .84),
-  graphite=material('Graphite', (.07,.10,.11), .55, .3), mustard=material('Mustard', (.72,.45,.10), .93),
-  teal=material('Teal', (.08,.33,.37), .92), leaf=material('Leaf', (.12,.33,.13), .62),
-  leaf2=material('LeafLight', (.30,.55,.16), .66), terracotta=material('Terracotta', (.62,.25,.13), .78),
-  screen=material('Screen', (.02,.06,.07), .2, 0, (.10,.45,.50), .6),
-  led=material('LedCyan', (.3,.9,.95), .4, 0, (.25,.85,.95), 3.0),
-  amber=material('LedAmber', (1,.6,.25), .4, 0, (1,.5,.12), 2.5),
-  pink=material('Pink', (.85,.38,.48), .4), yellow=material('Yellow', (.88,.65,.08), .55),
-  blue=material('Blue', (.12,.36,.55), .38),
-)
-
-def pos(p): return (p[0], p[2], p[1])
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.object.delete(use_global=False)
+OUT = Path(os.environ.get('PROP_OUT', Path(__file__).resolve().parents[2] / 'public/assets/props'))
+OUT.mkdir(parents=True, exist_ok=True)
+# Linear colour values: reserved drone / interaction colours never enter this palette.
+COLORS = dict(oak=(.43,.34,.25), ivory=(.70,.68,.61), felt=(.23,.27,.26),
+              metal=(.40,.44,.44), rubber=(.065,.077,.080), slate=(.18,.22,.25),
+              linen=(.47,.44,.37), leaf=(.22,.25,.22), leaf2=(.32,.35,.30),
+              clay=(.34,.29,.25), paper=(.76,.74,.67), glass=(.16,.20,.22))
+mat = bpy.data.materials.new('DecorMatte')
+mat.use_nodes = True
+bsdf = mat.node_tree.nodes.get('Principled BSDF')
+bsdf.inputs['Base Color'].default_value = (1,1,1,1)
+bsdf.inputs['Roughness'].default_value = .72
+bsdf.inputs['Metallic'].default_value = .12
 parts = []
-def finish(o, mat):
-    o.data.materials.append(mat); parts.append(o); return o
-def box(p, size, mat, bevel=.06, seg=2):
-    bpy.ops.mesh.primitive_cube_add(size=1, location=pos(p)); o = bpy.context.object
-    o.dimensions = (size[0], size[2], size[1]); bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+def pos(p): return (p[0],p[2],p[1])
+def finish(o, color):
+    o.data.materials.append(mat)
+    attr = o.data.color_attributes.new(name='Color', type='BYTE_COLOR', domain='CORNER')
+    base = COLORS[color]
+    # A restrained baked contact feel, darkest on undersides. No runtime AO pass.
+    for poly in o.data.polygons:
+        shade = .88 + .12 * max(0, poly.normal.z)
+        for li in poly.loop_indices: attr.data[li].color = (*[v*shade for v in base],1)
+    parts.append(o)
+    return o
+
+def box(p,size,c,bevel=.05):
+    bpy.ops.mesh.primitive_cube_add(size=1,location=pos(p))
+    o=bpy.context.object
+    o.dimensions=(size[0],size[2],size[1])
+    bpy.ops.object.transform_apply(location=False,rotation=False,scale=True)
     if bevel:
-        b = o.modifiers.new('b', 'BEVEL'); b.width = bevel; b.segments = seg; b.limit_method = 'ANGLE'
+        b=o.modifiers.new('edge chamfer','BEVEL'); b.width=min(bevel,min(size)*.3); b.segments=1
         bpy.ops.object.modifier_apply(modifier=b.name)
-        w = o.modifiers.new('w', 'WEIGHTED_NORMAL'); bpy.ops.object.modifier_apply(modifier=w.name)
-    return finish(o, mat)
-def cyl(p, r, h, mat, v=24, r2=None):
-    bpy.ops.mesh.primitive_cone_add(vertices=v, radius1=r2 if r2 is not None else r, radius2=r, depth=h, location=pos(p))
-    o = bpy.context.object
-    for f in o.data.polygons: f.use_smooth = True
-    return finish(o, mat)
-def link(a, b, r, mat, v=12):
-    av, bv = Vector(pos(a)), Vector(pos(b))
-    bpy.ops.mesh.primitive_cylinder_add(vertices=v, radius=r, depth=(bv-av).length, location=(av+bv)/2)
-    o = bpy.context.object; o.rotation_euler = (bv-av).to_track_quat('Z','Y').to_euler()
-    for f in o.data.polygons: f.use_smooth = True
-    return finish(o, mat)
-def blob(p, scale, rot, mat, seg=10):
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=seg, ring_count=6, radius=1, location=pos(p))
-    o = bpy.context.object; o.scale = scale; o.rotation_euler = rot
-    for f in o.data.polygons: f.use_smooth = True
-    return finish(o, mat)
+        n=o.modifiers.new('weighted normals','WEIGHTED_NORMAL'); bpy.ops.object.modifier_apply(modifier=n.name)
+    return finish(o,c)
+
+def cyl(p,r,h,c,v=12,top=None):
+    bpy.ops.mesh.primitive_cone_add(vertices=v,radius1=r,radius2=r if top is None else top,depth=h,location=pos(p))
+    return finish(bpy.context.object,c)
+
+def link(a,b,r,c,v=8):
+    av,bv=Vector(pos(a)),Vector(pos(b))
+    bpy.ops.mesh.primitive_cylinder_add(vertices=v,radius=r,depth=(bv-av).length,location=(av+bv)/2)
+    o=bpy.context.object; o.rotation_euler=(bv-av).to_track_quat('Z','Y').to_euler()
+    return finish(o,c)
+
+def leaf(p,a,c,s=1):
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=8,ring_count=4,radius=1,location=pos(p))
+    o=bpy.context.object; o.scale=(.68*s,.15*s,.30*s); o.rotation_euler=(.3, .4, a)
+    return finish(o,c)
 
 def commit(name):
-    """Join this prop's parts per material under an empty Prop_<name>."""
     global parts
-    root = bpy.data.objects.new('Prop_' + name, None); bpy.context.collection.objects.link(root)
-    bymat = {}
-    for o in parts: bymat.setdefault(o.data.materials[0].name, []).append(o)
-    for mname, objs in bymat.items():
-        bpy.ops.object.select_all(action='DESELECT')
-        for o in objs: o.select_set(True)
-        bpy.context.view_layer.objects.active = objs[0]
-        if len(objs) > 1: bpy.ops.object.join()
-        j = bpy.context.view_layer.objects.active
-        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-        j.name = f'{name}_{mname}'; j.parent = root
-    parts = []
+    root=bpy.data.objects.new('Prop_'+name,None); bpy.context.collection.objects.link(root)
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in parts: o.select_set(True)
+    bpy.context.view_layer.objects.active=parts[0]
+    bpy.ops.object.join(); o=bpy.context.object
+    bpy.ops.object.transform_apply(location=True,rotation=True,scale=True)
+    o.name=name+'_DecorMatte'; o.parent=root
+    parts=[]
 
-# ---- Sofa: 9 wide (x), 3.8 deep, back toward +z, front -z. Seat height ~2.2 (45 cm).
-box((0,.9,0),(9,1.1,3.6),M['mustard'],.25,3)
-for i in (-1,0,1): box((i*2.75,1.75,-.25),(2.7,.65,3.0),M['mustard'],.28,4)
-for i in (-1,0,1): box((i*2.75,3.1,1.35),(2.7,2.2,.85),M['mustard'],.32,4)
-for s in (-1,1): box((s*4.6,2.0,0),(.85,2.1,3.7),M['mustard'],.3,4)
-for sx in (-4.2,4.2):
-    for sz in (-1.5,1.5): link((sx,.4,sz),(sx*1.02,0,sz*1.05),.12,M['oak'])
-box((-2.5,2.7,.6),(1.6,1.3,.5),M['teal'],.25,4); box((2.9,2.6,.7),(1.4,1.1,.45),M['coral'],.22,4)
+# Reception lounge: upholstered cushions, inset seams, open base.
+box((0,.65,0),(8.7,.45,3.4),'rubber')
+for x in (-4,4):
+    for z in (-1.35,1.35): link((x,.55,z),(x,0,z),.11,'metal')
+for x in (-2.8,0,2.8):
+    box((x,1.4,-.2),(2.72,.8,3.1),'linen',.18)
+    box((x,2.65,1.25),(2.72,2.4,.65),'linen',.15)
+for x in (-4.35,4.35): box((x,1.9,0),(.65,2.2,3.5),'linen',.15)
+box((-2.7,2.3,.6),(1.25,1.1,.5),'felt',.15)
 commit('Sofa')
 
-# ---- Office chair (seat ~2.3), back toward +z.
-box((0,2.3,0),(2.3,.38,2.2),M['teal'],.2,3); box((0,3.85,.95),(2.2,2.5,.32),M['teal'],.25,3)
-link((0,2.1,0),(0,.55,0),.13,M['metal']); link((0,2.4,.6),(0,3.2,1.0),.08,M['metal'])
-for a in range(5):
-    ang = a*math.tau/5; tip = (math.cos(ang)*1.35, .32, math.sin(ang)*1.35)
-    link((0,.5,0), tip, .08, M['metal']); blob((tip[0],.16,tip[2]),(.17,.17,.17),(0,0,0),M['rubber'],8)
-for s in (-1,1): box((s*1.25,3.05,-.1),(.18,.12,1.4),M['rubber'],.05); link((s*1.25,2.45,-.1),(s*1.25,3.0,-.1),.05,M['metal'])
+box((0,2.3,0),(2.3,.38,2.2),'felt',.12)
+box((0,3.7,.95),(2.2,2.35,.3),'felt',.12)
+link((0,2.1,0),(0,.4,0),.13,'metal')
+for i in range(5):
+    a=i*math.tau/5; x,z=math.cos(a)*1.2,math.sin(a)*1.2
+    link((0,.4,0),(x,.23,z),.08,'metal'); box((x,.13,z),(.24,.26,.25),'rubber',.04)
 commit('Chair')
 
-# ---- Server rack unit: 2.4 wide, 7.8 tall, 2.6 deep. Front face -z.
-box((0,3.9,0),(2.4,7.8,2.6),M['graphite'],.06)
-for i in range(11):
-    y = .55 + i*.62
-    box((0,y,-1.31),(2.05,.5,.06),M['rubber'] if i%3 else M['metal'],.02,1)
-    box((-.82,y,-1.36),(.08,.08,.04),M['led'] if i%4 else M['amber'],0)
-    box((-.62,y,-1.36),(.08,.08,.04),M['led'],0)
-    box((.8,y,-1.36),(.18,.32,.05),M['metal'],.02,1)
-for sx in (-1.13,1.13): box((sx,3.9,-1.33),(.12,7.6,.1),M['metal'],.02,1)
-box((0,7.75,0),(2.45,.12,2.65),M['metal'],.03,1)
-for i in range(6): box((-.75+i*.3,8.0,.4),(.12,.35,1.4),M['blue'] if i%2 else M['rubber'],.04,1)
+# Server cabinet: readable perforated doors, brushed rails, tiny unlit indicator insets.
+box((0,3,0),(2.8,6,2.6),'slate',.08)
+for x in (-1.27,1.27): box((x,3,-1.34),(.12,5.7,.13),'metal',.02)
+for i in range(8):
+    y=.5+i*.69
+    box((0,y,-1.33),(2.32,.56,.08),'rubber',.02)
+    box((.78,y,-1.39),(.24,.08,.03),'metal',0)
+    for x in (-.82,-.52,-.22): box((x,y,-1.39),(.12,.25,.025),'slate',0)
+box((0,5.95,0),(2.88,.12,2.68),'metal',.03)
 commit('Rack')
 
-# ---- Steel shelving with bins: 1.2 deep (x), 6 long (z), 12 tall.
-for sz in (-2.9,2.9):
-    for sx in (-.55,.55): box((sx,6,sz),(.1,12,.1),M['metal'],.02,1)
-for y in (.3,4.2,7.8,11.4): box((0,y,0),(1.2,.12,6),M['metal'],.03,1)
-cols=[M['coral'],M['yellow'],M['teal'],M['pink'],M['blue']]
-for k,y in enumerate((.36,4.26,7.86)):
-    for j,z in enumerate((-1.8,0,1.8)):
-        c = cols[(k*3+j)%5]; box((0,y+.7,z),(1.0,1.35,1.6),c,.12,3); box((-.52,y+1.1,z),(.04,.25,.7),M['ivory'],.02,1)
+for x in (-.6,.6):
+    for z in (-2.8,2.8): box((x,3.4,z),(.1,6.8,.1),'metal',.02)
+for y in (.2,2.35,4.5,6.65):
+    box((0,y,0),(1.35,.12,5.7),'metal',.02)
+    if y<6:
+        for z in (-1.9,0,1.9):
+            box((0,y+.76,z),(1.1,1.4,1.6),'clay',.06)
+            box((-.56,y+.95,z),(.025,.24,.7),'paper',0)
 commit('Shelving')
 
-# ---- Large and small plants (tapered pot, soil, curved stems, broad leaves).
-def plant(name, s):
-    cyl((0,1.1*s,0),1.1*s,2.2*s,M['terracotta'],28,r2=.85*s); cyl((0,2.2*s,0),.98*s,.1*s,M['rubber'],20)
-    box((0,.04,0),(2.4*s,.08,2.4*s),M['oak'],.03,1) if s>1 else None
-    for i in range(11):
-        a=i*2.39996; h=(3.1+(i%4)*.75)*s; r=(.9+(i%3)*.45)*s
-        tip=(math.cos(a)*r,h,math.sin(a)*r); mid=(math.cos(a)*r*.4,h*.75,math.sin(a)*r*.4)
-        link((0,2.2*s,0),mid,.045*s,M['leaf']); link(mid,tip,.04*s,M['leaf'])
-        blob(tip,(.95*s,.55*s,.06*s),(.5*math.sin(a),.45*math.cos(a),a),M['leaf'] if i%2 else M['leaf2'],12)
+def plant(name,s):
+    cyl((0,1*s,0),.85*s,2*s,'clay',12,.99*s)
+    cyl((0,2.01*s,0),.87*s,.06*s,'rubber',12)
+    for i in range(8):
+        a=i*2.39996; h=(2.8+(i%3)*.6)*s; r=(.7+(i%2)*.6)*s
+        tip=(math.cos(a)*r,h,math.sin(a)*r)
+        link((0,1.9*s,0),tip,.035*s,'leaf',6)
+        leaf(tip,a,'leaf2' if i%2 else 'leaf',s)
     commit(name)
-plant('Plant', 1.2); plant('PlantSmall', .55)
+plant('Plant',1.1); plant('PlantSmall',.40)
 
-# ---- Precision cooling unit: 2.4 (x) deep, 10 tall, 5 long (z). Face -x.
-box((0,5,0),(2.4,10,5),M['ivory'],.12,3)
-for i in range(14): box((-1.22,1+i*.32,0),(.05,.12,4.2),M['graphite'],.02,1)
-box((-1.23,7,0),(.05,2.4,3.4),M['screen'],.03,1); box((-1.24,8.6,0),(.04,.1,3.4),M['led'],0)
-box((0,10.1,0),(2.2,.25,4.6),M['metal'],.04,1)
+box((0,3.35,0),(2.4,6.7,4.6),'ivory',.1)
+for i in range(10): box((-1.23,.6+i*.5,0),(.05,.12,3.9),'slate',.01)
+box((-1.24,5.9,0),(.04,.75,2.5),'metal',.03)
 commit('Cooling')
 
-# ---- Rectangular duct segment + elbow up (vent ductwork). Length along x = 6.
-box((0,0,0),(6,2.6,3.4),M['metal'],.08,2)
-for x in (-2.9,0,2.9): box((x,0,0),(.18,2.9,3.7),M['metal'],.04,1)
-box((2.6,2.6,0),(2.6,3.2,3.4),M['metal'],.08,2)
-for i in range(5): box((-1.8+i*.7,-1.32,0),(.1,.05,3),M['graphite'],.01,1)
+# Straight, shallow duct; no roof-piercing elbow.
+box((0,0,0),(6,1.15,2.6),'metal',.07)
+for x in (-2.9,0,2.9): box((x,0,0),(.16,1.3,2.75),'slate',.02)
 commit('Duct')
 
-# ---- Bookshelf: 2 deep (x), 10 tall, 7 long (z). Face -x.
-box((0,5,0),(2,10,7),M['oak'],.08)
-for y in (1.9,4.1,6.3,8.5): box((-.1,y-1.0,0),(1.9,.15,6.6),M['oak'],.03,1)
-k=0
-for y in (1.0,3.2,5.4,7.6):
-    z=-3.0
-    while z<2.8:
-        w=.28+((k*37)%5)*.08; h=1.0+((k*13)%4)*.18
-        box((-.2,y+h/2,z+w/2),(1.4,h,w),cols[k%5] if k%7 else M['ivory'],.02,1); z+=w+.04; k+=1
+box((0,3.5,0),(1.9,7,6),'oak',.05)
+for y in (.3,2.4,4.5,6.6):
+    box((-.1,y,0),(1.9,.16,5.8),'ivory',.02)
+    if y<6:
+        for i in range(9):
+            z=-2.45+i*.57; h=1.2+(i%3)*.16
+            box((-.3,y+.1+h/2,z),(1.4,h,.46),'paper' if i%3 else 'felt',.01)
 commit('Bookshelf')
 
-# ---- Monitor (2.8 wide) with stand, faces -z.
-box((0,1.4,0),(2.8,1.8,.22),M['ivory'],.1,3); box((0,1.4,-.12),(2.55,1.55,.03),M['screen'],.04,1)
-box((0,.5,.05),(.2,1,.2),M['metal'],.04,1); box((0,.05,-.05),(1.3,.1,.8),M['metal'],.04,1)
+box((0,1.4,0),(2.8,1.8,.22),'ivory',.07)
+box((0,1.4,-.13),(2.5,1.5,.03),'glass',.02)
+box((0,.55,.05),(.2,1,.2),'metal',.03)
+box((0,.06,0),(1.3,.12,.8),'metal',.02)
 commit('Monitor')
 
-bpy.ops.wm.save_as_mainfile(filepath=str(OUT/'office-kit.blend'))
-bpy.ops.export_scene.gltf(filepath=str(OUT/'office-kit.glb'), export_format='GLB', export_yup=True, export_apply=True)
-print('PROP_KIT_COMPLETE')
+# Far-wall office archive: hardware and recessed panels read as storage, never consoles.
+for x in (-1.6,0,1.6):
+    box((x,2.9,0),(1.55,5.8,1.4),'felt',.07)
+    for y in (1.2,3,4.8):
+        box((x,y,-.73),(1.4,1.65,.06),'ivory',.03)
+        box((x,y+.45,-.78),(.6,.1,.04),'metal',.02)
+commit('Lockers')
+
+# Dock trolley: four wheels, inset parcels, vertical grab rail. Rectilinear and unlit.
+box((0,.55,0),(3.5,.18,2.5),'metal',.04)
+for x in (-1.4,1.4):
+    for z in (-.9,.9): cyl((x,.25,z),.23,.5,'rubber',10)
+for x in (-1.5,1.5): box((x,1.8,1.1),(.12,2.4,.12),'metal',.03)
+box((0,2.95,1.1),(3.1,.12,.12),'metal',.03)
+for x in (-.85,.85):
+    box((x,1.35,-.1),(1.55,1.4,1.9),'clay',.06)
+    box((x,2.06,-.1),(.18,.03,1.92),'paper',0)
+commit('ParcelTrolley')
+
+# Server landmark / acoustic wall module: layered fin stack with solid silhouette.
+box((0,3.6,0),(4.1,7.2,.5),'rubber',.06)
+for i in range(9): box((-1.7+i*.425,3.6,-.34),(.18,6.7,.38),'metal',.035)
+commit('AcousticPanel')
+
+bpy.ops.export_scene.gltf(filepath=str(OUT/'office-kit.glb'),export_format='GLB',export_yup=True,
+                          export_apply=True,export_vertex_color='ACTIVE',export_texcoords=False,export_materials='EXPORT')
+print('PROP_KIT_COMPLETE', (OUT/'office-kit.glb').stat().st_size)
