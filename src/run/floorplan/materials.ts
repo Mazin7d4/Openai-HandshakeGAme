@@ -10,19 +10,19 @@ export interface FloorMaterials {
 const cache = new WeakMap<Scene, FloorMaterials>();
 
 const colors: Record<string, string> = {
-  desk: '#BE9162',
-  partition: '#728D83',
+  desk: '#AD9B83',
+  partition: '#929B8C',
   chair: '#263737',
   rack: '#394646',
-  crate: '#B98252',
-  pallet: '#D2B184',
+  crate: '#A29582',
+  pallet: '#B9AD97',
   glass: '#B6D7D0',
   glassOpaque: '#B6D7D0',
   metal: '#A7B6B5',
   duct: '#718080',
-  plant: '#5D9A72',
-  pylon: '#E7B52E',
-  cone: '#E77C3B',
+  plant: '#8A9482',
+  pylon: '#AAA79B',
+  cone: '#A69C8E',
   goal: '#FFD23F',
   goalDim: '#8B7424',
   goalBright: '#FFE27A',
@@ -39,21 +39,21 @@ const colors: Record<string, string> = {
   iceLight: '#E5F8FF',
   gust: '#9AD8FF',
   objectiveMint: '#39E6A5',
-  vaultGold: '#D59B2A',
-  vaultGoldBright: '#FFD66B',
+  vaultGold: '#A6A094',
+  vaultGoldBright: '#B6B5AD',
   vaultSteel: '#17252B',
   vaultPanel: '#26343A',
-  serverBlue: '#193B59',
-  serverBlueBright: '#4FB8FF',
-  officeWarm: '#A66E45',
-  officeSage: '#6B8C78',
+  serverBlue: '#65717E',
+  serverBlueBright: '#A5ADB2',
+  officeWarm: '#A99B86',
+  officeSage: '#939D8C',
   ventSteel: '#465B62',
   moonBlue: '#7898B8',
 };
 
 const emissiveNames = new Set([
   'goal', 'goalBright', 'done', 'pix', 'nee', 'danger', 'warn', 'white', 'iceLight', 'gust',
-  'objectiveMint', 'vaultGoldBright', 'serverBlueBright',
+  'objectiveMint',
 ]);
 
 export function floorMaterials(scene: Scene): FloorMaterials {
@@ -67,6 +67,7 @@ export function floorMaterials(scene: Scene): FloorMaterials {
     const material = new StandardMaterial(`floor-${name}`, scene);
     material.diffuseColor = Color3.FromHexString(hex);
     material.specularColor = Color3.Black();
+    material.maxSimultaneousLights = 4;
     if (emissiveNames.has(name)) {
       material.disableLighting = true;
       material.emissiveColor = material.diffuseColor.clone();
@@ -85,8 +86,7 @@ export function floorMaterials(scene: Scene): FloorMaterials {
   result.dangerCurtain.transparencyMode = StandardMaterial.MATERIAL_ALPHABLEND;
   result.goalDim.emissiveColor = new Color3(0.1, 0.07, 0.01);
   result.objectiveMint.emissiveColor = result.objectiveMint.diffuseColor.clone();
-  result.vaultGoldBright.emissiveColor = result.vaultGoldBright.diffuseColor.clone();
-  result.serverBlueBright.emissiveColor = result.serverBlueBright.diffuseColor.clone();
+
   result.ice.alpha = 0.78;
   result.gust.alpha = 0.78;
 

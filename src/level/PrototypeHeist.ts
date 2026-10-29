@@ -32,6 +32,7 @@ import layout from './heist-layout.json';
 import { mergeRigidChildren } from '../scene/mergeChildren.ts';
 import { createRoundedBox } from '../scene/roundedBox.ts';
 import { finishDecorMaterial } from './DecorMaterials.ts';
+import { installDecorQuality } from '../scene/DecorQuality.ts';
 import { addHeroLighting } from './HeroLighting.ts';
 
 const SECURITY_AMBER = Color3.FromHexString('#FFB84D');
@@ -601,5 +602,6 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     try { mat.freeze(); } catch { /* ok */ }
   }
   addHeroLighting(scene);
+  installDecorQuality(scene);
   return new Vector3(layout.spawn.x, layout.spawn.y, layout.spawn.z);
 }

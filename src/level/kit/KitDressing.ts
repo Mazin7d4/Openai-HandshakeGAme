@@ -12,6 +12,7 @@ import { mixSeed, mulberry32 } from '../../seed/index.ts';
 import kitManifest from './kit-manifest.json';
 import { DRESSING } from './dressingTable.ts';
 import { applyFloorTint, applyTwistMood } from './TwistMood.ts';
+import { finishDecorMaterial } from '../DecorMaterials.ts';
 import { getQuality } from '../../scene/createScene.ts';
 
 export interface KitDressingHandle {
@@ -133,6 +134,8 @@ export async function loadKitSources(scene: Scene): Promise<KitSources> {
                 materialRegistry.set(baseMatName, child.material);
               }
             }
+
+            finishDecorMaterial(child.material);
 
             // Bake the glTF handedness root + node transform into the vertices (flips faces when
             // the determinant is negative), so thin-instance matrices stay plain placements.
