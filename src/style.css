@@ -348,6 +348,8 @@ body.hack-session-open :is(.mission-objective, .juice-toasts, .interaction-promp
   }
   .mission-objective--collapsed h2 { display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; font-size: 13px; }
   .juice-toasts { left: auto; right: max(8px, env(safe-area-inset-right, 0px)); transform: none; top: calc(max(8px, env(safe-area-inset-top, 0px)) + 88px); width: min(24vw, 240px); max-width: 24vw; z-index: 70; gap: 4px; align-items: flex-end; }
+  /* Keep the latest callout above the thumb cluster, even during burst events. */
+  .juice-toast:not(:last-child) { display: none; }
   .juice-toast { width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 10px; font: 800 15px/1.1 var(--font-title); animation: none; }
   .touch-play .interaction-prompt { left: 50%; bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + 8px); width: min(40vw, 360px); max-width: 40vw; padding: 4px; z-index: 18; }
   .touch-play .interaction-prompt button { min-height: 40px; padding: 4px 8px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
-import { runTest, url, assert, devices, waitForGame, collectErrors } from './lib.mjs';
+import { runTest, url, assert, devices, waitForGame, collectErrors, SHOTS } from './lib.mjs';
 
-const out = '/workspace/handshake/playtest/oct25/phone-ui';
+const out = `${SHOTS}/phone-ui`;
 mkdirSync(out, { recursive: true });
 const sizes = [[1024, 461], [844, 390], [740, 360]];
 const variants = ['packet-routing', 'signal-match', 'memory-trace'];
@@ -16,10 +16,19 @@ const audit = (page) => page.evaluate(() => {
 });
 
 const toastAudit = (page) => page.evaluate(() => {
-  const toast = document.querySelector('.juice-toast'); const objective = document.querySelector('[data-testid="mission-objective"]');
-  if (!toast) return ['toast not visible'];
-  const t = toast.getBoundingClientRect(); const o = objective?.getBoundingClientRect(); const overlap = o && Math.min(t.right, o.right) - Math.max(t.x, o.x) > 2 && Math.min(t.bottom, o.bottom) - Math.max(t.y, o.y) > 2;
-  return [t.width > innerWidth * .4 && `toast too wide ${Math.round(t.width)}`, overlap && 'toast/objective overlap'].filter(Boolean);
+  const toasts = [...document.querySelectorAll('.juice-toast')].filter((el) => {
+    const s = getComputedStyle(el); const r = el.getBoundingClientRect();
+    return s.display !== 'none' && s.visibility !== 'hidden' && +s.opacity > .05 && r.width > 0;
+  });
+  const objective = document.querySelector('[data-testid="mission-objective"]')?.getBoundingClientRect();
+  const failures = [];
+  if (toasts.length !== 1) failures.push(`expected latest toast, saw ${toasts.length}`);
+  for (const toast of toasts) {
+    const t = toast.getBoundingClientRect();
+    if (t.width > innerWidth * .4) failures.push(`toast too wide ${Math.round(t.width)}`);
+    if (objective && Math.min(t.right, objective.right) - Math.max(t.x, objective.x) > 2 && Math.min(t.bottom, objective.bottom) - Math.max(t.y, objective.y) > 2) failures.push('toast/objective overlap');
+  }
+  return failures;
 });
 
 const hackHudAudit = (page) => page.evaluate(() => {
@@ -37,7 +46,7 @@ await runTest('phone-ui', async (browser, notes) => {
     const viewport = { width, height }; const context = await browser.newContext({ ...devices['iPhone 13 landscape'], viewport, screen: viewport, hasTouch: true, isMobile: true });
     const page = await context.newPage(); const errors = []; collectErrors(page, `${width}x${height}`, errors);
     await page.goto(url({ stage: 'escape' })); await page.getByTestId('singleplayer').tap(); await page.getByTestId('start-singleplayer').tap(); await waitForGame(page);
-    await page.evaluate(() => window.__autotest.debugGrabForUi('pix')); await page.waitForFunction(() => window.__autotest?.heldObject?.('pix') === 'prototype', null, { timeout: 15_000 }); await page.waitForFunction(() => document.querySelector('[data-testid="mission-objective"]')?.dataset.collapsed === '1', null, { timeout: 5_000 }); await page.evaluate(() => window.__autotest.toast('NEE is free!')); await page.waitForFunction(() => [...document.querySelectorAll('.juice-toast')].some((el) => { const s = getComputedStyle(el); return s.display !== 'none' && s.visibility !== 'hidden' && +s.opacity > .05; })); await page.waitForTimeout(500);
+    await page.evaluate(() => window.__autotest.debugGrabForUi('pix')); await page.waitForFunction(() => window.__autotest?.heldObject?.('pix') === 'prototype', null, { timeout: 15_000 }); await page.waitForFunction(() => document.querySelector('[data-testid="mission-objective"]')?.dataset.collapsed === '1', null, { timeout: 5_000 }); await page.evaluate(() => { window.__autotest.toast('Rescued!'); window.__autotest.toast('Prototype grabbed!'); window.__autotest.toast('NEE is free!'); }); await page.waitForFunction(() => [...document.querySelectorAll('.juice-toast')].some((el) => { const s = getComputedStyle(el); return s.display !== 'none' && s.visibility !== 'hidden' && +s.opacity > .05; }));
     assert((await page.getByTestId('touch-grab').innerText()).match(/Drop|Pass/), `${width}x${height}: carry label missing`); assert(await page.getByTestId('touch-throw').isVisible(), `${width}x${height}: throw button missing`); assert(!(await page.getByTestId('interaction-prompt').isVisible()), `${width}x${height}: carry prompt card visible`);
     assert(!(await toastAudit(page)).length, `${width}x${height}: toast audit failed`); const failures = await audit(page); assert(!failures.length, `${width}x${height}: ${failures.join(', ')}`);
     await page.evaluate(() => window.__autotest.toast('Prototype grabbed!')); await page.waitForFunction(() => [...document.querySelectorAll('.juice-toast')].some((el) => el.textContent === 'Prototype grabbed!'));
