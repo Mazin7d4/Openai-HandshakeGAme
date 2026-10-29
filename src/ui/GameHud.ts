@@ -204,6 +204,7 @@ export class GameHud {
 
   setPaused(paused: boolean): void {
     this.paused = paused;
+    document.body.classList.toggle('pause-menu-open', paused);
     this.pauseOverlay.classList.toggle('visible', paused);
     this.prompt.classList.toggle('visible', !paused && this.prompt.childElementCount > 0);
     if (paused) this.showPauseHome();
@@ -214,6 +215,7 @@ export class GameHud {
   }
 
   dispose(): void {
+    document.body.classList.remove('pause-menu-open');
     window.removeEventListener('keydown', this.onKeyDown, true);
     this.nav.detach();
     this.closeSettings();
@@ -282,6 +284,11 @@ export class GameHud {
   private showControls(): void {
     this.view = 'controls';
     this.panel.replaceChildren(this.heading('Controls'));
+    if (this.touch) {
+      this.panel.append(this.touchControlsList(), this.button('Back', () => this.showPauseHome(), 'btn--quiet', 'pause-controls-back'));
+      this.bindNav(() => this.showPauseHome(), '[data-testid="pause-controls-back"]');
+      return;
+    }
     const list = document.createElement('dl');
     list.className = 'controls-list';
     for (const [key, action] of [
@@ -299,6 +306,19 @@ export class GameHud {
     }
     this.panel.append(list, this.button('Back', () => this.showPauseHome(), 'btn--quiet', 'pause-controls-back'));
     this.bindNav(() => this.showPauseHome(), '[data-testid="pause-controls-back"]');
+  }
+
+  private touchControlsList(): HTMLUListElement {
+    const list = document.createElement('ul');
+    list.className = 'touch-controls-help';
+    for (const [glyph, label] of [
+      ['fly', 'Move'], ['updown', 'Up / Down'], ['look', 'Drag to look'], ['boost', 'Boost'],
+      ['grab', 'Grab / Pass'], ['hack', 'Hack console'], ['yank', 'Yank partner'], ['happy', 'Tap to emote'],
+    ]) {
+      const item = document.createElement('li');
+      item.append(controlIcon(glyph), label); list.append(item);
+    }
+    return list;
   }
 
   private heading(text: string): HTMLHeadingElement {

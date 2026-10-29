@@ -128,6 +128,7 @@ export class TouchControls {
     this.lookFingers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     this.lookPad.setPointerCapture(event.pointerId);
     if (this.lookPrimaryId === null) this.lookPrimaryId = event.pointerId;
+    this.lookPad.classList.add('is-down');
     this.handlers.camera.touchLookHold();
 
     const now = performance.now();
@@ -171,6 +172,7 @@ export class TouchControls {
       this.lookPrimaryId = this.lookFingers.keys().next().value ?? null;
     }
     if (this.lookFingers.size === 0) {
+      this.lookPad.classList.remove('is-down');
       this.handlers.camera.touchLookRelease();
     }
   };
@@ -198,6 +200,10 @@ export class TouchControls {
     this.lookPad.className = 'touch-look';
     this.lookPad.dataset.testid = 'touch-look';
     this.lookPad.setAttribute('aria-label', 'Look');
+    const lookHint = document.createElement('span');
+    lookHint.className = 'touch-look__hint';
+    lookHint.append(controlIcon('look'), 'Look');
+    this.lookPad.append(lookHint);
 
     this.stickPad = document.createElement('div');
     this.stickPad.className = 'touch-stick';
@@ -344,7 +350,7 @@ export class TouchControls {
   }
 
   private syncVisibility(): void {
-    const visible = this.requestedVisible && !document.body.classList.contains('hack-session-open');
+    const visible = this.requestedVisible && !document.body.matches('.hack-session-open, .pause-menu-open');
     this.root.classList.toggle('touch-controls--hidden', !visible);
     this.rotateHint.classList.toggle('touch-rotate-hint--hidden', !visible);
     if (!visible) { this.resetInput(); this.closeRadial(); }
@@ -353,6 +359,7 @@ export class TouchControls {
   private resetInput(): void {
     this.clearStick();
     this.lookFingers.clear();
+    this.lookPad.classList.remove('is-down');
     this.lookPrimaryId = null;
     this.handlers.camera.touchLookRelease();
     for (const cancel of this.cancelHolds) cancel();
@@ -578,8 +585,8 @@ export class TouchControls {
     this.closeRadial();
   };
 
-  private openRadial(sticky: boolean): void { this.radial.classList.add('visible'); this.radial.dataset.sticky = sticky ? '1' : '0'; }
-  private closeRadial(): void { this.radial.classList.remove('visible'); }
+  private openRadial(sticky: boolean): void { this.root.classList.add('touch-controls--emoting'); this.radial.classList.add('visible'); this.radial.dataset.sticky = sticky ? '1' : '0'; }
+  private closeRadial(): void { this.root.classList.remove('touch-controls--emoting'); this.radial.classList.remove('visible'); }
 
   private holdButton(
     label: string,

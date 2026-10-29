@@ -719,8 +719,8 @@ html[data-reduced-motion='1'] *::after {
 
 .heist-report__meta { display: grid; gap: 8px; margin: 0 0 10px; }
 
-/* Short landscape (844×390): two columns so brand, grade, awards and actions stay on screen. */
-@media (max-height: 420px) and (min-width: 560px) {
+/* Landscape phones: brand, grade, awards and actions share one compact report. */
+@media (max-height: 500px) and (min-width: 560px) {
   .heist-report-overlay { padding: 8px 16px; }
   .heist-report {
     width: min(780px, 100%);
@@ -973,6 +973,15 @@ html[data-reduced-motion='1'] .wake-progress span { transition: none; }
   height: max(48px, calc(100% - var(--touch-top) - var(--touch-bottom) - 4 * var(--touch-step) - 56px));
   pointer-events: auto; touch-action: none;
 }
+.touch-look__hint {
+  isolation: isolate; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 6px;
+  pointer-events: none; color: var(--graphite); font: 700 12px/1 var(--font-body); opacity: .8;
+}
+.touch-look__hint::before { content: ''; position: absolute; width: 76px; height: 32px; border: var(--rim); border-radius: var(--r-control); background: var(--paper); z-index: -1; }
+.touch-look__hint .glyph { width: 20px; height: 20px; }
+.touch-look.is-down .touch-look__hint { opacity: 0; }
+.touch-controls--emoting [data-testid='touch-grab'], .touch-controls--emoting [data-testid='touch-throw'],
+.touch-controls--emoting [data-testid='touch-jump'], .touch-controls--emoting [data-testid='touch-yank'] { visibility: hidden; }
 .touch-controls--left .touch-look { right: auto; left: var(--touch-edge); }
 .touch-stick {
   position: absolute; left: var(--touch-edge); bottom: var(--touch-bottom);
@@ -1043,6 +1052,12 @@ html[data-reduced-motion='1'] .wake-progress span { transition: none; }
 .touch-play .mission-objective { top: max(8px, env(safe-area-inset-top, 0px)); width: min(40vw, 360px); }
 .touch-play .mission-objective--collapsed { height: 36px; min-height: 36px; padding: 8px 12px; }
 body.hack-session-open :is(.touch-controls, .emote-radial, .onboarding-coach, .active-drone-hud, .network-hud, .run-hud) { visibility: hidden !important; }
+body.pause-menu-open :is(.mission-objective, .juice-toasts, .interaction-prompt, .active-drone-hud, .network-hud, .run-hud, .onboarding-coach, .emote-radial) { visibility: hidden !important; }
+.touch-controls-help { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; list-style: none; }
+.touch-controls-help li { display: flex; align-items: center; gap: 8px; min-height: 48px; font-size: 16px; }
+.touch-controls-help .glyph { width: 24px; height: 24px; flex-shrink: 0; }
+.pause-panel:has(.touch-controls-help) { padding: 12px 16px; gap: 8px; }
+.pause-panel:has(.touch-controls-help) h2 { margin: 0; }
 /* The emote picker stays in its thumb rail; all four choices remain directly tappable. */
 .touch-play .emote-radial {
   left: auto; right: max(8px, env(safe-area-inset-right, 0px)); bottom: max(8px, env(safe-area-inset-bottom, 0px));
@@ -1179,7 +1194,7 @@ body.hack-session-open :is(.touch-controls, .emote-radial, .onboarding-coach, .a
   .hack-status { min-height: 16px; margin-bottom: 0; }
 }
 
-/* Every hack variant is a compact landscape sheet.  Controls retain 40px tap targets. */
+/* Every hack variant is a compact landscape sheet.  Controls retain 48px tap targets. */
 @media (orientation: landscape) and (max-height: 500px) {
   .hack-overlay { padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px)); }
   .hack-panel { width: min(560px, 100%); max-height: 100%; overflow: auto; padding: clamp(10px, 2vh, 18px) clamp(12px, 3vw, 24px); }
