@@ -1,12 +1,12 @@
 // Audio smoke test: the hub unlocks on a real click, every event starts a sound, music/alarm/hum run in a
 // solo game, and there are no console errors. Optional: --preview <file.webm> records a listening mix.
-import { chromium } from 'playwright';
+import { launch } from './qa/lib.mjs';
 import { writeFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 const previewAt = args.indexOf('--preview');
 const preview = previewAt >= 0 ? args[previewAt + 1] : null;
-const RAW = args.find((a, i) => !a.startsWith('--') && i !== previewAt + 1) ?? process.env.APP_URL ?? 'http://localhost:5173/?scale=4&lowfx';
-const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const RAW = args.find((a, i) => !a.startsWith('--') && !(previewAt >= 0 && i === previewAt + 1)) ?? process.env.APP_URL ?? 'http://localhost:5173/?scale=4&lowfx';
+const browser = await launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
@@ -60,7 +60,7 @@ try {
   // Every event must start at least one voice.
   result.events = await page.evaluate(async () => {
     const a = window.__pixAudio; const out = {};
-    const names = ['uiHover', 'uiClick', 'uiConfirm', 'uiBack', 'uiToggle', 'uiError', 'twang', 'snap', 'yank', 'yanked', 'slingshot', 'bump', 'boost', 'impact', 'grab', 'drop', 'throw', 'hackStart', 'hackTick', 'hackSuccess', 'hackFail', 'suspicious', 'spotted', 'stun', 'cameraBlind', 'capture', 'rescue', 'vaultOpen', 'theft', 'extract', 'chirp'];
+    const names = ['uiHover', 'uiClick', 'uiConfirm', 'uiBack', 'uiToggle', 'uiError', 'twang', 'snap', 'yank', 'yanked', 'slingshot', 'bump', 'boost', 'impact', 'grab', 'drop', 'throw', 'hackStart', 'hackTick', 'hackSuccess', 'hackFail', 'suspicious', 'spotted', 'stun', 'cameraBlind', 'capture', 'rescue', 'vaultOpen', 'doorMotor', 'theft', 'extract', 'chirp'];
     for (const n of names) {
       const before = Object.values(a.stats).reduce((s, v) => s + v, 0);
       a.play(n, { intensity: 0.7, role: 'nee', mood: 'happy', position: { x: 3, y: 0, z: 0 } });

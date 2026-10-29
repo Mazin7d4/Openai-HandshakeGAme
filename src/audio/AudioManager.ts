@@ -37,14 +37,14 @@ export type AudioEvent =
   | 'grab' | 'drop' | 'throw' | 'pass'
   | 'hackStart' | 'hackTick' | 'hackSuccess' | 'hackFail'
   | 'suspicious' | 'spotted' | 'stun' | 'cameraBlind' | 'capture' | 'rescue'
-  | 'vaultOpen' | 'theft' | 'extract' | 'celebrate'
+  | 'vaultOpen' | 'doorMotor' | 'theft' | 'extract' | 'celebrate'
   | 'chirp' | 'ping' | 'emote'
   | 'replayDrop';
 
 export const AUDIO_EVENTS: readonly AudioEvent[] = [
   'uiHover', 'uiClick', 'uiConfirm', 'uiBack', 'uiToggle', 'uiError',
   'twang', 'snap', 'yank', 'yanked', 'slingshot', 'bump', 'boost', 'impact', 'grab', 'drop', 'throw',
-  'hackStart', 'hackTick', 'hackSuccess', 'hackFail', 'pass',
+  'hackStart', 'hackTick', 'hackSuccess', 'hackFail', 'pass', 'doorMotor',
   'suspicious', 'spotted', 'stun', 'cameraBlind', 'capture', 'rescue', 'vaultOpen', 'theft', 'extract', 'celebrate', 'chirp', 'ping', 'emote', 'replayDrop',
 ];
 
@@ -438,6 +438,10 @@ export class AudioManager {
       case 'cameraBlind': this.spr(event, 'glitch', { gain: 0.7 * vol, pos }); this.spr(event, 'zap', { gain: 0.25 * vol, pos, rate: 1.4 }); return;
       case 'capture': this.spr(event, 'capture', { gain: 0.8 * vol, pos }); this.duckMusic(0.9, 0.5); return;
       case 'rescue': this.start(event, this.synth('rescue', (r) => zz(r, ZZ.rescue)), { gain: 0.6 * vol, pos }); return;
+      case 'doorMotor':
+        this.start(event, this.synth('door-motor', (r) => whoosh(r, 0.8, 240, 70)), { gain: 0.28 * vol, pos });
+        this.start(event, this.synth('door-latch', (r) => zz(r, [0.3, 0, 82, 0.02, 0.14, 0.28, 1, 1, -1])), { gain: 0.3 * vol, pos, delay: 0.65 });
+        return;
       case 'vaultOpen':
         this.spr(event, 'vault_door', { gain: 0.8 * vol, pos });
         this.spr(event, 'sting_vault', { gain: 0.7 * vol, delay: 0.15 });
