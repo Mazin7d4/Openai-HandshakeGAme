@@ -309,6 +309,7 @@ class HandshakeRoom extends Room {
   rematchVoteTimes = new Map();
   botEnabled = false;
   botPilot;
+  reconnectingSeats = new Set();
   quickMatch = false;
   qmKey = '';
   quickMatchAllowed = true;
@@ -1010,7 +1011,26 @@ class HandshakeRoom extends Room {
     this.sendObjectiveState(client);
   }
 
-  /** Unexpected drop: hold the seat, freeze the drone, keep match state. */
+  /** Keep reserved human seats in place so reconnect tokens retain their identity. */
+  refreshReservedPilot() {
+    const hasHuman = [...this.state.players.values()].some((p) => !this.reconnectingSeats.has(p.playerId) && !p.bot && p.connected);
+    let pilotId = 'bot';
+    for (const id of this.reconnectingSeats) {
+      const seat = this.state.players.get(id);
+      if (!seat) continue;
+      seat.bot = this.botEnabled && hasHuman;
+      seat.connected = seat.bot;
+      if (seat.bot) pilotId = id;
+      else this.freezePlayer(seat);
+    }
+    if (this.botPilot.sessionId !== pilotId) {
+      this.botPilot.reset();
+      this.botPilot = new BotPilot(this);
+      this.botPilot.sessionId = pilotId;
+    }
+  }
+
+  /** Unexpected drop: reserve identity and let AI pilot when a human remains. */
   onDrop(client) {
     const player = this.state.players.get(client.sessionId);
     if (!player) {
@@ -1025,13 +1045,20 @@ class HandshakeRoom extends Room {
       if (bot) this.freezePlayer(bot);
     }
     this.releaseRole(player.role);
+    this.reconnectingSeats.add(client.sessionId);
+    this.refreshReservedPilot();
     this.allowReconnection(client, RECONNECT_SECONDS);
   }
 
   onReconnect(client) {
     const player = this.state.players.get(client.sessionId);
     if (player) {
+      this.reconnectingSeats.delete(client.sessionId);
+      player.bot = false;
       player.connected = true;
+      this.refreshReservedPilot();
+      if (this.botEnabled && this.state.players.size === 1) this.addBotSeat(player.role === 'pix' ? 'nee' : 'pix', player.position);
+      this.state.started = this.state.players.size === 2;
       const bot = this.state.players.get('bot');
       if (bot) bot.connected = true;
       if (this.quickMatch && this.quickMatchAllowed && [...this.state.players.values()].filter((candidate) => !candidate.bot && candidate.connected).length < 2) this.unlock();
@@ -1044,6 +1071,11 @@ class HandshakeRoom extends Room {
     const player = this.state.players.get(client.sessionId);
     if (!player) {
       return;
+    }
+    this.reconnectingSeats.delete(client.sessionId);
+    if (this.botPilot.sessionId === client.sessionId) {
+      this.botPilot.reset();
+      this.botPilot = new BotPilot(this);
     }
     if (this.quickMatch && client.userData?.quickMatchSeat) {
       releaseQuickMatchSeat(client.userData.quickMatchIp ?? 'unknown');
@@ -1072,6 +1104,7 @@ class HandshakeRoom extends Room {
     const partnerClient = partner ? this.clientForRole(partner.role) : undefined;
     if (!this.botEnabled || !partner) partnerClient?.send('rematch-partner-left', { role: player.role });
     if (this.quickMatch && this.botEnabled && partner) this.unlock();
+    this.refreshReservedPilot();
     this.pingTimes.delete(client.sessionId);
     this.emoteTimes.delete(client.sessionId);
   }
@@ -1687,7 +1720,7 @@ class HandshakeRoom extends Room {
   }
 
   botYank() {
-    const sender = this.state.players.get('bot');
+    const sender = this.state.players.get(this.botPilot.sessionId);
     const partner = [...this.state.players.values()].find((player) => !player.bot && player.connected);
     if (!sender?.connected || sender.captured || !partner || !partner.captured || distance(sender.position, partner.position) > 11) return false;
     this.objectiveSim.noteYank(sender.role);
