@@ -45,6 +45,7 @@ export class MenuNavigator {
   }
 
   detach(): void {
+    this.root?.classList.remove('menu-gamepad-focus');
     window.removeEventListener('keydown', this.onKeyDown, true);
     if (this.raf) window.cancelAnimationFrame(this.raf);
     this.raf = 0;
@@ -69,20 +70,21 @@ export class MenuNavigator {
         ?? this.focusables()[0]
         ?? null;
     }
-    target?.focus({ preventScroll: true });
+    target?.focus();
   }
 
   private focusables(): HTMLElement[] {
     if (!this.root) return [];
     return [...this.root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => {
+      if (el.tabIndex < 0) return false;
       if (el.closest('[aria-hidden="true"]')) return false;
-      const style = window.getComputedStyle(el);
-      return style.display !== 'none' && style.visibility !== 'hidden' && !el.hasAttribute('disabled');
+      return el.checkVisibility({ visibilityProperty: true }) && !el.hasAttribute('disabled');
     });
   }
 
   private handleKey(event: KeyboardEvent): void {
     if (!this.root?.isConnected) return;
+    this.root.classList.remove('menu-gamepad-focus');
     const active = document.activeElement;
 
     if (event.code === 'Escape') {
@@ -101,10 +103,10 @@ export class MenuNavigator {
       event.stopPropagation();
       if (event.shiftKey) {
         const prev = index <= 0 ? items[items.length - 1]! : items[index - 1]!;
-        prev.focus({ preventScroll: true });
+        prev.focus();
       } else {
         const next = index < 0 || index >= items.length - 1 ? items[0]! : items[index + 1]!;
-        next.focus({ preventScroll: true });
+        next.focus();
       }
     }
   }
@@ -153,6 +155,7 @@ export class MenuNavigator {
 
     if (!(aPress || bPress || dpadEdge || axisEdge || (axisActive && (dirX || dirY)))) return;
     markGamepadActivity();
+    this.root.classList.add('menu-gamepad-focus');
 
     if (bPress && this.options.onBack) {
       this.options.onBack();
@@ -170,12 +173,34 @@ export class MenuNavigator {
     const now = performance.now();
     const shouldStep = dpadEdge || axisEdge || (axisActive && now - this.lastNavAt > REPEAT_MS);
     if ((dirX || dirY) && shouldStep) {
+      if (dirX && !dirY && this.adjustControl(dirX)) {
+        this.lastNavAt = now;
+        return;
+      }
       const delta = dirY !== 0 ? dirY : dirX;
       if (delta !== 0) {
         this.moveFocus(delta);
         this.lastNavAt = now;
       }
     }
+  }
+
+  /** Horizontal gamepad input edits native settings without moving focus away. */
+  private adjustControl(delta: number): boolean {
+    const active = document.activeElement;
+    if (!active || !this.root?.contains(active)) return false;
+    if (active instanceof HTMLInputElement && active.type === 'range') {
+      if (delta > 0) active.stepUp(); else active.stepDown();
+      active.dispatchEvent(new Event('input', { bubbles: true }));
+      active.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    }
+    if (active instanceof HTMLSelectElement) {
+      active.selectedIndex = Math.max(0, Math.min(active.options.length - 1, active.selectedIndex + delta));
+      active.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    }
+    return false;
   }
 
   private moveFocus(delta: number): void {
@@ -185,7 +210,7 @@ export class MenuNavigator {
     let index = active && this.root?.contains(active) ? items.indexOf(active) : -1;
     if (index < 0) index = delta > 0 ? -1 : 0;
     const next = items[(index + delta + items.length * 8) % items.length]!;
-    next.focus({ preventScroll: true });
+    next.focus();
   }
 }
 

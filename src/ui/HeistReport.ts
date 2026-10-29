@@ -442,6 +442,8 @@ export class HeistReport {
   }
 
   private handleKey(event: KeyboardEvent): void {
+    if (event.target instanceof Element && event.target.closest('input, select, textarea')) return;
+    if (event.key === 'Enter' && event.target instanceof Element && event.target.closest('button, a[href]')) return;
     if (!this.visible) return;
     if (event.key === 'r' || event.key === 'R' || event.key === 'Enter') {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
