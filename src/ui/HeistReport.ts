@@ -446,7 +446,6 @@ export class HeistReport {
     if (event.key === 'Enter' && event.target instanceof Element && event.target.closest('button, a[href]')) return;
     if (!this.visible) return;
     if (event.key === 'r' || event.key === 'R' || event.key === 'Enter') {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
       event.preventDefault();
       if (this.rematchBtn) this.rematchBtn.click();
       else this.handlers.onPlayAgain();

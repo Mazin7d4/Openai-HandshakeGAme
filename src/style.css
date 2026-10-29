@@ -413,6 +413,14 @@ body.hack-session-open :is(.mission-objective, .juice-toasts, .interaction-promp
 .controls-list dt { justify-self: start; }
 .controls-list dd { color: var(--pencil); }
 
+/* Menu copy scales independently of viewport and control hit areas. */
+:is(.menu-panel, .settings-panel, .settings-menu--embedded, .pause-panel, .heist-report) :is(.panel__body, .panel__kicker, .menu-subtitle, .lobby-status, .settings-row, .settings-hint, .controls-list, .settings-cosmetic strong, .settings-cosmetic span, .keycap, .keys__or, .leaderboard-row, .leaderboard-status, .room-label, .room-code-hint, .invite-link, .invite-qr figcaption, .title-best-crew, .menu-best, .heist-report__grade-caption, .heist-report__quip, .heist-report__leaderboard-rank, .heist-report__leaderboard-muted, .heist-report__run, .heist-report__seed) {
+  font-size: calc(16px * var(--ui-scale, 1));
+}
+.menu-gamepad-focus :focus { outline: 2px solid var(--pix); outline-offset: 3px; box-shadow: 0 0 0 3px var(--graphite); }
+.settings-body { scroll-padding-block: 6px; }
+.settings-body :focus { scroll-margin-block: 6px; }
+
 /* Accessibility feedback + colour-blind role marks */
 .a11y-feedback { position: absolute; inset: 0; pointer-events: none; z-index: 28; }
 .a11y-pulse {
@@ -478,12 +486,10 @@ html[data-high-contrast='1'] .controls-card {
   border-color: var(--graphite); color: var(--graphite); background: var(--paper);
   box-shadow: 0 3px 0 var(--graphite);
 }
-html[data-ui-scale='125'] { font-size: 112.5%; }
-html[data-ui-scale='150'] { font-size: 125%; }
 html[data-reduced-motion='1'] *,
 html[data-reduced-motion='1'] *::before,
 html[data-reduced-motion='1'] *::after {
-  animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important;
+  animation-duration: 0s !important; animation-iteration-count: 1 !important; transition-duration: 0s !important;
 }
 
 /* ---------- Hack terminals: warm-white screen, PIX accent ---------- */
@@ -677,12 +683,12 @@ html[data-reduced-motion='1'] *::after {
 .leaderboard-panel > .btn--quiet { min-height: 48px; padding: 6px 10px; }
 .heist-report__stamp {
   position: absolute; right: 18px; top: 72px;
-  padding: 6px 10px; border: 3px solid var(--exit); border-radius: var(--r-control);
-  color: var(--exit); font: 800 14px/1 var(--font-title); font-stretch: 112%;
+  padding: 6px 10px; border: 3px solid #365D45; border-radius: var(--r-control);
+  color: #365D45; font: 800 16px/1 var(--font-title); font-stretch: 112%;
   letter-spacing: 0.14em; text-transform: uppercase;
-  transform: rotate(-12deg); pointer-events: none; opacity: 0.85;
+  transform: rotate(-12deg); pointer-events: none; opacity: 1;
 }
-.heist-report__stamp--fail { border-color: var(--alarm); color: var(--alarm); }
+.heist-report__stamp--fail { border-color: var(--nee-ink); color: var(--nee-ink); }
 
 @media (min-width: 520px) {
   .heist-report__actions { grid-template-columns: 1fr 1fr; }
@@ -703,14 +709,14 @@ html[data-reduced-motion='1'] *::after {
   .heist-report__awards { gap: 4px; margin-bottom: 6px; }
   .heist-report__award { padding: 6px 8px; }
   .heist-report__quip { margin-bottom: 6px; font-size: 14px; }
-  .heist-report__stamp { top: 56px; right: 12px; font-size: 12px; }
+  .heist-report__stamp { top: 56px; right: 12px; }
   .heist-report__actions .btn--primary { min-height: 48px; }
 }
 @media (max-width: 420px), (max-height: 460px) {
   .heist-report { padding: 14px 14px 12px; }
   .heist-report__title { font-size: 24px; margin-bottom: 6px; }
   .heist-report__time { font-size: 28px; padding: 6px 10px; }
-  .heist-report__stamp { top: 48px; right: 10px; font-size: 11px; }
+  .heist-report__stamp { top: 48px; right: 10px; }
   .heist-report__quip { font-size: 16px; }
   .heist-report__actions { grid-template-columns: 1fr 1fr; }
   .heist-report__actions .btn--primary,
@@ -741,7 +747,7 @@ html[data-reduced-motion='1'] *::after {
   .heist-report__kicker,
   .heist-report__title,
   .heist-report__quip { display: none; }
-  .heist-report__stamp { top: 10px; right: 14px; font-size: 11px; padding: 4px 8px; }
+  .heist-report__stamp { top: 10px; right: 14px; padding: 4px 8px; }
   .heist-report__meta {
     grid-area: meta; margin: 0; gap: 8px;
     align-content: start;
@@ -794,7 +800,7 @@ html[data-reduced-motion='1'] *::after {
 @keyframes panel-in { from { opacity: 0; transform: translateY(10px) scale(0.96); } }
 @keyframes boot-blink { 50% { opacity: 0.55; } }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  *, *::before, *::after { animation-duration: 0s !important; animation-iteration-count: 1 !important; transition-duration: 0s !important; }
 }
 
 @media (max-width: 900px), (max-height: 500px) {
@@ -860,7 +866,7 @@ html[data-reduced-motion='1'] *::after {
   .heist-report__kicker, .heist-report__title, .heist-report__quip { display: none; }
   .heist-report__actions .btn--primary,
   .heist-report__actions .btn--quiet { grid-column: auto; }
-  .heist-report__actions .btn { font-size: 14px; }
+  .heist-report__actions .btn { font-size: 16px; }
 }
 @media (max-width: 600px) {
   .join-panel, .lobby-panel { max-width: 100%; }
@@ -913,7 +919,7 @@ html[data-reduced-motion='1'] *::after {
   .lobby-panel .invite-link { margin: 0; }
   .lobby-panel > .btn { padding: 6px 10px; margin-left: 0; }
   .lobby-panel > .lobby-status { grid-column: 2; grid-row: 7; margin: 0; align-self: center; }
-  .lobby-panel > .room-label:not(.panel__kicker) { grid-column: 2; grid-row: 6; font-size: 14px; }
+  .lobby-panel > .room-label:not(.panel__kicker) { grid-column: 2; grid-row: 6; }
 }
 /* Server wake-up overlay (multiplayer host/join on the free server) */
 .wake-overlay { display: grid; justify-items: center; gap: 10px; margin-top: 20px; text-align: center; }
