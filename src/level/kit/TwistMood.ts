@@ -17,21 +17,21 @@ export function applyTwistMood(scene: Scene, twist: TwistId | string): { dispose
     case 'lights_out': {
       if (sun) {
         const origSunIntensity = sun.intensity;
-        sun.intensity *= 0.35;
+        sun.intensity *= 0.58;
         disposers.push(() => {
           sun.intensity = origSunIntensity;
         });
       }
       if (fill) {
         const origFillIntensity = fill.intensity;
-        fill.intensity *= 0.35;
+        fill.intensity *= 0.7;
         disposers.push(() => {
           fill.intensity = origFillIntensity;
         });
       }
       const heroLights = scene.lights.filter((light) => light.name.startsWith('hero-'));
       const originalHeroIntensities = heroLights.map((light) => ({ light, intensity: light.intensity }));
-      for (const item of originalHeroIntensities) item.light.intensity *= 0.35;
+      for (const item of originalHeroIntensities) item.light.intensity *= 0.58;
       if (originalHeroIntensities.length > 0) {
         disposers.push(() => {
           for (const item of originalHeroIntensities) item.light.intensity = item.intensity;
@@ -219,9 +219,9 @@ export function applyTwistMood(scene: Scene, twist: TwistId | string): { dispose
 
 /** Night Shift floor 2+ tint: each later floor reads as a later hour (dusk amber, night blue, late violet). */
 const FLOOR_TINTS: readonly [number, number, number][] = [
-  [1.0, 0.86, 0.72],
-  [0.8, 0.88, 1.0],
-  [0.9, 0.82, 1.0],
+  [1.0, 0.97, 0.92],
+  [0.93, 0.97, 1.0],
+  [0.97, 0.95, 1.0],
 ];
 
 export function applyFloorTint(scene: Scene, floor: number): { dispose(): void } {

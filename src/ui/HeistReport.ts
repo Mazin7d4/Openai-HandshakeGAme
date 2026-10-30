@@ -27,7 +27,21 @@ export interface HeistReportHandlers {
   /** Re-watch the slow-mo escape replay (button shown only when footage exists). */
   onReplay?: () => void;
   onLeaderboardName?: (name: string, team: boolean) => void;
+  campaign?: {
+    onNext?: () => void;
+    onSelect: () => void;
+    onMenu: () => void;
+  };
   audio?: GameAudio | null;
+}
+
+export interface CampaignReportState {
+  index: number;
+  levelName: string;
+  stars: readonly boolean[];
+  parSeconds: number;
+  totalStars: number;
+  totalLevels: number;
 }
 
 export interface CoopReportPlayer {
@@ -74,6 +88,7 @@ export class HeistReport {
   private readonly stampEl: HTMLElement;
   private readonly seedEl: HTMLElement;
   private readonly nightShiftEl: HTMLElement;
+  private readonly campaignEl: HTMLElement;
   private readonly challengeHint: HTMLElement;
   private readonly live: HTMLDivElement;
   private readonly playAgainBtn: HTMLButtonElement | null;
@@ -84,6 +99,7 @@ export class HeistReport {
   private readonly nav = new MenuNavigator();
   private stats: RunStats | null = null;
   private replayBtn: HTMLButtonElement | null = null;
+  private campaignNextBtn: HTMLButtonElement | null = null;
   private lastShow: [RunStats, NightShiftSummary | undefined, CoopReportState | undefined] | null = null;
   private leaderboardPayload: LeaderboardRecordedPayload | null = null;
   private leaderboardSkipReason: string | undefined;
@@ -93,6 +109,7 @@ export class HeistReport {
   private gradeTimers: number[] = [];
   private readonly onKey = (event: KeyboardEvent) => this.handleKey(event);
   private readonly handlers: HeistReportHandlers;
+  private campaignState: CampaignReportState | null = null;
 
   constructor(parent: HTMLElement, handlers: HeistReportHandlers) {
     this.handlers = handlers;
@@ -189,6 +206,12 @@ export class HeistReport {
       this.nightShiftEl.after(this.playerStatsEl);
     }
 
+    this.campaignEl = document.createElement('div');
+    this.campaignEl.className = 'heist-report__run heist-report__campaign';
+    this.campaignEl.dataset.testid = 'campaign-result';
+    this.campaignEl.hidden = true;
+    this.nightShiftEl.after(this.campaignEl);
+
     this.leaderboardSection = document.createElement('section');
     this.leaderboardSection.className = 'heist-report__leaderboard';
     this.leaderboardSection.dataset.testid = 'report-leaderboard';
@@ -209,6 +232,18 @@ export class HeistReport {
       actions.append(this.replayBtn);
     }
     actions.append(challenge, save);
+    if (handlers.campaign) {
+      const next = button('Next level', 'btn btn--primary', 'campaign-next');
+      this.campaignNextBtn = next;
+      next.addEventListener('click', () => handlers.campaign?.onNext?.());
+      actions.append(next);
+      const select = button('Level select', 'btn', 'campaign-level-select');
+      select.addEventListener('click', () => handlers.campaign?.onSelect());
+      actions.append(select);
+      const menu = button('Menu', 'btn btn--quiet', 'campaign-menu');
+      menu.addEventListener('click', () => handlers.campaign?.onMenu());
+      actions.append(menu);
+    }
     if (handlers.onNewSeed) {
       const fresh = button('New seed', 'btn', 'new-seed');
       fresh.addEventListener('click', () => handlers.onNewSeed?.());
@@ -266,6 +301,31 @@ export class HeistReport {
     this.stampEl.classList.toggle('heist-report__stamp--fail', stats.outcome !== 'win');
     this.challengeHint.hidden = true;
     this.challengeHint.textContent = '';
+
+    const title = this.panel.querySelector<HTMLElement>('#heist-report-title');
+    const kicker = this.panel.querySelector<HTMLElement>('.heist-report__kicker');
+    const campaign = this.campaignState && stats.outcome === 'win' ? this.campaignState : null;
+    title!.textContent = campaign
+      ? campaign.index === campaign.totalLevels ? 'CAMPAIGN COMPLETE' : 'Level complete'
+      : 'Heist Report';
+    kicker!.textContent = campaign ? 'Campaign result' : 'Case closed';
+    this.campaignEl.hidden = !campaign;
+    if (this.campaignNextBtn) this.campaignNextBtn.hidden = !campaign || campaign.index >= campaign.totalLevels;
+    if (campaign) {
+      this.campaignEl.replaceChildren();
+      const heading = document.createElement('p');
+      heading.textContent = campaign.index === campaign.totalLevels
+        ? `${campaign.totalStars}/${campaign.totalLevels * 3} stars across the campaign`
+        : `${campaign.levelName} · ${campaign.totalStars}/${campaign.totalLevels * 3} stars so far`;
+      const time = document.createElement('p');
+      time.textContent = `Time ${formatRunTime(stats.elapsedSeconds)} · par ${formatRunTime(campaign.parSeconds)}`;
+      const stars = document.createElement('p');
+      stars.dataset.testid = 'campaign-stars';
+      stars.setAttribute('aria-label', `${campaign.stars.filter(Boolean).length} of 3 campaign stars earned`);
+      stars.textContent = campaign.stars.map((earned) => earned ? '★' : '☆').join(' ');
+      stars.className = 'heist-report__campaign-stars';
+      this.campaignEl.append(heading, time, stars);
+    }
 
     this.panel.querySelector('.heist-report__unlock-toast')?.remove();
     const unlocked = recordRunUnlocks({
@@ -380,6 +440,10 @@ export class HeistReport {
       onBack: this.handlers.onLeave,
       initialFocus: this.rematchBtn ?? this.playAgainBtn,
     });
+  }
+
+  setCampaignResult(state: CampaignReportState): void {
+    this.campaignState = state;
   }
 
   updateCoopStatus(state: CoopReportState): void {

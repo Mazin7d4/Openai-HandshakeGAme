@@ -1,5 +1,6 @@
 import { mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import { generateRun } from '../../shared/seed/index.mjs';
+import { DOORWAYS, STATIC_BLOCKERS, pointInAabb } from '../../shared/nightshift/levelGeometry.mjs';
 import { estimateFloorDrawCalls } from '../../shared/nightshift/drawBudget.mjs';
 import { runTest, url, assert, collectErrors, openPage, closePage, waitForNightShiftHud } from './lib.mjs';
 
@@ -7,6 +8,36 @@ const shotDir = '/workspace/handshake/playtest/oct25/nightshift';
 mkdirSync(shotDir, { recursive: true });
 for (const file of readdirSync(shotDir)) {
   if (file.endsWith('.png')) unlinkSync(`${shotDir}/${file}`);
+}
+
+function routePoint(point) {
+  assert(!STATIC_BLOCKERS.some((blocker) => pointInAabb(point, blocker, 0.3))
+    || DOORWAYS.some((doorway) => pointInAabb(point, doorway, 0.05)), `fragile route intersects blocker: ${JSON.stringify(point)}`);
+  return point;
+}
+
+function fragileRoute(loot, extraction, toExtraction) {
+  const route = toExtraction
+    ? [
+        { x: 0, y: 5.8, z: 25 },
+        { x: 0, y: 4.5, z: 30 },
+        { x: 11.5, y: 4.5, z: 32 },
+        { x: 11.5, y: 3.8, z: 41 },
+      ]
+    : [
+        // The showcase crew is already inside the vault; approach above the
+        // low benches and the plinth, then descend within grab range.
+        { x: loot.x, y: Math.max(5.8, loot.y + .8), z: loot.z - 2 },
+      ];
+  return route.map(routePoint);
+}
+
+async function gotoPoint(page, role, point, tolerance = 1.5, hold = false) {
+  await page.evaluate(({ role, point, tolerance, hold }) => window.__autotest.goto(role, point.x, point.y, point.z, tolerance, hold), { role, point, tolerance, hold });
+  await page.waitForFunction(({ role, point, tolerance }) => {
+    const current = window.__autotest.position(role);
+    return current && Math.hypot(current.x - point.x, current.y - point.y, current.z - point.z) <= Math.max(1.5, tolerance + 0.3);
+  }, { role, point, tolerance }, { timeout: 45_000 });
 }
 
 function picks() {
@@ -236,38 +267,13 @@ async function completeRelay(page, objective) {
 }
 
 async function completeFragileCarry(page, loot, cracksToShatter, extraction) {
-  await page.evaluate((loot) => {
-    window.__autotest.teleport('pix', loot.x, loot.y, loot.z);
-    // Start the carry with NEE in the same room; the normal follow/pass logic
-    // then has to stay alongside PIX instead of trying to cross the whole map
-    // while the tether is already stretched.
-    window.__autotest.teleport('nee', loot.x + 2.5, loot.y, loot.z - 1.5);
-    window.__autotest.press('pix', 'grabDrop');
-  }, loot);
+  // Real flight only: use shared doorway envelopes to build and validate the
+  // route. NEE stays on its normal bot breadcrumb/follow path.
+  for (const waypoint of fragileRoute(loot, extraction, false)) await gotoPoint(page, 'pix', waypoint, 1.8, true);
+  await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
   await page.waitForFunction(() => window.__autotest.heldObject('pix') === 'prototype', null, { timeout: 10_000 });
-  // Take the normal high route over the room dressing before dropping to the
-  // extraction pad; a single straight-line autopilot path would intentionally
-  // run into the authored room walls.
-  for (const waypoint of [
-    { x: loot.x, y: 8, z: -20 },
-    { x: -2, y: 8, z: -50 },
-    { x: extraction.x, y: 4, z: extraction.z },
-  ]) {
-    await page.evaluate((point) => {
-      const current = window.__autotest.position('pix');
-      const dx = point.x - (current?.x ?? point.x);
-      const dz = point.z - (current?.z ?? point.z);
-      window.__autotest.teleport('pix', point.x, point.y, point.z);
-      window.__autotest.teleport('nee', point.x + Math.max(-2, Math.min(2, dx * 0.05)), point.y, point.z - 2);
-    }, waypoint);
-    await page.evaluate((point) => window.__autotest.goto('pix', point.x, point.y, point.z, 1.5, true), waypoint);
-    await page.waitForFunction(({ point }) => {
-      const position = window.__autotest.position('pix');
-      return position && Math.hypot(position.x - point.x, position.y - point.y, position.z - point.z) < 2.5
-        && window.__autotest.heldObject('pix') === 'prototype';
-    }, { point: waypoint }, { timeout: 15_000 });
-  }
-  await page.evaluate((point) => window.__autotest.goto('pix', point.x, point.y, point.z, 1.2, true), extraction);
+  for (const waypoint of fragileRoute(loot, extraction, true)) await gotoPoint(page, 'pix', waypoint, 1.8, true);
+  await gotoPoint(page, 'pix', extraction, 1.2, true);
   await page.waitForFunction(({ point, cracksToShatter }) => {
     const position = window.__autotest.position('pix');
     const state = window.__floorPlan?.objective();

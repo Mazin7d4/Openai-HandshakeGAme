@@ -230,7 +230,7 @@ h1, h2, .panel__title { font-family: var(--font-title); font-stretch: 118%; font
   border: var(--rim); border-radius: var(--r-control);
   background: var(--paper); box-shadow: var(--lip);
   color: var(--graphite);
-  font: 800 18px/1 var(--font-screen); font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+  font: 800 18px/1 var(--font-screen); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font-variation-settings: 'ROND' 100; letter-spacing: 0.02em;
 }
 .floor-chip--boss {
@@ -535,7 +535,7 @@ html[data-reduced-motion='1'] *::after {
   padding: 22px 24px 18px;
   text-align: left;
   background: var(--paper);
-  border-top: 6px solid var(--oak);
+  border-top: 6px solid #A79A84;
   overflow: auto;
 }
 /* Play again: lock dark fill + light text (same family as title Play now). Never paper on hover/focus. */
@@ -774,6 +774,7 @@ html[data-reduced-motion='1'] *::after {
   .heist-report__actions .btn,
   .heist-report__actions .btn--primary,
   .heist-report__actions .btn--quiet { min-height: 48px; }
+  .heist-report__actions .btn { height: 48px; min-width: 0; padding: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .heist-report__actions .btn--primary { font-size: 16px; }
 }
 
@@ -1269,6 +1270,7 @@ body.pause-menu-open :is(.mission-objective, .juice-toasts, .interaction-prompt,
 .escape-replay--reduced .escape-replay__rec { animation: none; }
 @media (max-height: 420px) { .escape-replay__stamp { top: 83%; padding: 8px 16px; border-width: 4px; } .escape-replay__bar { height: 10%; } .escape-replay__tag { top: calc(10% + 8px); } .escape-replay__skip { bottom: calc(10% + 8px); } }
 .heist-report__replay[hidden] { display: none !important; }
+
 /* The replay is a clean cinematic: hide the play HUD while it runs. */
 body.escape-replay-on :is(.mission-objective, .onboarding-coach, .interaction-prompt, .active-drone-hud, .controls-card, .juice-toasts, .touch-controls, .network-hud, .run-hud, .floor-card, #dev-readout, #dev-controls) { visibility: hidden !important; }
 
@@ -1279,4 +1281,13 @@ body.escape-replay-on :is(.mission-objective, .onboarding-coach, .interaction-pr
   .hack-panel .hack-grid { width: min(100%, 220px); }
   .hack-panel .hack-status { min-height: 16px; margin-bottom: 0; }
   .hack-panel .hack-cancel { min-height: 48px; }
+}
+
+/* Phone proximity feedback belongs on the object. The duplicate touch action
+   stays as a small glyph beside the permanent action cluster. */
+@media (orientation: landscape) and (max-height: 500px), (pointer: coarse) and (max-width: 900px) {
+  .touch-play .interaction-prompt { left: auto !important; right: 8px; bottom: 184px !important; width: 44px !important; max-width: 44px; padding: 0; background: transparent; border: 0; box-shadow: none; }
+  .touch-play .interaction-prompt button { width: 44px; height: 40px; min-width: 0; padding: 7px; }
+  .touch-play .interaction-prompt button > span { display: none; }
+  .juice-toasts { width: min(21vw, 220px); max-width: 21vw; top: 64px; }
 }

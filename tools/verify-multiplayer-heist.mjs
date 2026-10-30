@@ -208,7 +208,7 @@ try {
   const travel = async (points) => {
     for (let i = 0; i < points.length; i++) {
       await step(host, 'player-1', points[i], points[i - 1]);
-      await step(guest, 'player-2', points[i], points[i - 1]);
+      await step(guest, 'player-2', points[i].partner ?? points[i], points[i - 1]?.partner ?? points[i - 1]);
     }
   };
   // Traverse actual reception furniture and the high vent.
@@ -265,6 +265,8 @@ try {
 
   const initialCratePos = await cratePosition(host);
   await travel(clearCrate.approach);
+  const pickupCrate = await cratePosition(host);
+  await step(host, 'player-1', { x: pickupCrate.x, y: 3, z: pickupCrate.z - 3.5, tolerance: 0.3 });
   await host.bringToFront();
   await host.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
   await Promise.all([

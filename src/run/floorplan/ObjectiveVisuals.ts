@@ -4,11 +4,15 @@ import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.
 import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
 import { CreateTorus } from '@babylonjs/core/Meshes/Builders/torusBuilder.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
-import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { ObjectivePlan, ObjectiveState, Vec3 } from '../../../shared/nightshift/types.d.ts';
 import { getQuality } from '../../scene/createScene.ts';
 import { floorMaterials } from './materials.ts';
+import { PowerConnection } from '../../gameplay/PowerConnection.ts';
+import { HackStation } from '../../gameplay/HackStation.ts';
+import { addStaticBody } from '../../physics/staticBody.ts';
+import type { DroneRole } from '../../network/NetworkTypes.ts';
 
 function point(value: Vec3): Vector3 {
   return new Vector3(value.x, value.y, value.z);
@@ -43,6 +47,11 @@ export class ObjectiveVisuals {
 
   private readonly materials: ReturnType<typeof floorMaterials>;
   private readonly nodes: AbstractMesh[] = [];
+  private readonly stations: HackStation[] = [];
+  private readonly lamps: AbstractMesh[] = [];
+  private readonly bodies: { dispose(): void }[] = [];
+  private readonly cables: PowerConnection[] = [];
+  private readonly plan: ObjectivePlan;
   private readonly plates: AbstractMesh[] = [];
   private readonly handles: AbstractMesh[] = [];
   private readonly pads: AbstractMesh[] = [];
@@ -53,10 +62,7 @@ export class ObjectiveVisuals {
   private readonly shell?: AbstractMesh;
   private readonly safe?: AbstractMesh;
   private readonly door?: AbstractMesh;
-  private readonly pillar?: AbstractMesh;
-  private readonly pylonCore?: AbstractMesh;
   private readonly pylonBody?: AbstractMesh;
-  private readonly stretch?: AbstractMesh;
   private readonly cage?: AbstractMesh;
   private lastSeq = -1;
   private lastEvent: ObjectiveState['lastEvent'] = null;
@@ -71,27 +77,35 @@ export class ObjectiveVisuals {
   private relayFlash = 0;
   private pulseTime = 0;
 
-  constructor(scene: Scene, plan: ObjectivePlan, loot: { mesh: AbstractMesh; cradle: Vector3 }) {
+  constructor(scene: Scene, plan: ObjectivePlan, loot: { mesh: AbstractMesh; cradle: Vector3 }, campaign = false) {
+    this.plan = plan;
     this.materials = floorMaterials(scene);
 
-    if (plan.levers && plan.levers.length === 2) {
+    if (campaign && (plan.levers || plan.pads)) {
+      const points = plan.levers ?? plan.pads ?? [];
+      points.forEach((position, i) => {
+        const role = ('role' in position ? position.role : i === 0 ? 'pix' : 'nee') as DroneRole;
+        const station = new HackStation(scene, {
+          id: i % 2 === 0 ? 'terminal-a' : 'terminal-b', label: '',
+          position: point(position), interactionRadius: plan.leverRadius ?? plan.padRadius ?? 2,
+          minigameType: 'memory-trace', allowedRole: role,
+          accent: this.materials[role].diffuseColor,
+        });
+        this.stations.push(station);
+        // A physical electrical run terminates at the lock, never at a waypoint.
+        const x = position.x + (role === 'pix' ? -1 : 1);
+        const wire = new PowerConnection(scene, `objective-lock-cable-${i}`, [
+          new Vector3(position.x, .08, position.z), new Vector3(x, .08, position.z),
+          new Vector3(x, .08, loot.cradle.z - 1.5), new Vector3(loot.cradle.x, .08, loot.cradle.z - 1.5),
+        ], this.materials[role].diffuseColor);
+        this.cables.push(wire);
+      });
+    }
+
+    if (!campaign && plan.levers && plan.levers.length === 2) {
       const leverPoints = [point(plan.levers[0]), point(plan.levers[1])];
       const posts: Mesh[] = [];
-      const dashes: Mesh[] = [];
       for (const leverPoint of leverPoints) {
-        const plate = CreateBox('objective-lever-plate', {
-          width: (plan.leverRadius ?? 0.8) * 2,
-          height: (plan.leverRadius ?? 0.8) * 2,
-          depth: 0.12,
-        }, scene);
-        plate.position.set(leverPoint.x, leverPoint.y + 0.03, leverPoint.z);
-        plate.rotation.x = 0.55;
-        plate.material = this.materials.goalDim;
-        plate.isPickable = false;
-        this.plates.push(plate);
-        this.nodes.push(plate);
-        this.beacons.push(leverPoint.clone());
-
         const post = CreateCylinder('objective-lever-post', {
           diameter: 0.22,
           height: leverPoint.y + 0.4,
@@ -116,28 +130,6 @@ export class ObjectiveVisuals {
         this.nodes.push(postMesh);
       }
 
-      const delta = leverPoints[1].subtract(leverPoints[0]);
-      const length = delta.length();
-      if (length > 0.001) {
-        const direction = delta.scale(1 / length);
-        const dashLength = Math.min(0.65, length / 10);
-        for (let i = 0; i < 10; i++) {
-          const dash = CreateCylinder('objective-stretch', {
-            diameter: 0.07,
-            height: dashLength,
-            tessellation: 6,
-          }, scene);
-          const at = leverPoints[0].add(delta.scale((i + 0.5) / 10));
-          dash.position.copyFrom(at);
-          Quaternion.FromUnitVectorsToRef(Vector3.UpReadOnly, direction, dash.rotationQuaternion = Quaternion.Identity());
-          dashes.push(dash);
-        }
-      }
-      const stretch = mergeStatic(dashes, 'objective-stretch-line', this.materials.goalDim);
-      if (stretch) {
-        this.stretch = stretch;
-        this.nodes.push(stretch);
-      }
     }
 
     if (plan.safe) {
@@ -191,18 +183,13 @@ export class ObjectiveVisuals {
 
     if (plan.pylon) {
       const pylon = point(plan.pylon);
-      const body = CreateCylinder('objective-pylon-body', { diameter: 0.72, height: 2.15, tessellation: 12 }, scene);
-      body.position.set(pylon.x, pylon.y + 1.075, pylon.z);
+      const body = CreateCylinder('objective-pylon-body', { diameter: 0.9, height: 4.2, tessellation: 12 }, scene);
+      body.position.set(pylon.x, 2.1, pylon.z);
+      this.bodies.push(addStaticBody(body, scene));
       body.material = this.materials.pylon;
       body.isPickable = false;
       this.pylonBody = body;
       this.nodes.push(body);
-      const core = CreateSphere('objective-pylon-core', { diameter: 0.38, segments: 12 }, scene);
-      core.position.set(pylon.x, pylon.y + 1.7, pylon.z);
-      core.material = this.materials.objectiveMint;
-      core.isPickable = false;
-      this.pylonCore = core;
-      this.nodes.push(core);
       this.safeDirection.copyFrom(pylon).subtractInPlace(this.safeBase);
       this.safeDirection.y = 0;
       if (this.safeDirection.lengthSquared() > 0.001) {
@@ -210,12 +197,7 @@ export class ObjectiveVisuals {
       }
     }
 
-    if (plan.anchor) {
-      const anchor = point(plan.anchor);
-      this.beacons.push(anchor.clone());
-    }
-
-    if (plan.pads) {
+    if (!campaign && plan.pads) {
       for (const padPlan of plan.pads) {
         const padPoint = point(padPlan);
         this.beacons.push(padPoint.clone());
@@ -229,16 +211,6 @@ export class ObjectiveVisuals {
         pad.isPickable = false;
         this.pads.push(pad);
         this.nodes.push(pad);
-      }
-      if (plan.pads.length > 0) {
-        this.pillar = CreateCylinder('objective-relay-pillar', {
-          diameter: 0.12,
-          height: 4,
-          tessellation: 8,
-        }, scene);
-        this.pillar.material = this.materials.goalBright;
-        this.pillar.isPickable = false;
-        this.nodes.push(this.pillar);
       }
     }
 
@@ -295,20 +267,43 @@ export class ObjectiveVisuals {
       top.position.set(this.cageBase.x, this.cageBase.y + 1.8, this.cageBase.z);
       top.rotation.x = Math.PI / 2;
       cageParts.push(top);
-      const cage = mergeStatic(cageParts, 'objective-loot-cage', this.materials.metal);
+      const lock = CreateBox('objective-lock-body', { width: 0.85, height: 0.65, depth: 0.16 }, scene);
+      lock.position.set(this.cageBase.x, this.cageBase.y + 0.6, this.cageBase.z - 0.98);
+      cageParts.push(lock);
+      for (const [dx, dy, w, h] of [[-0.28, 1.05, 0.12, 0.5], [0.28, 1.05, 0.12, 0.5], [0, 1.3, 0.68, 0.12]]) {
+        const shackle = CreateBox('objective-lock-shackle', { width: w, height: h, depth: 0.14 }, scene);
+        shackle.position.set(this.cageBase.x + dx, this.cageBase.y + dy, this.cageBase.z - 0.98);
+        cageParts.push(shackle);
+      }
+      const cage = mergeStatic(cageParts, 'objective-loot-cage', this.materials.warn);
       if (cage) {
         cage.unfreezeWorldMatrix();
         this.cage = cage;
         this.nodes.push(cage);
+        this.stations.forEach((_station, i) => {
+          const lamp = CreateCylinder('objective-lock-key-lamp', { diameter: 0.3, height: 0.08, tessellation: 12 }, scene);
+          lamp.rotation.x = Math.PI / 2;
+          lamp.position.set(this.cageBase.x + (i - (this.stations.length - 1) / 2) * 0.38, this.cageBase.y + 1.55, this.cageBase.z - 0.98);
+          lamp.material = this.materials.metal; lamp.parent = cage; lamp.isPickable = false;
+          this.lamps.push(lamp); this.nodes.push(lamp);
+        });
       }
     }
 
-    this.drawCalls = this.nodes.length;
+    this.drawCalls = this.nodes.length + this.stations.length * 3 + this.cables.length;
   }
 
-  update(dt: number, state: ObjectiveState): void {
+  update(dt: number, state: ObjectiveState, players: readonly { role: DroneRole; x: number; y: number; z: number }[] = []): void {
     const delta = Math.max(0, Math.min(0.25, dt));
     this.pulseTime += delta;
+    this.stations.forEach((station, i) => {
+      const nearby = players.find((p) => p.role === station.allowedRole && station.distanceTo(point(p)) <= station.interactionRadius);
+      const complete = state.done || (this.plan.kind === 'relay' && i < state.step);
+      station.update(delta, nearby?.role ?? null, complete);
+      const powered = complete || (this.plan.kind === 'twin-levers' && Boolean(nearby));
+      this.cables[i]?.setPowered(powered);
+      if (this.lamps[i]) this.lamps[i].material = powered ? this.materials[station.allowedRole] : this.materials.metal;
+    });
     this.eventPulse = Math.max(0, this.eventPulse - delta);
     this.safeShake = Math.max(0, this.safeShake - delta * 0.8);
     this.crackShake = Math.max(0, this.crackShake - delta * 2.5);
@@ -353,19 +348,9 @@ export class ObjectiveVisuals {
       handle.material = state.done ? this.materials.done : state.progress > 0 ? this.materials.objectiveMint : this.materials.goal;
       handle.rotation.z = state.done || state.progress > 0.99 ? -0.78 : 0;
     }
-    if (this.stretch) {
-      this.stretch.material = state.done ? this.materials.done : state.progress > 0 ? this.materials.objectiveMint : this.materials.goalDim;
-      this.stretch.visibility = 0.55 + state.progress * 0.45;
-    }
-    if (this.pylonCore) {
-      this.pylonCore.material = state.done ? this.materials.done : state.progress > 0 ? this.materials.objectiveMint : this.materials.goalDim;
-      const pulse = state.done ? 1 : 1 + Math.sin(this.pulseTime * 4) * 0.08;
-      this.pylonCore.scaling.setAll(pulse);
-    }
     if (this.pylonBody) {
-      this.pylonBody.material = state.done ? this.materials.done : this.materials.pylon;
+      this.pylonBody.material = this.materials.metal;
     }
-
 
     for (let i = 0; i < this.pads.length; i++) {
       const pad = this.pads[i];
@@ -383,15 +368,6 @@ export class ObjectiveVisuals {
       const scale = active ? 1 + Math.sin(this.pulseTime * 5) * 0.15 : 1;
       pad.scaling.setAll(scale);
     }
-    if (this.pillar) {
-      const hasTarget = !state.done && state.step < this.pads.length;
-      this.pillar.setEnabled(hasTarget);
-      if (hasTarget) {
-        const pad = this.pads[state.step];
-        this.pillar.position.set(pad.position.x, pad.position.y + 2, pad.position.z);
-        this.pillar.scaling.y = 1 + Math.sin(this.pulseTime * 5) * 0.08;
-      }
-    }
 
     this.cageDrop += ((state.done ? -1.8 : 0) - this.cageDrop) * Math.min(1, delta * 4);
     if (this.cage) {
@@ -400,18 +376,21 @@ export class ObjectiveVisuals {
 
     if (this.shell) {
       const popping = this.popTimer > 0;
-      this.shell.setEnabled(!state.shatters || popping);
+      this.shell.setEnabled(true);
       const popScale = popping ? 1 + (0.32 - this.popTimer) * 2.5 : 1;
       const shake = Math.sin(this.pulseTime * 50) * this.crackShake * 0.06;
       this.shell.scaling.setAll(popScale);
       this.shell.rotation.z = shake;
       for (let i = 0; i < this.cracks.length; i++) {
-        this.cracks[i].setEnabled(!state.shatters && i < state.cracks * 2);
+        this.cracks[i].setEnabled(i < state.cracks * 2);
       }
     }
   }
 
   dispose(): void {
+    for (const cable of this.cables) cable.dispose();
+    for (const body of this.bodies) body.dispose();
+    for (const station of this.stations) station.dispose();
     for (const node of this.nodes) {
       node.dispose(false, false);
     }

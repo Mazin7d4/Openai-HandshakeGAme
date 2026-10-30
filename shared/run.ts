@@ -3,7 +3,7 @@
  * Generator-agnostic: a 32-bit unsigned seed plus mode/floor/captures plumbing.
  */
 
-export type RunMode = 'standard' | 'daily' | 'nightshift';
+export type RunMode = 'standard' | 'daily' | 'nightshift' | 'campaign';
 
 export const MAX_CAPTURES = 3;
 
@@ -21,6 +21,7 @@ export interface RunState {
 export interface RunCreateOptions {
   seed?: number;
   mode?: RunMode;
+  levelId?: string;
 }
 
 export interface FloorStartPayload {
@@ -32,6 +33,7 @@ export interface FloorStartPayload {
   streak?: number;
   multiplier?: number;
   captures?: number;
+  levelId?: string;
 }
 
 const UINT32 = 0xffffffff;
@@ -98,7 +100,7 @@ export function randomSeed(): number {
 }
 
 export function isRunMode(value: unknown): value is RunMode {
-  return value === 'standard' || value === 'daily' || value === 'nightshift';
+  return value === 'standard' || value === 'daily' || value === 'nightshift' || value === 'campaign';
 }
 
 /** Resolve create options into a concrete seed + mode. */
@@ -200,7 +202,7 @@ export function runOptionsFromSearch(search: string | URLSearchParams): UrlRunOp
   const floor = Number(params.get('floor'));
   if (floor >= 1) out.floor = floor;
   const modeRaw = params.get('mode')?.trim().toLowerCase();
-  if (modeRaw === 'daily' || modeRaw === 'nightshift') out.mode = modeRaw;
+  if (modeRaw === 'daily' || modeRaw === 'nightshift' || modeRaw === 'campaign') out.mode = modeRaw;
   const beatRaw = params.get('beat');
   if (beatRaw != null && beatRaw !== '') {
     const beat = Number(beatRaw);

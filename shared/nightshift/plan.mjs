@@ -43,6 +43,7 @@ export const JOB_NAMES = Object.freeze([
 const SLOTS = ['arrival', 'office', 'server', 'vault', 'escape'];
 const TERMINALS = ['terminal-a', 'terminal-b', 'terminal-c'];
 const PLAN_SEED = 0x5eed9a11;
+const JOB_ORDER_SEED = 0x4a6f6253;
 const EPSILON = 1e-6;
 
 function r3(value) {
@@ -75,6 +76,30 @@ function distance3(a, b) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function jobCycleSuffix(cycle) {
+  if (cycle === 0) return '';
+  const numerals = ['', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+  return ` ${numerals[cycle] ?? cycle + 1}`;
+}
+
+/**
+ * Choose the job order once per run seed, rather than once per floor. This
+ * keeps the floor cards varied without coupling a floor's plan generation to
+ * any other floor's random stream.
+ */
+function jobNameFor(seed, floor) {
+  if (floor === 1) return 'The Night Shift Tryout';
+  const names = JOB_NAMES.slice();
+  const rand = mulberry32(mixSeed(seed, JOB_ORDER_SEED));
+  for (let index = names.length - 1; index > 0; index--) {
+    const other = intRange(rand, 0, index + 1);
+    [names[index], names[other]] = [names[other], names[index]];
+  }
+  const offset = floor - 2;
+  const cycle = Math.floor(offset / names.length);
+  return `${names[offset % names.length]}${jobCycleSuffix(cycle)}`;
 }
 
 function randomBetween(rand, min, max) {
@@ -864,7 +889,7 @@ function buildPlan(seed, floor, layout, rand, options = {}) {
   const hazards = options.noHazards ? [] : buildHazards(rand, floor, layout, objective, rooms);
   // Trim trailing hazards (never the forced laser-vault tripwire first) until the floor fits the draw budget.
   while (hazards.length > 0 && estimateFloorDrawCalls({ rooms, objective, hazards }) > DRAW_CALL_BUDGET) hazards.pop();
-  const name = floor === 1 ? 'The Night Shift Tryout' : `${boss ? 'VAULT: ' : ''}${pick(rand, JOB_NAMES)}`;
+  const name = floor === 1 ? 'The Night Shift Tryout' : `${boss ? 'VAULT: ' : ''}${jobNameFor(seed, floor)}`;
   const objectiveText = objective.kind === 'grab' ? 'grab the prototype' : objective.kind.replace('-', ' ');
   const blurb = floor === 1
     ? 'Warm up: the cord is your tool. Grab the prototype together.'
@@ -1115,7 +1140,8 @@ export function validateFloorPlan(plan, layout) {
   if (!plan || plan.version !== 2 || !plan.job || !Array.isArray(plan.rooms) || plan.rooms.length !== SLOTS.length || !plan.objective || !Array.isArray(plan.hazards)) return { ok: false, reason: 'malformed floor plan; regenerate this run' };
   const floor = layout.floor | 0;
   const boss = floor % 3 === 0;
-  if (plan.job.boss !== boss || plan.job.payoutScale !== (boss ? 2 : 1) || plan.job.tutorial !== (floor === 1)) return { ok: false, reason: 'job pacing mismatch' };
+  const campaign = plan.campaign?.index >= 1 && plan.campaign?.index <= 5;
+  if (!campaign && (plan.job.boss !== boss || plan.job.payoutScale !== (boss ? 2 : 1) || plan.job.tutorial !== (floor === 1))) return { ok: false, reason: 'job pacing mismatch' };
   if (typeof plan.job.name !== 'string' || typeof plan.job.blurb !== 'string' || !plan.job.blurb.endsWith('.')) return { ok: false, reason: 'job text invalid' };
   const roomsBySlot = new Map();
   let allPieces = [];
@@ -1135,9 +1161,18 @@ export function validateFloorPlan(plan, layout) {
 
   const objectiveReason = validateObjective(plan.objective, floor, layout);
   if (objectiveReason) return { ok: false, reason: objectiveReason };
-  if (floor === 1 && (plan.objective.kind !== 'grab' || plan.rooms.find((room) => room.slot === 'arrival').archetype !== 'classic' || plan.rooms.find((room) => room.slot === 'office').archetype !== 'classic' || plan.hazards.length > 1 || plan.hazards.some((hazard) => ['pulse-gate', 'gust'].includes(hazard.kind)))) return { ok: false, reason: 'floor one rules violated' };
-  if (boss && !['twin-levers', 'pylon-safe'].includes(plan.objective.kind)) return { ok: false, reason: 'boss objective invalid' };
-  if (floor > 1 && plan.rooms.filter((room) => room.archetype !== 'classic').length < 3) return { ok: false, reason: 'not enough room variety' };
+  if (Array.isArray(plan.phases)) {
+    if (!plan.phases.length || plan.phases.length > 5) return { ok: false, reason: 'campaign phases invalid' };
+    for (const phase of plan.phases) {
+      const phaseReason = validateObjective(phase, floor, layout);
+      if (phaseReason) return { ok: false, reason: `campaign phase: ${phaseReason}` };
+    }
+  }
+  if (!campaign) {
+    if (floor === 1 && (plan.objective.kind !== 'grab' || plan.rooms.find((room) => room.slot === 'arrival').archetype !== 'classic' || plan.rooms.find((room) => room.slot === 'office').archetype !== 'classic' || plan.hazards.length > 1 || plan.hazards.some((hazard) => ['pulse-gate', 'gust'].includes(hazard.kind)))) return { ok: false, reason: 'floor one rules violated' };
+    if (boss && !['twin-levers', 'pylon-safe'].includes(plan.objective.kind)) return { ok: false, reason: 'boss objective invalid' };
+    if (floor > 1 && plan.rooms.filter((room) => room.archetype !== 'classic').length < 3) return { ok: false, reason: 'not enough room variety' };
+  }
   const hazardIds = new Set();
   for (const hazard of plan.hazards) {
     if (hazardIds.has(hazard.id)) return { ok: false, reason: 'duplicate hazard id' };

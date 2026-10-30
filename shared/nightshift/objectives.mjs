@@ -5,10 +5,10 @@ export const OBJECTIVE_TUNING = Object.freeze({
   leverRadius: 3,
   leverHoldSeconds: 1,
   pylonHookRadius: 2.5,
-  // The bot intentionally settles just inside its 1.2 m hold radius. A
-  // qualifying wrap therefore needs to begin below the visual redline so the
-  // safe remains inside its hook radius while the first pull lands.
-  pylonPullStrain: 0.35,
+  // Real companion flights settle near 0.33 strain against the spring.
+  // Leave headroom below that equilibrium so a wrapped sustained pull works
+  // for the bot as well as two humans, without requiring repeated yanks.
+  pylonPullStrain: 0.28,
   pylonPullSeconds: 0.6,
   pylonCooldown: 0.8,
   pylonWrapRadius: 2,
@@ -46,7 +46,9 @@ function finish(state, events) {
 export function createObjectiveState(plan) {
   const kind = plan?.kind ?? 'grab';
   const state = {
-    kind, done: kind === 'grab' || kind === 'fragile', progress: 1,
+    // Ordinary variety fragile objectives are a live integrity readout. Authored
+    // campaign fragile phases finish when the carrier reaches extraction.
+    kind, done: kind === 'grab' || (kind === 'fragile' && !plan?.fragileLoot), progress: 1,
     step: 0, timer: 0, pulls: 0, cracks: 0, shatters: 0, seq: 0, lastEvent: null,
   };
   if (kind !== 'grab' && kind !== 'fragile') state.progress = 0;
@@ -173,6 +175,18 @@ export function stepObjective(state, plan, input = {}) {
 
 export function lootLocked(state, plan) {
   return !!state && !!plan && ['twin-levers', 'pylon-safe', 'relay'].includes(plan.kind) && !state.done;
+}
+
+/** Campaign carry phases finish when the mission's extraction check succeeds. */
+export function completeFragileCarry(state, plan) {
+  if (!state || plan?.kind !== 'fragile' || !plan?.fragileLoot) return false;
+  if (!state.done) {
+    state.done = true;
+    state.progress = 1;
+    state.seq += 1;
+    state.lastEvent = 'done';
+  }
+  return true;
 }
 
 export function objectiveBotTarget(state, plan, botRole, players) {

@@ -53,7 +53,9 @@ function roomDrawCalls(rooms, useKits) {
   return calls;
 }
 
-function objectiveDrawCalls(objective) {
+function objectiveDrawCalls(objective, campaign = false) {
+  if (campaign && objective?.levers) return objective.levers.length * 5 + 1;
+  if (campaign && objective?.pads) return objective.pads.length * 5 + 1;
   switch (objective?.kind) {
     case 'twin-levers': return 7;
     case 'pylon-safe': return 9;
@@ -66,5 +68,5 @@ function objectiveDrawCalls(objective) {
 export function estimateFloorDrawCalls(plan) {
   const rooms = Math.max(roomDrawCalls(plan.rooms, true), roomDrawCalls(plan.rooms, false));
   const hazards = (plan.hazards ?? []).reduce((sum, hazard) => sum + (HAZARD_NODES[hazard.kind] ?? 3), 0);
-  return rooms + objectiveDrawCalls(plan.objective) + hazards;
+  return rooms + Math.max(...(plan.phases ?? [plan.objective]).map((objective) => objectiveDrawCalls(objective, Boolean(plan.campaign)))) + hazards;
 }

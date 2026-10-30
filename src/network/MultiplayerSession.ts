@@ -190,6 +190,7 @@ interface SchemaPlayer {
 
 interface SchemaRun {
   mode: string;
+  levelId?: string;
   seed: number;
   floor: number;
   captures: number;
@@ -305,6 +306,12 @@ export interface FloorClearedMessage {
   next: { seed: number; floor: number };
 }
 
+export interface CampaignCompleteMessage {
+  levelId: string;
+  seconds: number;
+  stars: [boolean, boolean, boolean];
+}
+
 export interface RunEndedMessage {
   reason: 'captures' | string;
   captures: number;
@@ -328,6 +335,7 @@ export interface CreateRoomOptions {
   bot?: boolean;
   /** Challenge beat target in ms (client-only; not sent to the server). */
   beat?: number;
+  levelId?: string;
 }
 
 export interface QuickMatchOptions extends CreateRoomOptions {
@@ -415,6 +423,7 @@ export class MultiplayerSession {
   private readonly spottedListeners = new Set<(role: DroneRole) => void>();
   private readonly floorStartListeners = new Set<(payload: FloorStartPayload) => void>();
   private readonly floorClearedListeners = new Set<(message: FloorClearedMessage) => void>();
+  private readonly campaignCompleteListeners = new Set<(message: CampaignCompleteMessage) => void>();
   private readonly runEndedListeners = new Set<(message: RunEndedMessage) => void>();
   private readonly rematchStartListeners = new Set<(message: RematchStartMessage) => void>();
   private readonly rematchPartnerLeftListeners = new Set<(message: { role: DroneRole }) => void>();
@@ -465,12 +474,13 @@ export class MultiplayerSession {
 
   static async createRoom(options: CreateRoomOptions = {}): Promise<MultiplayerSession> {
     const client = new Client(serverEndpoint());
-    const createOptions: { seed?: number; mode?: RunMode; bot?: boolean } = {};
+    const createOptions: { seed?: number; mode?: RunMode; bot?: boolean; levelId?: string } = {};
     if (typeof options.seed === 'number' && Number.isFinite(options.seed)) {
       createOptions.seed = options.seed >>> 0;
     }
     if (options.mode) createOptions.mode = options.mode;
     if (options.bot === true) createOptions.bot = true;
+    if (options.levelId) createOptions.levelId = options.levelId;
     const room = await retryInitialConnect(() => client.create<SchemaRoomState>('handshake', createOptions));
     return new MultiplayerSession(room, options.beat);
   }
@@ -707,6 +717,11 @@ export class MultiplayerSession {
     return () => this.floorClearedListeners.delete(listener);
   }
 
+  onCampaignComplete(listener: (message: CampaignCompleteMessage) => void): () => void {
+    this.campaignCompleteListeners.add(listener);
+    return () => this.campaignCompleteListeners.delete(listener);
+  }
+
   onRunEnded(listener: (message: RunEndedMessage) => void): () => void {
     this.runEndedListeners.add(listener);
     return () => this.runEndedListeners.delete(listener);
@@ -818,6 +833,7 @@ export class MultiplayerSession {
     this.objectiveStateListeners.clear();
     this.hazardTripListeners.clear();
     this.objectiveEventListeners.clear();
+    this.campaignCompleteListeners.clear();
     this.rematchStartListeners.clear();
     this.rematchPartnerLeftListeners.clear();
     this.leaderboardListeners.clear();
@@ -877,7 +893,7 @@ export class MultiplayerSession {
       const run = this.status.run;
       const key = Number.isFinite(message?.floor) && Number.isFinite(message?.seed)
         ? `${message.seed >>> 0}:${message.floor}:nightshift` : null;
-      const runMatches = run.mode === 'nightshift' && message?.floor === run.floor && (message?.seed >>> 0) === run.seed;
+      const runMatches = ['nightshift', 'campaign'].includes(run.mode) && message?.floor === run.floor && (message?.seed >>> 0) === run.seed;
       if (message?.state && key && (runMatches || this.lastFloorKey === key)) {
         for (const listener of this.objectiveStateListeners) listener(message);
       }
@@ -898,6 +914,11 @@ export class MultiplayerSession {
       if (message?.next && run.mode === 'nightshift' && message.floor === run.floor && (message.seed >>> 0) === run.seed) {
         for (const listener of this.floorClearedListeners) listener(message);
       }
+    });
+    room.onMessage('campaign-complete', (message: CampaignCompleteMessage) => {
+      if (typeof message?.levelId !== 'string' || !Number.isFinite(message.seconds) || !Array.isArray(message.stars)) return;
+      const stars: [boolean, boolean, boolean] = [Boolean(message.stars[0]), Boolean(message.stars[1]), Boolean(message.stars[2])];
+      for (const listener of this.campaignCompleteListeners) listener({ levelId: message.levelId, seconds: message.seconds, stars });
     });
     room.onMessage('run-ended', (message: RunEndedMessage) => {
       for (const listener of this.runEndedListeners) listener(message);
@@ -1078,6 +1099,7 @@ export class MultiplayerSession {
         seed: run.seed,
         floor: run.floor,
         mode: run.mode,
+        levelId: run.levelId,
         score: run.score,
         streak: run.streak,
         multiplier: run.multiplier,
@@ -1103,6 +1125,7 @@ export class MultiplayerSession {
     const mode: RunMode = isRunMode(run.mode) ? run.mode : 'standard';
     return {
       mode,
+      levelId: run.levelId || undefined,
       seed: (run.seed >>> 0),
       floor: run.floor,
       captures: run.captures,
@@ -1126,17 +1149,17 @@ export class MultiplayerSession {
     if (!message || !Number.isFinite(message.seed) || !Number.isFinite(message.floor)) return;
     const mode = message.mode ?? this.status.run?.mode ?? 'standard';
     const seed = message.seed >>> 0;
-    if (mode === 'nightshift' && this.lastAppliedFloor !== null
+    if (['nightshift', 'campaign'].includes(mode) && this.lastAppliedFloor !== null
       && (message.floor < this.lastAppliedFloor
         || (message.floor === this.lastAppliedFloor && seed !== this.lastAppliedSeed))) return;
     const key = `${seed}:${message.floor}:${mode}`;
     if (this.lastFloorKey === key) return;
     this.lastFloorKey = key;
-    if (mode === 'nightshift') {
+    if (['nightshift', 'campaign'].includes(mode)) {
       this.lastAppliedFloor = message.floor;
       this.lastAppliedSeed = seed;
     }
-    applyFloorStart({ seed, floor: message.floor, mode });
+    applyFloorStart({ seed, floor: message.floor, mode, levelId: message.levelId });
     for (const listener of this.floorStartListeners) listener({ ...message, mode });
   }
 

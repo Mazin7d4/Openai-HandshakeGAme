@@ -33,8 +33,8 @@ export function createEngine(canvas: HTMLCanvasElement): Engine {
   return engine;
 }
 
-// Intentional glow include-list (prod-art): core, screens, face-screens, security lenses, alarm lamps.
-const GLOW_NAMES = /^(p01-core|p01-core-halo|alarm-beacon-lamp|alarm-beacon-beam|security-camera|security-drone-\d+-eye|instrument-screen)$/;
+// Intentional glow include-list (prod-art): core, screens, face-screens, security lenses, alarm/objective beacons.
+const GLOW_NAMES = /^(p01-core|p01-core-halo|alarm-beacon-lamp|alarm-beacon-beam|security-camera|security-drone-\d+-eye)$/;
 /** Glow include-list: face-screens, lenses, beacons and the core only. */
 function isGlowMesh(mesh: AbstractMesh): boolean {
   if (GLOW_NAMES.test(mesh.name)) return true;
@@ -118,7 +118,7 @@ export function createScene(engine: Engine): Scene {
 
   let glow: GlowLayer | null = null;
   if (!lowFx && initialTier() !== 'low') {
-    // Glow discipline: include-list only (prod-art) plus strong decorative materials — not every faint emissive.
+    // Interaction and mascot include-list. Decorative surfaces never bloom.
     glow = new GlowLayer('glow', scene, { blurKernelSize: 16, mainTextureRatio: 0.5 });
     glow.intensity = 0.5;
     const layer = glow;
@@ -150,15 +150,35 @@ export function createScene(engine: Engine): Scene {
   scene.imageProcessingConfiguration.toneMappingEnabled = true;
   scene.imageProcessingConfiguration.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
   scene.imageProcessingConfiguration.exposure = 1.12;
-  scene.imageProcessingConfiguration.contrast = 1.12;
+  scene.imageProcessingConfiguration.contrast = 1.06;
 
   // Cheap filmic framing for the miniature look: soft warm vignette, gentle saturation lift.
   const ip = scene.imageProcessingConfiguration;
-  ip.vignetteEnabled = true; ip.vignetteWeight = 1.6; ip.vignetteStretch = 0.4;
+  ip.vignetteEnabled = true; ip.vignetteWeight = 0.7; ip.vignetteStretch = 0.4;
   ip.vignetteColor = new Color4(0.12, 0.08, 0.05, 0);
   ip.colorCurvesEnabled = true;
-  const curves = new ColorCurves(); curves.globalSaturation = 18; curves.highlightsHue = 40; curves.highlightsDensity = 8;
+  const curves = new ColorCurves(); curves.globalSaturation = 0; curves.highlightsHue = 40; curves.highlightsDensity = 3;
   ip.colorCurves = curves;
+  let processingDetailed: boolean | null = null;
+  const updateProcessingTier = () => {
+    const detailed = document.documentElement.dataset.quality !== 'low';
+    if (processingDetailed === detailed) return;
+    processingDetailed = detailed;
+    ip.vignetteEnabled = detailed; ip.colorCurvesEnabled = detailed;
+  };
+  updateProcessingTier();
+  scene.onBeforeRenderObservable.add(updateProcessingTier);
+
+  // glTF may choose a shader light limit from the number of scene lights, including disabled ones.
+  // Apply the four-light cap after imports finish assigning their material properties.
+  const pendingMaterials = [...scene.materials];
+  scene.onNewMaterialAddedObservable.add(material => pendingMaterials.push(material));
+  scene.onBeforeRenderObservable.add(() => {
+    if (pendingMaterials.length === 0) return;
+    for (const material of pendingMaterials.splice(0)) {
+      if ('maxSimultaneousLights' in material) (material as StandardMaterial).maxSimultaneousLights = 4;
+    }
+  });
 
   return scene;
 }

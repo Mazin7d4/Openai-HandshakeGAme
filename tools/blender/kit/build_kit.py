@@ -63,32 +63,32 @@ ATLAS_SPECS = [
     # Row 1
     ('graphite', '#263737', 0.55, 0.0),
     ('rubber', '#1E2A2B', 0.85, 0.0),
-    ('bluePoly', '#438AAA', 0.35, 0.0),
-    ('coralPoly', '#D77859', 0.35, 0.0),
-    ('terracotta', '#C8714F', 0.75, 0.0),
-    ('leaf', '#5FA36A', 0.60, 0.0),
-    ('leafLight', '#8CC07A', 0.60, 0.0),
-    ('cardboard', '#B98B5E', 0.80, 0.0),
+    ('bluePoly', '#89949B', 0.35, 0.0),
+    ('coralPoly', '#A89D8F', 0.35, 0.0),
+    ('terracotta', '#A19585', 0.75, 0.0),
+    ('leaf', '#818B7C', 0.60, 0.0),
+    ('leafLight', '#9CA590', 0.60, 0.0),
+    ('cardboard', '#AB9B86', 0.80, 0.0),
     # Row 2
-    ('amberPaint', '#FFB84D', 0.45, 0.0),
-    ('exitGreen', '#71B38C', 0.40, 0.0),
-    ('gold', '#D9A93A', 0.25, 0.90),
+    ('amberPaint', '#A8A398', 0.45, 0.0),
+    ('exitGreen', '#A4AAA0', 0.40, 0.0),
+    ('gold', '#A8A091', 0.25, 0.90),
     ('steel', '#8F9A9C', 0.30, 0.90),
     ('fabric', '#8E9A93', 0.90, 0.0),
-    ('waterBlue', '#9CC8D4', 0.20, 0.0),
-    ('red', '#C8483D', 0.45, 0.0),
+    ('waterBlue', '#ADB8BB', 0.20, 0.0),
+    ('red', '#9E9188', 0.45, 0.0),
     ('white', '#FAFAF7', 0.40, 0.0),
 ]
 
 EMISSIVE_SPECS = [
-    ('screenWarm', '#FFF1D6'),
-    ('diffuser', '#FFE7BC'),
-    ('lensAmber', '#FFB84D'),
-    ('exitGreen', '#71B38C'),
-    ('coreMint', '#7FF0D0'),
-    ('ledGreen', '#71B38C'),
+    ('screenWarm', '#DCDAD1'),
+    ('diffuser', '#D8D6CC'),
+    ('lensAmber', '#A8A398'),
+    ('exitGreen', '#A4AAA0'),
+    ('coreMint', '#B4BCB7'),
+    ('ledGreen', '#A4AAA0'),
     ('screenDark', '#142022'),
-    ('beaconAmber', '#FFB84D'),
+    ('beaconAmber', '#A8A398'),
 ]
 
 ATLAS_CELLS = {}
@@ -162,8 +162,8 @@ for name, (col, row, rgb) in EMISSIVE_CELLS.items():
             pixels_emit[idx + 3] = 1.0
 
 # Bottom-right 2x2 cells (cols 6..7, rows 6..7 => px: 192..255, py: 0..63)
-# Contain warm-white background #FFF1D6 with dot-matrix 9x9 power-plug glyph #1E2A2B
-bg_plug = hex_to_rgb('#FFF1D6')
+# Contain warm-white background #DCDAD1 with dot-matrix 9x9 power-plug glyph #1E2A2B
+bg_plug = hex_to_rgb('#DCDAD1')
 dot_plug = hex_to_rgb('#1E2A2B')
 
 # 9x9 power plug dot matrix pattern (gy=8 top, gy=0 bottom)
@@ -239,7 +239,7 @@ tex_emit.image = img_emit
 tex_emit.interpolation = 'Closest'
 mat_emit.node_tree.links.new(tex_emit.outputs['Color'], bsdf_emit.inputs['Base Color'])
 mat_emit.node_tree.links.new(tex_emit.outputs['Color'], bsdf_emit.inputs['Emission Color'])
-bsdf_emit.inputs['Emission Strength'].default_value = 1.5
+bsdf_emit.inputs['Emission Strength'].default_value = 0.0
 
 # 3. KitGlass
 mat_glass = bpy.data.materials.new('KitGlass')
@@ -896,9 +896,9 @@ if args.sheet:
     floor_obj.data.materials.append(mat_atlas)
     assign_uv_cell(floor_obj, ATLAS_CELLS['resin'][:2])
 
-    # Sun light (warm #FFE7BC, angle 2 deg)
+    # Sun light (warm #D8D6CC, angle 2 deg)
     sun_data = bpy.data.lights.new('Sun', type='SUN')
-    sun_data.color = hex_to_rgb('#FFE7BC')
+    sun_data.color = hex_to_rgb('#D8D6CC')
     sun_data.angle = math.radians(2.0)
     sun_data.energy = 2.5
     sun_obj = bpy.data.objects.new('Sun', sun_data)

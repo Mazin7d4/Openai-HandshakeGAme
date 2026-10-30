@@ -59,6 +59,7 @@ export class CinematicCamera {
   private mouseInvertY = false;
   private screenShake = true;
   private reducedMotion = false;
+  private showcaseMode = false;
   private fovScale = 1;
   private distanceScale = 1;
   private readonly unsubscribeSettings: (() => void) | null = null;
@@ -241,11 +242,14 @@ export class CinematicCamera {
   /** Test/photo hook only (installed via the dev autopilot): pins the camera to a fixed pose. */
   debugPose: { eye: Vector3; target: Vector3 } | null = null;
 
+  setShowcaseMode(enabled: boolean): void { this.showcaseMode = enabled; }
+
   update(dt: number, subjects: readonly CameraSubject[], context: CameraContext = QUIET): void {
     if (this.debugPose) {
       this.camera.position.copyFrom(this.debugPose.eye);
       this.camera.position.y = Math.max(MIN_EYE_Y, this.camera.position.y);
       this.camera.setTarget(this.debugPose.target);
+      this.updateOcclusion([], Math.min(dt, 0.05));
       return;
     }
     if (!subjects.length) return;
@@ -378,6 +382,10 @@ export class CinematicCamera {
     }
     const inspection = this.scene.activeCamera !== this.camera;
     for (const mesh of this.occluders ?? []) {
+      if (this.showcaseMode) {
+        mesh.visibility = smooth(mesh.visibility, 0.04, 9, dt);
+        continue;
+      }
       let obscures = false;
       if (!inspection) {
         for (const point of subjects) {

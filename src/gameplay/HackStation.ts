@@ -69,8 +69,15 @@ export class HackStation implements Interactable {
     return Vector3.Distance(this.position, point);
   }
 
+  /** Hide unused campaign consoles and remove their collision shapes. */
+  setEnabled(enabled: boolean): void {
+    this.mesh.setEnabled(enabled);
+    this.indicator.setEnabled(enabled);
+    this.aggregate.shape.filterCollideMask = enabled ? 0xffffffff : 0;
+  }
+
   canInteract(role: DroneRole, point: Vector3, complete: boolean): boolean {
-    return !complete && (this.allowedRole === 'either' || role === this.allowedRole) &&
+    return this.mesh.isEnabled() && !complete && (this.allowedRole === 'either' || role === this.allowedRole) &&
       this.distanceTo(point) <= this.interactionRadius;
   }
 

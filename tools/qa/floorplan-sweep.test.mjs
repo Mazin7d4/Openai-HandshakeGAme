@@ -34,10 +34,12 @@ try {
   for (let s = 0; s < 200; s++) {
     const seed = (s * 2654435761 + 12345) >>> 0;
     let previousSignature = null;
+    const jobNames = [];
     for (let floor = 1; floor <= 9; floor++) {
       const a = generateRun(seed, floor); const b = generateRun(seed, floor);
       assert(JSON.stringify(a) === JSON.stringify(b), `nondeterministic seed=${seed} floor=${floor}`);
       assert(a.plan, `missing plan seed=${seed} floor=${floor}`);
+      if (floor >= 2) jobNames.push(a.plan.job.name.replace(/^VAULT:\s*/, ''));
       const runCheck = validateRunLayout(a); assert(runCheck.ok, `invalid run ${seed}/${floor}: ${runCheck.reason}`);
       const planCheck = validateFloorPlan(a.plan, a); assert(planCheck.ok, `invalid plan ${seed}/${floor}: ${planCheck.reason}`);
       count(objectives, a.plan.objective.kind);
@@ -67,6 +69,7 @@ try {
       if (floor === 1) assert(a.plan.objective.kind === 'grab', `floor one objective ${a.plan.objective.kind}`);
       if (floor % 3 === 0) assert(a.plan.job.boss && a.plan.job.payoutScale === 2, `boss pacing ${seed}/${floor}`);
     }
+    assert(new Set(jobNames).size === jobNames.length, `duplicate job names seed=${seed}: ${jobNames.join(' | ')}`);
   }
   for (const [key, hash] of pinned) { const [seed, floor] = key.split('/').map(Number); const { plan, ...rest } = generateRun(seed, floor); const actual = crypto.createHash('sha1').update(JSON.stringify(rest)).digest('hex'); assert(actual === hash, `legacy layout changed ${key}: ${actual}`); }
   for (const key of ['grab', 'twin-levers', 'pylon-safe', 'fragile', 'relay']) assert((objectives[key] ?? 0) >= 10, `objective underrepresented: ${key}`);

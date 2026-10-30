@@ -29,6 +29,7 @@ export class GrabSystem {
   private localRole: DroneRole | null;
   private readonly onGrab?: (objectId: string, role: DroneRole) => void;
   private readonly onThrow?: (objectId: string, role: DroneRole) => void;
+  private readonly localHandoffs: boolean;
   private readonly canGrab?: (objectId: string, role: DroneRole) => boolean;
   private readonly sweepCooldown = new Map<string, number>();
   private readonly sweepPush = new Vector3();
@@ -46,6 +47,7 @@ export class GrabSystem {
       onGrab?: (objectId: string, role: DroneRole) => void;
       onThrow?: (objectId: string, role: DroneRole) => void;
       canGrab?: (objectId: string, role: DroneRole) => boolean;
+      localHandoffs?: boolean;
     },
   ) {
     this.objects = objects;
@@ -55,6 +57,7 @@ export class GrabSystem {
     this.onGrab = callbacks?.onGrab;
     this.onThrow = callbacks?.onThrow;
     this.canGrab = callbacks?.canGrab;
+    this.localHandoffs = callbacks?.localHandoffs === true;
   }
 
   sync(status: RoomStatus): void {
@@ -91,7 +94,13 @@ export class GrabSystem {
       const partnerRole = role === 'pix' ? 'nee' : 'pix';
       const partner = this.drones.get(partnerRole);
       const partnerEmpty = partner && !this.objects.some((object) => object.heldBy === partnerRole);
-      if (this.session && partner && partnerEmpty && this.canHandoff(drone, partner)) {
+      if ((this.session || this.localHandoffs) && partner && partnerEmpty && this.canHandoff(drone, partner)) {
+        if (!this.session) {
+          const from = held.position.clone();
+          held.grab(partnerRole);
+          held.startHandoffArc(from, partner.position.add(HOLD_OFFSET), effectiveReducedMotion(getSettings()));
+          return true;
+        }
         if (this.canRequest(held.id)) {
           this.session.requestHandoff(held.id);
           this.pendingRequests.set(held.id, { revision: this.revisionOf(held.id), sentAt: performance.now() });
@@ -325,14 +334,14 @@ export class GrabSystem {
     const partnerRole = role === 'pix' ? 'nee' : 'pix';
     const partner = this.drones.get(partnerRole);
     const partnerEmpty = partner && !this.objects.some((object) => object.heldBy === partnerRole);
-    if (held && this.session && partner && partnerEmpty && this.canHandoff(drone, partner)) {
+    if (held && (this.session || this.localHandoffs) && partner && partnerEmpty && this.canHandoff(drone, partner)) {
       return [`[E] Pass ${held.label}`, `[Q] Throw ${held.label}`];
     }
     if (held?.heavy && !held.helped) {
       return [`Too heavy. Fly it with ${role === 'pix' ? 'NEE' : 'PIX'}`, `[E] Drop ${held.label}`];
     }
     if (held) {
-      const action = this.session && partner && partnerEmpty && this.canHandoff(drone, partner)
+      const action = (this.session || this.localHandoffs) && partner && partnerEmpty && this.canHandoff(drone, partner)
         ? `[E] Pass ${held.label}` : `[E] Drop ${held.label}`;
       return [action, `[Q] Throw ${held.label}`];
     }

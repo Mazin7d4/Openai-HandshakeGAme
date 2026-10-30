@@ -1,3 +1,5 @@
+import { facingYaw } from '../gameplay/passRules.ts';
+import '../ui/campaign.css';
 import { cordState } from '../gameplay/Tether.ts';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { Engine } from '@babylonjs/core/Engines/engine.js';
@@ -19,6 +21,7 @@ import { reportStabilityIssue, StabilityDiagnostics } from '../dev/StabilityDiag
 import { TETHER_TUNING, Tether } from '../gameplay/Tether.ts';
 import { GameplayWorld } from '../gameplay/GameplayWorld.ts';
 import { addContactShadows } from '../level/ContactShadows.ts';
+import { applyCampaignPalette } from '../level/PrototypeHeist.ts';
 import { gameEvents } from '../gameplay/GameEvents.ts';
 import { Juice } from '../gameplay/Juice.ts';
 import { TetherMoves, type YankKind } from '../gameplay/TetherMoves.ts';
@@ -27,7 +30,7 @@ import { zeroFlightAxes } from '../input/FlightAxes.ts';
 import { PLAYER_ONE_KEYS } from '../input/KeyboardInput.ts';
 import { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole, EmoteId } from '../network/NetworkTypes.ts';
-import { getRunState, setNightShiftLayoutGenerator } from '../run/ClientRun.ts';
+import { getRunState, setCampaignLayoutGenerator, setNightShiftLayoutGenerator } from '../run/ClientRun.ts';
 import { Drone, DRONE_PALETTES } from '../player/Drone.ts';
 import { BotTag } from '../player/BotTag.ts';
 import { DRONE_MODEL_URL } from '../player/DroneVisual.ts';
@@ -56,7 +59,7 @@ export interface GameAppOptions {
   multiplayer?: MultiplayerSession;
   onLeaveGame?: () => void;
   /** Optional override; default is getRunInfo() → getRunSeed() stub (Netcode swaps later). */
-  runSeed?: { seed: number; floor: number };
+  runSeed?: { seed: number; floor: number; levelId?: string };
 }
 
 interface LocalPlayer {
@@ -162,7 +165,7 @@ export class GameApp {
     this.multiplayer = multiplayer;
     this.gameplay = gameplay;
     this.runLayout = runLayout;
-    this.aiPartnerEnabled = (mode === 'singleplayer' || mode === 'night-shift')
+    this.aiPartnerEnabled = (mode === 'singleplayer' || mode === 'night-shift' || mode === 'campaign')
       && new URLSearchParams(window.location.search).get('bot') !== '0';
     this.botTags = new Map();
     for (const player of players) {
@@ -194,7 +197,7 @@ export class GameApp {
         })
       : null;
     this.a11y = hudParent ? new AccessibilityFeedback(hudParent) : null;
-    this.coach = hudParent ? new OnboardingCoach(hudParent, mode === 'night-shift' ? 'singleplayer' : mode) : null;
+    this.coach = hudParent && mode !== 'campaign' && !runLayout?.plan?.campaign ? new OnboardingCoach(hudParent, mode === 'night-shift' ? 'singleplayer' : mode) : null;
     this.hud?.setControlsCardSuppressed(this.coach?.isActive === true);
     if (hudParent && this.touchPlay) {
       hudParent.classList.add('touch-play');
@@ -349,7 +352,7 @@ export class GameApp {
             if (!reducedMotion) this.cameraRig.beat(pos, 2.4);
             if (!reducedMotion) this.cameraRig.addShake(0.12);
             for (const drone of this.drones) drone.react('happy', 2);
-            this.hud?.toast('Vault open. Meet P01', 'good');
+            this.hud?.toast(this.runLayout?.plan?.campaign?.index === 5 ? 'BIG VAULT CRACKED · x2' : 'Vault open. Meet P01', 'good');
             break;
           case 'pickup':
             if (!reducedMotion) {
@@ -383,7 +386,7 @@ export class GameApp {
             setTimeout(() => { if (!this.disposed) this.juice.burst('confetti', pos.add(new Vector3(0, 4, 0)), 120); }, 500);
             this.juice.burst('pix', pos, 40);
             this.juice.burst('nee', pos, 40);
-            for (const drone of this.drones) drone.react('proud', 6);
+            for (const drone of this.drones) { drone.react('proud', 6); drone.celebrate(); }
             this.cameraRig.addShake(0.3);
             break;
         }
@@ -434,7 +437,7 @@ export class GameApp {
           this.gameplay.sync(status);
         })
       : null;
-    if (mode === 'singleplayer' || mode === 'night-shift') {
+    if (mode === 'singleplayer' || mode === 'night-shift' || mode === 'campaign') {
       (window as unknown as {
         __pixBot?: () => {
           enabled: boolean;
@@ -464,15 +467,29 @@ export class GameApp {
     const engine = createEngine(options.canvas);
     const scene = createScene(engine);
     const plugin = await enableHavok(scene);
-    const levelSpawn = await options.createLevel(scene);
     const mode = options.mode ?? 'dev-local';
     const multiplayer = options.multiplayer ?? null;
     // Solo + Night Shift share generateRun; multiplayer waits on server applySeedFloor (prod-net sync).
     // Story/solo/co-op keep the handcrafted level; only Night Shift remixes (until Netcode syncs room seeds).
     // UI reads seed/floor through getRunInfo() so Netcode can swap the source without HUD changes.
-    const runSeed = mode === 'night-shift' ? options.runSeed ?? getRunInfo() : null;
+    const runSeed = mode === 'night-shift' || mode === 'campaign' ? options.runSeed ?? getRunInfo() : null;
     setNightShiftLayoutGenerator(generateNightShiftRun);
-    const runLayout = runSeed ? generateNightShiftRun(runSeed.seed, runSeed.floor) : null;
+    const campaignId = mode === 'campaign'
+      ? new URLSearchParams(window.location.search).get('level') ?? runSeed?.levelId ?? 'l1-tethered'
+      : multiplayer?.currentStatus.run.mode === 'campaign' ? multiplayer.currentStatus.run.levelId ?? 'l1-tethered' : null;
+    let campaignGenerator: ((levelId: string) => RunLayout) | null = null;
+    if (campaignId) {
+      const { generateCampaignRun } = await import('../seed/campaignRun.ts');
+      campaignGenerator = generateCampaignRun;
+      setCampaignLayoutGenerator(generateCampaignRun);
+    }
+    const runLayout = campaignId
+      ? campaignGenerator?.(campaignId) ?? null
+      : runSeed ? generateNightShiftRun(runSeed.seed, runSeed.floor) : null;
+    if (campaignId) scene.metadata = { ...(scene.metadata ?? {}), campaignLevel: campaignGenerator?.(campaignId).plan?.campaign?.index };
+    const levelSpawn = await options.createLevel(scene);
+    if (runLayout?.plan?.campaign) applyCampaignPalette(scene, runLayout.plan.campaign.index);
+    else if (campaignId && campaignGenerator) applyCampaignPalette(scene, campaignGenerator(campaignId).plan?.campaign?.index ?? 1);
     // TEST-ONLY: ?autotest&stage=escape starts local modes in the alarm escape, beside the heavy crate.
     const escapeStage = Autopilot.enabled && mode !== 'multiplayer'
       && new URLSearchParams(window.location.search).get('stage') === 'escape';
@@ -494,7 +511,7 @@ export class GameApp {
 
     // Late-bound refs so the single-player companion can perceive drones/camera created below.
     const live: { drones?: Drone[]; camera?: CinematicCamera; gameplay?: GameplayWorld } = {};
-    const companionModes: GameMode[] = ['singleplayer', 'night-shift'];
+    const companionModes: GameMode[] = ['singleplayer', 'night-shift', 'campaign'];
     const soloCompanion = companionModes.includes(mode);
     const botEnabled = soloCompanion && new URLSearchParams(window.location.search).get('bot') !== '0';
     if (soloCompanion) document.documentElement.dataset.aiPartner = botEnabled ? 'on' : 'off';
@@ -532,6 +549,10 @@ export class GameApp {
             zipping: () => live.drones?.[1]?.isZipping ?? false,
             leaderHolding: () => live.gameplay?.heldObjectId('pix') !== null,
             leaderForward: () => {
+              if (runLayout?.plan?.campaign && live.drones?.[0]) {
+                const yaw = facingYaw(live.drones[0].yaw);
+                return { x: Math.sin(yaw), z: Math.cos(yaw) };
+              }
               const forward = live.camera!.getPlanarBasis().forward;
               return { x: forward.x, z: forward.z };
             },
@@ -635,9 +656,14 @@ export class GameApp {
       },
       /** Photo/test hook: pin the camera at eye looking at target (null restores the rig). */
       photo: (eye: { x: number; y: number; z: number } | null, target?: { x: number; y: number; z: number }) => {
+        this.cameraRig.setShowcaseMode(Boolean(eye));
         this.cameraRig.debugPose = eye && target
           ? { eye: new Vector3(eye.x, eye.y, eye.z), target: new Vector3(target.x, target.y, target.z) }
           : null;
+        if (eye) {
+          this.engine.setHardwareScalingLevel(1);
+          this.engine.resize();
+        }
       },
       /** Test-only geometry/camera invariants for the authored heist bot route. */
       cameraDiagnostics: () => ({
@@ -940,9 +966,12 @@ export class GameApp {
     const camera = this.scene.activeCamera;
     if (camera) audioHub.setListener(camera.globalPosition, camera.getDirection(Vector3.Right()));
     const local = this.hudRole();
+    const listener = this.players.find(player => player.role === local);
+    if (listener) audioHub.setRoomAmbience(listener.drone.position.z);
     const dt = Math.max(1e-3, this.engine.getDeltaTime() / 1000);
     for (const player of this.players) {
       // Speed from position change so remote (replicated) drones hum correctly too.
+      player.drone.setCarrying(this.gameplay.heldObjectId(player.role) !== null);
       const p = player.drone.position;
       const last = this.audioLastPos.get(player.role);
       const speed = last ? Math.min(30, Vector3.Distance(p, last) / dt) : 0;

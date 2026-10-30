@@ -16,6 +16,7 @@ export interface EmotePlayedMessage { role: DroneRole; id: EmoteId; at: number }
 /** Authoritative run fields mirrored from room state (seed / Night Shift). */
 export interface RunNetworkState {
   mode: RunMode;
+  levelId?: string;
   seed: number;
   floor: number;
   captures: number;
@@ -105,6 +106,7 @@ export interface ObjectiveStateMessage {
   floor: number;
   seed: number;
   state: ObjectiveState;
+  phase?: number;
 }
 
 export interface HazardTripMessage {

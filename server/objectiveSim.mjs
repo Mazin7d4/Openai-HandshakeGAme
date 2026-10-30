@@ -1,6 +1,7 @@
 import {
   createObjectiveState,
   lootLocked,
+  completeFragileCarry,
   serializeObjectiveState,
   stepObjective,
 } from '../shared/nightshift/objectives.mjs';
@@ -33,6 +34,9 @@ export class ObjectiveSim {
   get locked() { return lootLocked(this._state, this.plan); }
   get state() { return this._state; }
   snapshot() { return serializeObjectiveState(this._state); }
+  completeAtExtraction() {
+    return completeFragileCarry(this._state, this.plan);
+  }
 }
 
 export function shouldBroadcast(prevSeq, sim, elapsedSinceLastBroadcastSec) {
