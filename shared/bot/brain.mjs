@@ -92,7 +92,15 @@ export function botGoal(input) {
     return { mode: 'rescue', point: { x: leader.x, y: leader.y, z: leader.z } };
   }
   if (selfHoldingLoot && exit) {
-    return { mode: 'carry', point: avoidThreats(exit, threats) };
+    // Lead the team with slack in the cord. A distant extraction target made
+    // the carrier drag the player forward when they stopped or doubled back.
+    const distance = planarDistance(leader, exit);
+    const fraction = Math.min(1, BOT_TUNING.followFar / Math.max(distance, 0.001));
+    return { mode: 'carry', point: avoidThreats({
+      x: leader.x + (exit.x - leader.x) * fraction,
+      y: leader.y + (exit.y - leader.y) * fraction,
+      z: leader.z + (exit.z - leader.z) * fraction,
+    }, threats) };
   }
   if (leaderHolding && leaderForward) {
     const breadcrumb = breadcrumbTarget(self, leader, leaderTrail);

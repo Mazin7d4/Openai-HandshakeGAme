@@ -44,7 +44,9 @@ export const clearCrate = {
   ],
   exit: [
     { x: 0, y: 3, z: 40 }, { x: 7, y: 3, z: 40 },
-    { x: 10.5, y: 3, z: 38 }, { x: 11, y: 2, z: 43.5, tolerance: 0.8 },
+    { x: 10.5, y: 3, z: 38 },
+    { x: 12, y: 2, z: 43.5, tolerance: 0.5, hold: true,
+      partner: { x: 10, y: 2, z: 43.5, tolerance: 0.5, hold: true } },
   ],
 };
 
