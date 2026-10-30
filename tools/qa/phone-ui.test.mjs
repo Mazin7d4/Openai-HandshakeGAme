@@ -53,7 +53,14 @@ await runTest('phone-ui', async (browser, notes) => {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, screen: { width: 1280, height: 720 }, hasTouch: false, isMobile: false });
   const page = await context.newPage(); const errors = []; collectErrors(page, '1280x720 desktop', errors);
   await page.goto(url({ stage: 'escape' })); await page.getByTestId('singleplayer').click(); await page.getByTestId('start-singleplayer').click(); await waitForGame(page); await page.waitForFunction(() => window.__autotest?.debugGrabForUi);
-  await page.evaluate(() => window.__autotest.debugGrabForUi('pix')); await page.waitForFunction(() => window.__autotest?.heldObject?.('pix') === 'prototype', null, { timeout: 15_000 }); await page.waitForFunction(() => document.querySelector('[data-testid="interaction-prompt"]')?.classList.contains('visible'), null, { timeout: 5_000 });
+  await page.evaluate(() => window.__autotest.debugGrabForUi('pix'));
+  await page.waitForFunction(() => window.__autotest?.heldObject?.('pix') === 'prototype', null, { timeout: 15_000 });
+  // Ownership changes before the next HUD paint. A nearby console's existing
+  // visible prompt is not evidence that the carry commands have rendered.
+  await page.waitForFunction(() => {
+    const prompt = document.querySelector('[data-testid="interaction-prompt"]');
+    return prompt?.classList.contains('visible') && /Drop|Throw/.test(prompt.textContent ?? '');
+  }, null, { timeout: 5_000 });
   const desktopPrompt = await page.getByTestId('interaction-prompt').evaluate((el) => { const r = el.getBoundingClientRect(); const c = { x: innerWidth * .25, y: innerHeight * .25, right: innerWidth * .75, bottom: innerHeight * .75 }; return { text: el.textContent ?? '', width: r.width, central: Math.min(r.right, c.right) - Math.max(r.x, c.x) > 2 && Math.min(r.bottom, c.bottom) - Math.max(r.y, c.y) > 2 }; });
   assert(/Drop|Throw/.test(desktopPrompt.text), '1280x720: carry prompt missing'); assert(desktopPrompt.width <= 1280 * .45 + 1 && !desktopPrompt.central, `1280x720: desktop prompt placement ${JSON.stringify(desktopPrompt)}`); assert(!errors.length, `1280x720: errors ${errors.join('; ')}`); await context.close();
 });
