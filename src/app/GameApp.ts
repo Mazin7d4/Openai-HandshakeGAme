@@ -1,3 +1,4 @@
+import { Ray } from '@babylonjs/core/Culling/ray.js';
 import { facingYaw } from '../gameplay/passRules.ts';
 import '../ui/campaign.css';
 import { cordState } from '../gameplay/Tether.ts';
@@ -688,6 +689,13 @@ export class GameApp {
         objectiveMarkers: this.scene.meshes.filter(mesh => /(?:-beacon(?:-ring)?$|-floor-ring$|^vault-halo$|^plinth-ring$)/.test(mesh.name)).map(mesh => mesh.name),
         cameraOccluders: this.cameraRig.fadeableOccluderNames(),
       }),
+      /** Verify the visible cap surface sits above each knee wall, rather than coplanar with it. */
+      wallCapHeights: () => [[-12.5, -55], [11, -55], [-13.25, -43], [8.25, -43],
+        [-11.5, -26], [10.5, -26], [-10.9, 2], [10.4, 2]].map(([x, z]) => {
+        const hit = this.scene.pickWithRay(new Ray(new Vector3(x, 2, z), new Vector3(0, -1, 0), 1.2),
+          mesh => mesh.isVisible && mesh.isEnabled() && !!mesh.material?.name.endsWith('graphite-rubber'));
+        return { x, z, y: hit?.pickedPoint?.y ?? null };
+      }),
       /** Retained evidence: actual presentation state and render counters, never game controls. */
       presentationDiagnostics: () => ({
         circuits: this.scene.meshes.filter(mesh => mesh.metadata?.circuit).map(mesh => ({
@@ -707,7 +715,8 @@ export class GameApp {
           name: mat.name, color: (mat as StandardMaterial).emissiveColor.asArray(), frozen: mat.isFrozen,
         })),
         lintels: this.scene.meshes.filter(mesh => mesh.name.startsWith('exit-lintel-strip-')).map(mesh => ({
-          name: mesh.name, lit: mesh.material?.name === 'exit-lintel-warm',
+          name: mesh.name, lit: mesh.material?.name === 'exit-lintel-open',
+          color: (mesh.material as StandardMaterial).emissiveColor.asArray(),
         })),
         drawCalls: (this.scene.getEngine() as unknown as { _drawCalls: { current: number } })._drawCalls.current,
         activeMeshes: this.scene.getActiveMeshes().length,

@@ -130,12 +130,12 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   const lintelDark = new StandardMaterial('exit-lintel-dark', scene);
   lintelDark.diffuseColor = Color3.FromHexString('#443D36'); lintelDark.emissiveColor = Color3.Black();
   lintelDark.specularColor = Color3.Black();
-  const lintelWarm = new StandardMaterial('exit-lintel-warm', scene);
-  lintelWarm.diffuseColor = Color3.FromHexString('#FFF1D6'); lintelWarm.emissiveColor = Color3.FromHexString('#FFF1D6');
-  lintelWarm.specularColor = Color3.Black(); lintelWarm.disableLighting = true;
+  const lintelOpen = new StandardMaterial('exit-lintel-open', scene);
+  lintelOpen.diffuseColor = Color3.FromHexString('#8EDBA8'); lintelOpen.emissiveColor = Color3.FromHexString('#8EDBA8');
+  lintelOpen.specularColor = Color3.Black(); lintelOpen.disableLighting = true;
   const exitStrips = new Map<string, Mesh>();
   const exitStrip = (id: string, x: number, z: number, width: number, lit: boolean) => {
-    const strip = box(`exit-lintel-strip-${id}`, x, 8.72, z, width, 0.16, 0.16, lit ? lintelWarm : lintelDark, false);
+    const strip = box(`exit-lintel-strip-${id}`, x, 8.72, z, width, 0.16, 0.16, lit ? lintelOpen : lintelDark, false);
     exitStrips.set(id, strip); return strip;
   };
   const sign = (name: string, title: string, sub: string, x: number, y: number, z: number, width = 7) => {
@@ -234,8 +234,8 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   glassRail('office-divider-glass-west', -13.25, -43, 11.5); glassRail('office-divider-glass-east', 8.25, -43, 21.5);
   partitionTrim('vent-partition', -43, [[-13.25, 11.5], [8.25, 21.5]]);
   box('vent-sill', -5, 4.8, -43, 5, 0.22, 4, p.metal);
-  for (const x of [-7.5, -2.5]) box('vent-frame-lamp', x, 6.45, -43.36, 0.16, 3.1, 0.16, lintelWarm, false);
-  box('vent-frame-lamp', -5, 4.95, -43.36, 5, 0.12, 0.16, lintelWarm, false);
+  for (const x of [-7.5, -2.5]) box('vent-frame-lamp', x, 6.45, -43.36, 0.16, 3.1, 0.16, lintelOpen, false);
+  box('vent-frame-lamp', -5, 4.95, -43.36, 5, 0.12, 0.16, lintelOpen, false);
   box('vent-left', -7.6, 6.4, -43, 0.2, 3.4, 4, p.metal, true, true);
   box('vent-right', -2.4, 6.4, -43, 0.2, 3.4, 4, p.metal, true, true);
   // Office cooperative pocket: PIX on the desktop; NEE at the under-desk patch bay.
@@ -457,7 +457,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
       || (id === 'G3' && !!state.vaultOpen && !state.alarm)
       || (id === 'G4' && vaultOpen);
     for (const [id, strip] of exitStrips) {
-      const targetMat = isLit(id) ? lintelWarm : lintelDark;
+      const targetMat = isLit(id) ? lintelOpen : lintelDark;
       if (strip.material !== targetMat) strip.material = targetMat;
     }
     const hacked = state.hacked;

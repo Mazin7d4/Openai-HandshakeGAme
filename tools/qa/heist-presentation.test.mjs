@@ -16,6 +16,10 @@ await runTest('heist-presentation', async (browser, notes) => {
   const objective = await page.getByTestId('mission-objective').innerText();
   assert(objective.length > 5, 'objective HUD data missing');
   notes.objective = objective;
+  const caps = await page.evaluate(() => window.__autotest.wallCapHeights());
+  assert(caps.length === 8 && caps.every(c => c.y !== null && Math.abs(c.y - 1.44) < 0.01),
+    `cap surfaces overlap wall tops: ${JSON.stringify(caps)}`);
+  notes.capHeights = caps;
   const before = await page.evaluate(() => window.__autotest.presentationDiagnostics());
   assert(before.doors.some(door => door.name === 'arrival-delivery-door' && !door.open), 'teaching door starts open');
   for (const material of [...before.screens, ...before.lockLights, ...before.circuits.filter(c => c.name.endsWith('-conduit'))]) {
@@ -74,6 +78,8 @@ await runTest('heist-presentation', async (browser, notes) => {
       && s.lintels.some(l => l.name.endsWith('G3') && !l.lit);
   }, null, { timeout: 30000 });
   const opened = await page.evaluate(() => window.__autotest.presentationDiagnostics());
+  const openFrame = opened.lintels.find(l => l.name.endsWith('G2'));
+  assert(openFrame.color[1] > openFrame.color[0] * 1.3, 'open doorway frame is not green');
   const lock = opened.lockLights.find(l => l.name === 'office-access-shutter-lock-state');
   assert(lock && lock.color[1] > lock.color[0] * 3, 'open door lock did not turn green');
   await page.evaluate(() => {
