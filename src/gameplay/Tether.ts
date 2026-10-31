@@ -1,3 +1,5 @@
+import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
+import { TetherGeometry } from './TetherGeometry.ts';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.js';
 import { CreateTube } from '@babylonjs/core/Meshes/Builders/tubeBuilder.js';
@@ -69,6 +71,7 @@ export class Tether {
   private readonly tangent = new Vector3();
   private readonly zero = new Vector3();
   private readonly material: PBRMaterial;
+  private readonly geometry: TetherGeometry;
   private readonly collars: Mesh[] = [];
   private strain = 0;
   private readonly a: Drone;
@@ -93,6 +96,7 @@ export class Tether {
       { path: this.path, radius: tuning.radius, tessellation: 10, updatable: true, cap: 0 },
       scene,
     );
+    this.geometry = new TetherGeometry(this.path, 10);
     this.material = new PBRMaterial('tether-mat', scene);
     this.material.albedoColor = CORD_COLOR.clone();
     this.material.metallic = 0;
@@ -197,7 +201,9 @@ export class Tether {
     );
     // An elastic cord thins as it stretches.
     const radius = this.tuning.radius * (1 - this.strain * 0.35);
-    CreateTube('tether', { path: this.path, radius, instance: this.mesh });
+    this.geometry.update(radius);
+    this.mesh.updateVerticesData(VertexBuffer.PositionKind, this.geometry.positions, true);
+    this.mesh.updateVerticesData(VertexBuffer.NormalKind, this.geometry.normals, false);
     this.placeCollar(0, this.anchorA, this.path[1]);
     this.placeCollar(1, this.anchorB, this.path[this.path.length - 2]);
   }
