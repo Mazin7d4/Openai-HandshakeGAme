@@ -50,7 +50,7 @@ await runTest('night-shift', async (browser, notes) => {
   assert(/Floor 1 cleared/.test(reportText), 'report does not show Floor 1 cleared');
   assert(/Run score/.test(reportText), 'report does not show Run score');
   assert(/Next floor:/.test(reportText), 'report does not show Next floor');
-  const scoredText = (await page.getByTestId('score-chip').innerText()).trim();
+  const scoredText = (await page.getByTestId('score-chip').textContent()).trim();
   const scored = Number(scoredText.match(/^Score\s+([\d,]+)/)?.[1]?.replaceAll(',', '') ?? 0);
   assert(scored > 0, `score chip did not increase: "${scoredText}"`);
 
