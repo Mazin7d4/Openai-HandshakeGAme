@@ -425,7 +425,6 @@ class HandshakeRoom extends Room {
       if (!this.checkRateLimit(client)) return;
       try { this.handleRematchVote(client, message); } catch (_) {}
     });
-    });
     this.onMessage('quickmatch-bot', (client) => {
       if (!this.checkRateLimit(client)) return;
       try {
