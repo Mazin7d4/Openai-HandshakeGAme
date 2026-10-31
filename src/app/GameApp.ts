@@ -654,18 +654,6 @@ export class GameApp {
       app.dispose();
       throw error;
     }
-    for (const mat of scene.materials) {
-      if (mat.isFrozen) continue;
-      const name = mat.name;
-      if (name === 'escape' || name === 'extraction-pad-green' || name === 'Shell' || name === 'Glow'
-        || name === 'Accent' || name === 'FaceRim' || name === 'FaceScreen' || name === 'DarkMetal'
-        || name.startsWith('player-') || name.startsWith('security-') || name.startsWith('terminal-')
-        || name.startsWith('door-lock-') || name.startsWith('power-') || name.startsWith('beacon-')
-        || name.startsWith('vault-beam') || name.startsWith('tether-') || name.startsWith('bot-tag')) {
-        continue;
-      }
-      try { mat.freeze(); } catch { /* ok */ }
-    }
     getQuality(scene)?.beginPlay();
     return app;
   }
@@ -704,6 +692,7 @@ export class GameApp {
       presentationDiagnostics: () => ({
         circuits: this.scene.meshes.filter(mesh => mesh.metadata?.circuit).map(mesh => ({
           name: mesh.name, powered: mesh.metadata.powered, scale: mesh.scaling.x, source: mesh.metadata.source,
+          color: (mesh.material as StandardMaterial).emissiveColor.asArray(), frozen: mesh.material?.isFrozen,
         })),
         terminals: this.scene.meshes.filter(mesh => /^terminal-[abc]$/.test(mesh.name)).map(mesh => ({
           id: mesh.name, x: mesh.position.x, y: mesh.position.y, z: mesh.position.z,
@@ -711,8 +700,11 @@ export class GameApp {
         doors: this.scene.meshes.filter(mesh => mesh.name.endsWith('-door') || mesh.name === 'office-access-shutter').map(mesh => ({
           name: mesh.name, open: !!mesh.metadata?.open, y: mesh.position.y,
         })),
+        lockLights: this.scene.materials.filter(mat => mat.name.endsWith('-lock-state')).map(mat => ({
+          name: mat.name, color: (mat as StandardMaterial).emissiveColor.asArray(), frozen: mat.isFrozen,
+        })),
         screens: this.scene.materials.filter(mat => mat.name.endsWith('-screen-glow')).map(mat => ({
-          name: mat.name, color: (mat as StandardMaterial).emissiveColor.asArray(),
+          name: mat.name, color: (mat as StandardMaterial).emissiveColor.asArray(), frozen: mat.isFrozen,
         })),
         lintels: this.scene.meshes.filter(mesh => mesh.name.startsWith('exit-lintel-strip-')).map(mesh => ({
           name: mesh.name, lit: mesh.material?.name === 'exit-lintel-warm',

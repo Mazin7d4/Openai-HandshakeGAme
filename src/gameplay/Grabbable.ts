@@ -107,11 +107,10 @@ export class Grabbable implements Interactable {
     this.aggregate.body.setAngularDamping(0.35);
     this.aggregate.shape.filterMembershipMask = COLLISION_GROUP.grabbable;
     this.aggregate.shape.filterCollideMask = COLLISION_GROUP.all;
-    plugin.setActivationControl(this.aggregate.body, PhysicsActivationControl.SIMULATION_CONTROLLED);
+    plugin.setActivationControl(this.aggregate.body, PhysicsActivationControl.ALWAYS_ACTIVE);
     this.lastSafePosition.copyFrom(this.mesh.position);
     this.cradled = spec.cradled ?? false;
     this.cradlePosition.copyFrom(spec.position);
-    if (this.cradled) this.setMotionMode('held');
   }
 
   get position(): Vector3 {

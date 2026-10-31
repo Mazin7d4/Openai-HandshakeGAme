@@ -164,15 +164,16 @@ export function createScene(engine: Engine): Scene {
   updateProcessingTier();
   scene.onBeforeRenderObservable.add(updateProcessingTier);
 
-  // glTF may choose a shader light limit from the number of scene lights, including disabled ones.
-  // Apply the four-light cap directly as materials are registered.
-  const capMaterialLights = (material: unknown) => {
-    if (material && typeof material === 'object' && 'maxSimultaneousLights' in material) {
-      (material as StandardMaterial).maxSimultaneousLights = 4;
+  // glTF assigns material properties after registration; cap lights after imports finish.
+  const pendingMaterials = [...scene.materials];
+  scene.onNewMaterialAddedObservable.add(material => pendingMaterials.push(material));
+  scene.onBeforeRenderObservable.add(() => {
+    if (pendingMaterials.length === 0) return;
+    for (const material of pendingMaterials) {
+      if ('maxSimultaneousLights' in material) (material as StandardMaterial).maxSimultaneousLights = 4;
     }
-  };
-  for (const mat of scene.materials) capMaterialLights(mat);
-  scene.onNewMaterialAddedObservable.add(capMaterialLights);
+    pendingMaterials.length = 0;
+  });
 
   return scene;
 }

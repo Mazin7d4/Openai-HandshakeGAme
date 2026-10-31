@@ -1,8 +1,12 @@
-import { runTest, url, assert, openPage, closePage, waitForGame, collectErrors } from './lib.mjs';
+import { runTest, url, assert, openPage, closePage, waitForGame, collectErrors, shot } from './lib.mjs';
 
 await runTest('heist-presentation', async (browser, notes) => {
-  const { page } = await openPage(browser);
+  const { page } = await openPage(browser, { viewport: { width: 1920, height: 1080 } });
   const errors = []; collectErrors(page, 'presentation', errors);
+  await page.addInitScript(() => {
+    localStorage.setItem('handshake.onboardingDone', '1');
+    localStorage.setItem('handshake.controlsSeen', '1');
+  });
   await page.goto(url());
   await page.getByTestId('dev-local').click();
   await waitForGame(page);
@@ -14,6 +18,11 @@ await runTest('heist-presentation', async (browser, notes) => {
   notes.objective = objective;
   const before = await page.evaluate(() => window.__autotest.presentationDiagnostics());
   assert(before.doors.some(door => door.name === 'arrival-delivery-door' && !door.open), 'teaching door starts open');
+  for (const material of [...before.screens, ...before.lockLights, ...before.circuits.filter(c => c.name.endsWith('-conduit'))]) {
+    assert(!material.frozen, `dynamic cue frozen: ${material.name}`);
+  }
+  const darkCable = before.circuits.find(c => c.name === 'circuit-terminal-a-conduit');
+  assert(darkCable.color[2] > 0 && darkCable.color[2] < 0.4, 'unpowered cable color was not initialized');
   const warm = id => `exit-lintel-strip-${id}`;
   assert(before.lintels.some(light => light.name === warm('G2') && !light.lit), 'office strip lit while locked');
   await page.evaluate(() => {
@@ -31,6 +40,8 @@ await runTest('heist-presentation', async (browser, notes) => {
   });
   const baseBlue = before.screens.find(s => s.name.startsWith('terminal-a')).color[2];
   await page.waitForFunction(base => window.__autotest.presentationDiagnostics().screens.find(s => s.name.startsWith('terminal-a')).color[2] > base * 1.15, baseBlue);
+  await page.waitForTimeout(2500);
+  await shot(page, 'presentation-console-locked');
   await page.evaluate(() => window.__autotest.debugOpenHack('packet-routing'));
   const packet = page.getByTestId('packet-routing');
   await packet.waitFor({ state: 'visible' });
@@ -45,6 +56,10 @@ await runTest('heist-presentation', async (browser, notes) => {
   await packet.waitFor({ state: 'detached' });
   await page.waitForFunction(() => window.__autotest.presentationDiagnostics().circuits.some(c => c.name === 'circuit-terminal-a-lamp' && c.powered));
   const oneKey = await page.evaluate(() => window.__autotest.presentationDiagnostics());
+  const liveCable = oneKey.circuits.find(c => c.name === 'circuit-terminal-a-conduit');
+  assert(liveCable.color[2] > darkCable.color[2] * 3, 'completed console did not brighten its cable');
+  assert(oneKey.screens.find(s => s.name.startsWith('terminal-a')).color[1] > 0.5, 'completed screen did not change color');
+  await shot(page, 'presentation-console-powered');
   assert(oneKey.circuits.filter(c => c.name.startsWith('circuit-terminal-b-')).every(c => !c.powered), 'one key powered the other circuit');
   assert(oneKey.doors.some(d => d.name === 'office-access-shutter' && !d.open), 'one key opened two-key shutter');
   await page.evaluate(() => window.__autotest.debugOpenHack('signal-match'));
@@ -58,6 +73,15 @@ await runTest('heist-presentation', async (browser, notes) => {
       && s.lintels.some(l => l.name.endsWith('G2') && l.lit)
       && s.lintels.some(l => l.name.endsWith('G3') && !l.lit);
   }, null, { timeout: 30000 });
+  const opened = await page.evaluate(() => window.__autotest.presentationDiagnostics());
+  const lock = opened.lockLights.find(l => l.name === 'office-access-shutter-lock-state');
+  assert(lock && lock.color[1] > lock.color[0] * 3, 'open door lock did not turn green');
+  await page.evaluate(() => {
+    window.__autotest.teleport('pix', -2, 2.3, -30);
+    window.__autotest.teleport('nee', 0, 2.3, -30);
+  });
+  await page.waitForTimeout(1500);
+  await shot(page, 'presentation-door-open');
   await page.evaluate(() => window.__autotest.debugStage('steal-prototype'));
   await page.waitForFunction(() => window.__autotest.presentationDiagnostics().lintels.some(l => l.name.endsWith('G3') && l.lit));
   await page.evaluate(() => window.__autotest.debugStage('escape'));

@@ -83,7 +83,6 @@ export function applyCampaignPalette(scene: Scene, index: number): void {
 
 /** Hand-authored first mission. Geometry owns no mission or network state. */
 export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
-  scene.blockMaterialDirtyMechanism = true;
   const p = createLabPalette(scene);
   const box = (name: string, x: number, y: number, z: number, w: number, h: number, d: number,
     material: Material = p.paint, solid = true, occluder = false) => {
@@ -620,7 +619,6 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     if (key === 'escape') continue;
     try { mat.freeze(); } catch { /* ok */ }
   }
-  scene.blockMaterialDirtyMechanism = false;
   scene.metadata ??= {};
   addHeroLighting(scene);
   installDecorQuality(scene);

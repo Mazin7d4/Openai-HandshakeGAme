@@ -18,6 +18,7 @@ export class PowerCircuit {
   private readonly scene: Scene;
   private readonly id: string;
   private source: AbstractMesh | null = null;
+  private powered: boolean | undefined;
 
   constructor(scene: Scene, id: string, color: string, points: Vector3[], socket: Vector3) {
     this.scene = scene; this.id = id; this.path = points;
@@ -56,7 +57,8 @@ export class PowerCircuit {
 
   /** A completed console powers its own cable and fills exactly one key socket. */
   setPowered(powered: boolean): void {
-    if (this.lamp.metadata?.powered === powered) return;
+    if (this.powered === powered) return;
+    this.powered = powered;
     this.material.emissiveColor.copyFrom(this.tint).scaleInPlace(powered ? 1.2 : 0.18);
     this.lamp.scaling.set(powered ? 1 : 0.32, powered ? 1 : 0.32, 1);
     for (const mesh of this.meshes) mesh.metadata.powered = powered;
