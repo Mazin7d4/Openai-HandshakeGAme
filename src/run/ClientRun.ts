@@ -41,6 +41,7 @@ export interface ClientRunSnapshot {
   lastFloorPoints: number;
   floorCleared: boolean;
   ended: boolean;
+  levelId?: string;
 }
 
 type FloorStartListener = (payload: FloorStartPayload, layout: RunLayout | null) => void;
@@ -53,6 +54,8 @@ let ended = false;
 const floorListeners = new Set<FloorStartListener>();
 let layoutSinkProvider: LayoutSinkProvider | null = null;
 let nightShiftLayoutGenerator: (seed: number, floor: number) => RunLayout = generateRun;
+let campaignLayoutGenerator: ((levelId: string) => RunLayout) | null = null;
+let campaignLevelId: string | null = null;
 
 function toSnapshot(state: RunState): ClientRunSnapshot {
   const scored = state as RunState & Partial<Pick<ClientRunSnapshot, 'score' | 'streak' | 'multiplier' | 'lastFloorPoints' | 'floorCleared'>>;
@@ -72,6 +75,7 @@ function toSnapshot(state: RunState): ClientRunSnapshot {
     lastFloorPoints: scored.lastFloorPoints ?? 0,
     floorCleared: scored.floorCleared ?? false,
     ended,
+    ...(campaignLevelId ? { levelId: campaignLevelId } : {}),
   };
 }
 
@@ -90,6 +94,11 @@ export function setNightShiftLayoutGenerator(
   generator: ((seed: number, floor: number) => RunLayout) | null,
 ): void {
   nightShiftLayoutGenerator = generator ?? generateRun;
+}
+
+/** Installed by the lazy game chunk so campaign rooms share their authored plan. */
+export function setCampaignLayoutGenerator(generator: ((levelId: string) => RunLayout) | null): void {
+  campaignLayoutGenerator = generator;
 }
 
 export function onFloorStart(listener: FloorStartListener): () => void {
@@ -111,6 +120,10 @@ export function applyFloorStart(payload: FloorStartPayload): RunLayout | null {
     layout = nightShiftLayoutGenerator(payload.seed, payload.floor);
     const sinks = layoutSinkProvider?.() ?? undefined;
     applyRunLayout(layout, sinks ?? undefined);
+  } else if (mode === 'campaign' && campaignLayoutGenerator && (payload.levelId ?? campaignLevelId)) {
+    layout = campaignLayoutGenerator(payload.levelId ?? campaignLevelId!);
+    const sinks = layoutSinkProvider?.() ?? undefined;
+    applyRunLayout(layout, sinks ?? undefined);
   }
   for (const listener of floorListeners) listener({ ...payload, mode }, layout);
   return layout;
@@ -122,11 +135,12 @@ export function readUrlRunOptions(search = window.location.search): UrlRunOption
 
 /** Start a local (solo / offline) run. Does not contact the server. */
 export function startLocalRun(
-  options?: UrlRunOptions & { mode?: RunMode; floor?: number; captures?: number },
+  options?: UrlRunOptions & { mode?: RunMode; floor?: number; captures?: number; levelId?: string },
 ): ClientRunSnapshot {
   const fromUrl = { ...readUrlRunOptions(), ...options };
   if (fromUrl.beat != null) beatTarget = fromUrl.beat;
   ended = false;
+  campaignLevelId = options?.levelId ?? new URLSearchParams(window.location.search).get('level') ?? null;
 
   let seed = fromUrl.seed;
   let floor = fromUrl.floor;
@@ -144,13 +158,14 @@ export function startLocalRun(
     captures: Math.max(0, (fromUrl.captures ?? localState.captures) | 0),
   };
   snapshot = toSnapshot(localState);
-  applyFloorStart({ seed: localState.seed, floor: localState.floor, mode: localState.mode });
+  applyFloorStart({ seed: localState.seed, floor: localState.floor, mode: localState.mode, ...(campaignLevelId ? { levelId: campaignLevelId } : {}) });
   return snapshot;
 }
 
 /** Mirror authoritative multiplayer run fields into the client accessor. */
 export function syncNetworkRun(partial: {
   mode: RunMode;
+  levelId?: string;
   seed: number;
   floor: number;
   captures: number;
@@ -165,6 +180,7 @@ export function syncNetworkRun(partial: {
   ended?: boolean;
 }): ClientRunSnapshot {
   localState = null;
+  campaignLevelId = partial.levelId ?? campaignLevelId;
   if (partial.ended != null) ended = partial.ended;
   const state = {
     mode: partial.mode,

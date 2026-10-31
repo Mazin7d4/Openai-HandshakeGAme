@@ -12,6 +12,7 @@ import type { LoadedModel } from '../assets/AssetLoader.ts';
 import { DroneFace, type Expression, type EmoteFace } from './DroneFace.ts';
 import { FLIGHT_TUNING } from './FlightTuning.ts';
 import { createRoundedBox } from '../scene/roundedBox.ts';
+import { effectiveReducedMotion, getSettings } from '../ui/Settings.ts';
 import type { CosmeticId } from './Cosmetics.ts';
 
 export const DRONE_MODEL_URL = `${import.meta.env.BASE_URL}assets/drone/drone.glb`;
@@ -37,6 +38,7 @@ export interface DroneVisualState {
   focused?: boolean;
   selfPowered?: boolean;
   tetherPull?: number;
+  carrying?: boolean;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -145,6 +147,8 @@ export class DroneVisual {
   private squashVelocity = 0;
   private drag = 0;
   private tumble = 0;
+  private carryLoad = 0;
+  private celebrateRemaining = 0;
 
   constructor(scene: Scene, parent: TransformNode, palette: DronePalette, model: LoadedModel) {
     this.glow = palette.glow.clone();
@@ -237,6 +241,12 @@ export class DroneVisual {
     this.antennaVX += 14 * strength;
   }
 
+  /** A visual hop and one turn; the collider, yaw controller and tether socket root stay untouched. */
+  celebrate(): void {
+    this.celebrateRemaining = 1.35;
+    this.face.flash('happy', 1.8);
+  }
+
   /** Temporary face reaction (presentation only). */
   react(expression: Expression, seconds: number): void {
     this.face.flash(expression, seconds);
@@ -255,16 +265,26 @@ export class DroneVisual {
   /** Show one of the flat, screen-native co-op emote expressions. */
   showEmote(id: EmoteFace, seconds = 2): void {
     const expression: Record<EmoteFace, Expression> = { here: 'focused', wait: 'sheepish', go: 'proud', yay: 'happy' };
-    this.face.flash(expression[id], seconds);
+    if (id === 'yay') this.celebrate();
+    else this.face.flash(expression[id], seconds);
     this.squashPulse = Math.max(this.squashPulse, 0.12);
   }
 
   update(state: DroneVisualState): void {
-    const dt = state.dt;
+    const dt = Math.min(state.dt, 0.05);
     if (dt <= 0) {
       return;
     }
     this.time += dt;
+    const reduced = effectiveReducedMotion(getSettings());
+    const low = document.documentElement.dataset.quality === 'low';
+    const motion = reduced ? 0 : low ? 0.65 : 1;
+    this.carryLoad = blend(this.carryLoad, state.carrying ? 1 : 0, 4, dt);
+    this.celebrateRemaining = Math.max(0, this.celebrateRemaining - dt);
+    const celebration = this.celebrateRemaining > 0 ? 1 - this.celebrateRemaining / 1.35 : 0;
+    const hop = celebration > 0 ? Math.sin(celebration * Math.PI) : 0;
+    this.lean.rotation.y = motion && celebration > 0
+      ? (celebration * celebration * (3 - 2 * celebration) * Math.PI * 2) : 0;
     const v = state.velocity;
 
     // Local frame from the yaw the controller gave root (Babylon left-handed: forward = (sin, 0, cos)).
@@ -290,8 +310,8 @@ export class DroneVisual {
     const moveBlend = clamp(speed / FLIGHT_TUNING.cruiseSpeed, 0, 1);
 
     // Hover bob: gentle while idle, nearly still at speed.
-    const bobAmount = 0.035 * (1 - moveBlend * 0.75);
-    this.bob.position.y = Math.sin(this.time * 2.1) * bobAmount;
+    const bobAmount = 0.065 * (1 - moveBlend * 0.75) * (1 - this.carryLoad * 0.55) * motion;
+    this.bob.position.y = Math.sin(this.time * 2.1) * bobAmount + hop * 0.3 * motion;
     this.bob.rotation.z = Math.sin(this.time * 1.6) * 0.015 * (1 - moveBlend);
     this.bob.rotation.x = Math.sin(this.time * 1.3 + 1.2) * 0.01 * (1 - moveBlend);
 
@@ -318,8 +338,8 @@ export class DroneVisual {
     const limp = Math.max(this.drag, this.tumble);
     const flail = Math.sin(this.time * 13) * 0.22 * limp;
     const trail = clamp(-localForward / FLIGHT_TUNING.cruiseSpeed, -1.4, 1.4) * 0.28 * limp;
-    this.lean.rotation.x = this.leanPitch + shakeX + trail + Math.cos(this.time * 9) * 0.08 * limp;
-    this.lean.rotation.z = this.leanRoll + shakeZ + flail;
+    this.lean.rotation.x = this.leanPitch + shakeX + trail + Math.cos(this.time * 9) * 0.08 * limp - this.carryLoad * 0.085;
+    this.lean.rotation.z = this.leanRoll + shakeZ + flail + Math.sin(this.time * 2.8) * 0.02 * this.carryLoad;
 
     // Subtle squash/stretch.
     const lift = clamp(v.y / FLIGHT_TUNING.verticalSpeed, -1, 1);
@@ -382,7 +402,9 @@ export class DroneVisual {
     }
 
     // Face.
-    if (limp > 0.35) {
+    if (this.carryLoad > 0.5) {
+      this.face.setExpression('strained');
+    } else if (limp > 0.35) {
       this.face.setExpression('yanked');
     } else if ((state.tetherPull ?? 0) > 0.18) {
       this.face.setExpression('strained');
@@ -394,6 +416,16 @@ export class DroneVisual {
       this.face.setExpression('happy');
     } else {
       this.face.setExpression('neutral');
+    }
+    // Reduced motion keeps identity and expressions; no hover, banking, spring or celebration spin.
+    if (reduced) {
+      this.bob.position.y = 0; this.bob.rotation.setAll(0); this.lean.rotation.setAll(0);
+      this.squash.scaling.setAll(1);
+      for (const pod of this.pods) pod.node.rotation.setAll(0);
+      this.antenna?.rotation.setAll(0);
+    } else if (low) {
+      this.bob.rotation.scaleInPlace(0.65);
+      this.lean.rotation.x *= 0.75; this.lean.rotation.z *= 0.75;
     }
     this.face.update(dt);
   }

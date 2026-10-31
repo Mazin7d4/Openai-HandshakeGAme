@@ -7,7 +7,21 @@ import { fileURLToPath } from 'node:url';
 import { runQaProcess } from './process.mjs';
 import { freePort, startTestServer } from '../test-server.mjs';
 
-const all = ['qa-deadline', 'phone-ui', 'seeds', 'bundle-budget', 'cold-load', 'pass-rules', 'messages', 'interp', 'remote-unit', 'server-fuzz', 'proxy-latency', 'error-resilience', 'challenge', 'night-shift', 'smoke', 'solo-boot', 'no-cdn', 'bot-solo', 'coop', 'coop-capture', 'grab-carry', 'rematch', 'bot-server', 'migration', 'bot-hack-server', 'leaderboard-server', 'quickmatch-server', 'quickmatch', 'quickmatch-cancel', 'quickmatch-bot', 'quickmatch-private', 'nightshift-coop', 'ping-emote', 'reconnect', 'mobile', 'quality-phone', 'governor', 'governor-unit', 'mobile-layout', 'join-mobile', 'join-qr', 'rematch-mobile', 'leaderboard', 'leaderboard-solo', 'title-best-crew', 'wake', 'emote-mobile', 'gamepad', 'escape-replay', 'no-test-hooks', 'settings', 'a11y-keyboard', 'floorplan-sweep', 'objectives-unit', 'hazards-unit', 'variety-coop', 'nightshift-9floors', 'variety-solo'];
+const all = [
+  'prototype-safety', 'heist-main', 'heist-coop', 'heist-audio', 'heist-presentation',
+  'qa-deadline', 'phone-ui', 'seeds', 'bundle-budget', 'cold-load', 'pass-rules',
+  'messages', 'interp', 'remote-unit', 'server-fuzz', 'proxy-latency', 'error-resilience',
+  'challenge', 'night-shift', 'smoke', 'solo-boot', 'no-cdn', 'bot-solo', 'coop',
+  'coop-capture', 'grab-carry', 'rematch', 'bot-server', 'migration', 'bot-hack-server',
+  'leaderboard-server', 'quickmatch-server', 'quickmatch', 'quickmatch-cancel',
+  'quickmatch-bot', 'quickmatch-private', 'nightshift-coop', 'ping-emote', 'reconnect',
+  'mobile', 'quality-phone', 'governor', 'governor-unit', 'mobile-layout', 'join-mobile',
+  'join-qr', 'rematch-mobile', 'leaderboard', 'leaderboard-solo', 'title-best-crew',
+  'wake', 'emote-mobile', 'gamepad', 'escape-replay', 'no-test-hooks', 'settings',
+  'a11y-keyboard', 'floorplan-sweep', 'drawcall-sweep', 'objectives-unit', 'hazards-unit',
+  'variety-coop', 'nightshift-9floors', 'variety-solo', 'campaign-unit', 'campaign-solo',
+  'campaign-coop'
+];
 const args = process.argv.slice(2);
 const ownServers = process.env.QA_OWN_SERVERS === '1' || args.includes('--own-servers');
 const unknown = args.filter((a) => a !== '--own-servers' && !all.includes(a));
@@ -17,7 +31,11 @@ const tests = pick.length ? pick : all;
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const configuredTimeout = Number(process.env.QA_TIMEOUT_MS);
 if (process.env.QA_TIMEOUT_MS && (!Number.isFinite(configuredTimeout) || configuredTimeout <= 0)) throw new Error('QA_TIMEOUT_MS must be a positive finite number');
-const testTimeout = (test) => process.env.QA_TIMEOUT_MS ? configuredTimeout : test === 'mobile' ? 600_000 : 300_000;
+const timeoutFor = (test) => {
+  if (process.env.QA_TIMEOUT_MS) return configuredTimeout;
+  const specific = { 'heist-coop': 600_000, 'campaign-solo': 540_000, 'mobile': 600_000 };
+  return specific[test] ?? 300_000;
+};
 
 function report(test, res) {
   if (process.env.QA_RESULTS_FILE) appendFileSync(process.env.QA_RESULTS_FILE, JSON.stringify({ ...res, recordedAt: new Date().toISOString() }) + '\n');
@@ -91,7 +109,7 @@ function killChild(child) {
 
 function runTestAsync(test, env) {
   return runQaProcess(test, {
-    root, env, timeoutMs: testTimeout(test),
+    root, env, timeoutMs: timeoutFor(test),
     onChild: (child) => { runningTest = child; },
   }).finally(() => { runningTest = null; });
 }

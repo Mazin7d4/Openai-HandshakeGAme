@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { runTest, url, assert, devices, waitForGame, collectErrors, SHOTS } from './lib.mjs';
 
-const out = `${SHOTS}/phone-ui`;
+const out = process.env.QA_SHOTS ?? `${SHOTS}/phone-ui`;
 mkdirSync(out, { recursive: true });
 const sizes = [[1024, 461], [844, 390], [740, 360]];
 const variants = ['packet-routing', 'signal-match', 'memory-trace'];
@@ -46,9 +46,10 @@ await runTest('phone-ui', async (browser, notes) => {
     const viewport = { width, height }; const context = await browser.newContext({ ...devices['iPhone 13 landscape'], viewport, screen: viewport, hasTouch: true, isMobile: true });
     const page = await context.newPage(); const errors = []; collectErrors(page, `${width}x${height}`, errors);
     await page.goto(url({ stage: 'escape' })); await page.getByTestId('singleplayer').tap(); await page.getByTestId('start-singleplayer').tap(); await waitForGame(page);
+    await page.waitForFunction(() => window.__autotest?.debugGrabForUi);
     await page.evaluate(() => window.__autotest.debugGrabForUi('pix')); await page.waitForFunction(() => window.__autotest?.heldObject?.('pix') === 'prototype', null, { timeout: 15_000 }); await page.waitForFunction(() => document.querySelector('[data-testid="mission-objective"]')?.dataset.collapsed === '1', null, { timeout: 5_000 }); await page.evaluate(() => { window.__autotest.toast('Rescued!'); window.__autotest.toast('Prototype grabbed!'); window.__autotest.toast('NEE is free!'); }); await page.waitForFunction(() => [...document.querySelectorAll('.juice-toast')].some((el) => { const s = getComputedStyle(el); return s.display !== 'none' && s.visibility !== 'hidden' && +s.opacity > .05; }));
     assert((await page.getByTestId('touch-grab').innerText()).match(/Drop|Pass/), `${width}x${height}: carry label missing`); assert(await page.getByTestId('touch-throw').isVisible(), `${width}x${height}: throw button missing`); assert(!(await page.getByTestId('interaction-prompt').isVisible()), `${width}x${height}: carry prompt card visible`);
-    assert(!(await toastAudit(page)).length, `${width}x${height}: toast audit failed`); const failures = await audit(page); assert(!failures.length, `${width}x${height}: ${failures.join(', ')}`);
+    assert(!(await toastAudit(page)).length, `${width}x${height}: toast audit failed: ${(await toastAudit(page)).join(', ')}`); const failures = await audit(page); assert(!failures.length, `${width}x${height}: ${failures.join(', ')}`);
     await page.evaluate(() => window.__autotest.toast('Prototype grabbed!')); await page.waitForFunction(() => [...document.querySelectorAll('.juice-toast')].some((el) => el.textContent === 'Prototype grabbed!'));
     const carryPath = `${out}/carry-toast-${width}x${height}.png`; await page.screenshot({ path: carryPath }); notes.screens.push(carryPath);
     for (const variant of variants) {
@@ -61,7 +62,7 @@ await runTest('phone-ui', async (browser, notes) => {
   }
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, screen: { width: 1280, height: 720 }, hasTouch: false, isMobile: false });
   const page = await context.newPage(); const errors = []; collectErrors(page, '1280x720 desktop', errors);
-  await page.goto(url({ stage: 'escape' })); await page.getByTestId('singleplayer').click(); await page.getByTestId('start-singleplayer').click(); await waitForGame(page);
+  await page.goto(url({ stage: 'escape' })); await page.getByTestId('singleplayer').click(); await page.getByTestId('start-singleplayer').click(); await waitForGame(page); await page.waitForFunction(() => window.__autotest?.debugGrabForUi);
   await page.evaluate(() => window.__autotest.debugGrabForUi('pix')); await page.waitForFunction(() => window.__autotest?.heldObject?.('pix') === 'prototype', null, { timeout: 15_000 }); await page.waitForFunction(() => document.querySelector('[data-testid="interaction-prompt"]')?.classList.contains('visible'), null, { timeout: 5_000 });
   const desktopPrompt = await page.getByTestId('interaction-prompt').evaluate((el) => { const r = el.getBoundingClientRect(); const c = { x: innerWidth * .25, y: innerHeight * .25, right: innerWidth * .75, bottom: innerHeight * .75 }; return { text: el.textContent ?? '', width: r.width, central: Math.min(r.right, c.right) - Math.max(r.x, c.x) > 2 && Math.min(r.bottom, c.bottom) - Math.max(r.y, c.y) > 2 }; });
   assert(/Drop|Throw/.test(desktopPrompt.text), '1280x720: carry prompt missing'); assert(desktopPrompt.width <= 1280 * .45 + 1 && !desktopPrompt.central, `1280x720: desktop prompt placement ${JSON.stringify(desktopPrompt)}`); assert(!errors.length, `1280x720: errors ${errors.join('; ')}`); await context.close();

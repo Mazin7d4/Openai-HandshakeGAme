@@ -8,6 +8,7 @@ import type { MultiplayerSession } from '../network/MultiplayerSession.ts';
 import type { DroneRole, HackNetworkState, RoomStatus } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
 import { Door } from './Door.ts';
+import { PowerConnection } from './PowerConnection.ts';
 import type { HackMinigameView } from './HackMinigame.ts';
 import { HackStation, type HackStationId } from './HackStation.ts';
 import { MemoryTraceView } from './MemoryTraceView.ts';
@@ -48,6 +49,8 @@ export class HackSession {
     'terminal-a': false, 'terminal-b': false, 'terminal-c': false,
   };
   private doorOpen = false;
+  private campaignIndex = 0;
+  private tutorialWire: PowerConnection | null = null;
   private alarmed = false;
   private active: ActiveHack | null = null;
   private debugView = false;
@@ -60,6 +63,7 @@ export class HackSession {
     audio?: GameAudio,
     runLayout?: RunLayout | null,
   ) {
+    this.campaignIndex = runLayout?.plan?.campaign?.index ?? 0;
     this.multiplayer = multiplayer;
     this.uiParent = uiParent ?? null;
     this.audio = audio;
@@ -93,12 +97,19 @@ export class HackSession {
         accent: new Color3(0.42, 0.9, 0.62),
       }),
     ];
-    this.door = new Door(scene, plugin);
+    this.door = new Door(scene, plugin, {
+      name: 'lab-access-door', x: 0, y: this.campaignIndex === 1 ? 2.2 : 4, z: this.campaignIndex === 1 ? 12 : 2, width: 5.6, height: this.campaignIndex === 1 ? 4.4 : 8, depth: 0.7, travel: -8.2,
+    });
+    if (this.campaignIndex > 1) { this.door.setOpen(true); this.door.update(10); }
+    if (this.campaignIndex === 1) this.tutorialWire = new PowerConnection(scene, 'terminal-c-door-cable',
+      [new Vector3(0, .1, 8), new Vector3(2, .1, 8), new Vector3(2, .1, 12), new Vector3(0, .1, 12)], Color3.White());
   }
 
   /** Re-apply terminal positions from a RunLayout (solo next-floor stub). */
   applyRunLayout(run: RunLayout): void {
+    this.campaignIndex = run.plan?.campaign?.index ?? 0;
     for (const station of this.stations) {
+      station.setEnabled(!this.campaignIndex || (this.campaignIndex === 1 && station.id === 'terminal-c'));
       station.relocate(terminalPos(run, station.id));
     }
   }
@@ -122,6 +133,7 @@ export class HackSession {
 
   tryStartNearest(role: DroneRole, position: Vector3): boolean {
     const station = this.stations
+      .filter((candidate) => !this.campaignIndex || (this.campaignIndex === 1 && candidate.id === 'terminal-c'))
       .filter((candidate) => candidate.allowedRole === 'either' || candidate.allowedRole === role)
       .filter((candidate) => !this.completeFor(candidate.id))
       .sort((a, b) => a.distanceTo(position) - b.distanceTo(position))[0];
@@ -130,16 +142,20 @@ export class HackSession {
       if (role === this.localRole) this.multiplayer.startHack(station.id);
     } else {
       this.setOwner(station.id, role);
-      this.openPuzzle(station, role);
+      if (this.campaignIndex === 1 && station.id === 'terminal-c') {
+        this.setComplete(station.id, true);
+        this.setOwner(station.id, null);
+        this.audio?.success();
+      } else this.openPuzzle(station, role);
     }
     return true;
   }
 
   promptsFor(role: DroneRole, position: Vector3): string[] {
     const station = this.stations.find((candidate) =>
-      candidate.canInteract(role, position, this.completeFor(candidate.id)),
+      (!this.campaignIndex || (this.campaignIndex === 1 && candidate.id === 'terminal-c')) && candidate.canInteract(role, position, this.completeFor(candidate.id)),
     );
-    return station ? [`[F] Hack ${station.label}`] : [];
+    return station ? [this.campaignIndex ? '[F] ⏻' : `[F] Hack ${station.label}`] : [];
   }
 
   /**
@@ -168,6 +184,7 @@ export class HackSession {
 
   /** Solo: the console only this role can hack and that is still locked. */
   botStation(role: DroneRole): HackStation | null {
+    if (this.campaignIndex) return null;
     return this.stations.find((s) => s.allowedRole === role && !this.completeFor(s.id)) ?? null;
   }
 
@@ -187,9 +204,16 @@ export class HackSession {
       }
     }
     for (const station of this.stations) {
-      station.update(dt, this.ownerFor(station.id), this.completeFor(station.id));
+      const nearby = [...drones.entries()].some(([role, drone]) => station.canInteract(role, drone.position, this.completeFor(station.id)));
+      station.update(dt, this.ownerFor(station.id), this.completeFor(station.id), nearby);
     }
-    this.door.setOpen(this.doorOpen && !this.alarmed);
+    const inLabThreshold = [...drones.values()].some((drone) =>
+      Math.abs(drone.position.x) < 3.1 && Math.abs(drone.position.z - 2) < 1.25 && drone.position.y < 8.2,
+    );
+    this.door.setCloseBlocked(this.alarmed && inLabThreshold);
+    const campaignOpen = this.campaignIndex > 1 || (this.campaignIndex === 1 && this.completeFor('terminal-c'));
+    this.tutorialWire?.setPowered(this.completeFor('terminal-c'));
+    this.door.setOpen((this.doorOpen || campaignOpen) && !this.alarmed);
     this.door.update(dt);
     for (const [role, drone] of drones) {
       drone.setFocused(this.ownerForRole(role) !== null);
@@ -235,20 +259,22 @@ export class HackSession {
     this.closeView();
     for (const station of this.stations) station.dispose();
     this.door.dispose();
+    this.tutorialWire?.dispose();
   }
 
   private applyState(state: HackNetworkState): void {
     this.owners['terminal-a'] = state.stationAOwner;
     this.owners['terminal-b'] = state.stationBOwner;
     this.owners['terminal-c'] = state.stationCOwner;
-    this.completed['terminal-a'] = state.stationAComplete;
-    this.completed['terminal-b'] = state.stationBComplete;
-    this.completed['terminal-c'] = state.stationCComplete;
+    this.setComplete('terminal-a', state.stationAComplete);
+    this.setComplete('terminal-b', state.stationBComplete);
+    this.setComplete('terminal-c', state.stationCComplete);
     this.doorOpen = state.doorOpen;
   }
 
   private openPuzzle(station: HackStation, role: DroneRole): void {
     if (!this.uiParent || this.active) return;
+    gameEvents.emit('mechanism', { kind: 'hack', position: station.position.clone(), complete: false });
     document.body.classList.add('hack-session-open');
     const done = () => this.completeCurrent();
     const cancel = () => this.cancelCurrent();
@@ -301,6 +327,10 @@ export class HackSession {
   }
 
   private setComplete(id: HackStationId, complete: boolean): void {
+    if (complete && !this.completed[id]) {
+      const station = this.stations.find(candidate => candidate.id === id);
+      if (station) gameEvents.emit('mechanism', { kind: 'hack', position: station.position.clone(), complete: true });
+    }
     this.completed[id] = complete;
   }
 

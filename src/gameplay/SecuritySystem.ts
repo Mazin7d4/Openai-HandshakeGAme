@@ -480,6 +480,7 @@ export class SecuritySystem {
   private readonly camera: SecurityCamera;
   private readonly patrols: PatrolDrone[];
   private readonly scene: Scene;
+  private cameraAbsent = false;
   private elapsed = 0;
   private warningCooldown = 0;
   private lastNetworkedAt = 0;
@@ -506,7 +507,7 @@ export class SecuritySystem {
     while (this.patrols.length < routes.length) {
       this.patrols.push(new PatrolDrone(this.scene, this.patrols.length));
     }
-    while (this.patrols.length > Math.max(2, routes.length)) {
+    while (this.patrols.length > (layout.plan?.campaign ? routes.length : Math.max(2, routes.length))) {
       this.patrols.pop()?.dispose();
     }
     for (let i = 0; i < this.patrols.length; i++) {
@@ -514,6 +515,7 @@ export class SecuritySystem {
       if (route) this.patrols[i]!.applyRoute(route.waypoints, route.speed);
     }
     const cam = layout.cameras[0];
+    this.cameraAbsent = !cam;
     if (cam) {
       this.camera.applyPlacement(
         new Vector3(cam.origin.x, cam.origin.y, cam.origin.z),
@@ -553,7 +555,7 @@ export class SecuritySystem {
   ): void {
     this.elapsed = sharedClock;
     this.warningCooldown = Math.max(0, this.warningCooldown - dt);
-    this.camera.setDisabled(server.cameraDisabled);
+    this.camera.setDisabled(this.cameraAbsent || server.cameraDisabled);
     this.detection = this.camera.present(Math.max(server.detection.pix, server.detection.nee));
     if (this.detection > 0.55 && this.warningCooldown <= 0) {
       this.audio?.warning();
@@ -580,7 +582,7 @@ export class SecuritySystem {
     // Multiplayer: patrol routes follow the server's mission clock so both clients agree.
     this.elapsed = sharedClock ?? this.elapsed + dt;
     this.warningCooldown = Math.max(0, this.warningCooldown - dt);
-    this.camera.setDisabled(cameraDisabled);
+    this.camera.setDisabled(this.cameraAbsent || cameraDisabled);
     this.detection = this.camera.update(dt, drones, this.callbacks.onSpotted, this.callbacks.hasFastObjectNear);
     if (this.detection > 0.55 && this.warningCooldown <= 0) {
       this.audio?.warning();

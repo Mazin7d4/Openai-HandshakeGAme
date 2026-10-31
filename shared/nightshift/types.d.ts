@@ -68,6 +68,8 @@ export interface ObjectivePlan {
   pads?: Array<Vec3 & { role: DroneRoleId }>;
   padRadius?: number;
   stepSeconds?: number;
+  /** Optional fragile carry tuning for authored campaign levels. */
+  fragileLoot?: { cracksToShatter: number };
 }
 
 /** Mutable runtime state (server-authoritative in co-op, local in solo). JSON-serialisable. */
@@ -142,9 +144,13 @@ export interface JobPlan {
 }
 
 export interface FloorPlan {
-  version: 1;
+  version: 2;
   job: JobPlan;
   rooms: RoomPlan[];
   objective: ObjectivePlan;
   hazards: HazardPlan[];
+  /** Optional ordered campaign phases; the runtime advances after each phase. */
+  phases?: ObjectivePlan[];
+  /** Marks a hand-authored campaign plan so floor-number pacing rules do not apply. */
+  campaign?: { levelId: string; index: number };
 }

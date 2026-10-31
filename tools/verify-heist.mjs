@@ -1,15 +1,13 @@
-import { chromium } from 'playwright';
-import { arrival, toNee, servers, vault, clearCrate, escape } from './heist-route.mjs';
+import { launch } from './qa/lib.mjs';
+import { arrival, toNee, servers, vault, clearCrate } from './heist-route.mjs';
 
 const RAW_URL = process.argv[2] ?? 'http://localhost:5173/';
 // ?autotest enables the test-only position autopilot (src/dev/Autopilot.ts): frame-rate independent.
 const APP_URL = RAW_URL + (RAW_URL.includes('?') ? '&' : '?') + 'autotest';
 const ROLE = { 'player-1': 'pix', 'player-2': 'nee' };
-const browser = await chromium.launch({
-  headless: true,
-  args: ['--use-gl=angle', process.env.ANGLE ? `--use-angle=${process.env.ANGLE}` : '--use-angle=d3d11', '--enable-webgl', '--ignore-gpu-blocklist'],
-});
-const page = await browser.newPage();
+const browser = await launch();
+const [width, height] = (process.env.VIEWPORT ?? '1280x720').split('x').map(Number);
+const page = await browser.newPage({ viewport: { width, height } });
 const errors = [];
 page.on('pageerror', (error) => errors.push(error.message));
 page.on('console', (message) => {
@@ -17,6 +15,12 @@ page.on('console', (message) => {
 });
 
 async function readout() { return page.locator('#dev-readout').innerText(); }
+async function assertCameraInvariants() {
+  const diagnostics = await page.evaluate(() => window.__autotest.cameraDiagnostics());
+  const badOccluders = diagnostics.cameraOccluders.filter((name) => /wall|partition|cap/i.test(name));
+  if (badOccluders.length) throw new Error(`Wall/partition camera occluders remain: ${badOccluders.join(', ')}`);
+  if (diagnostics.eyeY < 12.2) throw new Error(`Camera eye dropped below 12.2: ${diagnostics.eyeY}`);
+}
 async function pressGameKey(key) {
   await page.keyboard.down(key);
   await page.waitForTimeout(700);
@@ -142,11 +146,12 @@ try {
       const at = await page.evaluate((roles) => roles.map(r => [r, window.__autotest.position(r)]), roles);
       throw new Error(`autopilot ${roles} failed to reach ${JSON.stringify(point)} at ${JSON.stringify(at)}\nREADOUT:\n${await readout()}`);
     }
+    await assertCameraInvariants();
   };
   const travel = async (points) => {
     for (const point of points) {
       await pilot(['pix'], point);
-      await pilot(['nee'], point);
+      await pilot(['nee'], point.partner ?? point);
       if (process.env.TRACE) console.log(JSON.stringify(point), (await readout()).match(/prototype:\S+/)?.[0]);
     }
   };
@@ -187,12 +192,34 @@ try {
   if (!(await readout()).includes('mission:escape')) throw new Error(`Prototype grab did not trigger alarm. ${await readout()}`);
   await page.evaluate(() => window.__autotest.stop('nee'));
   await page.locator('#dev-readout').filter({ hasText: 'mission:escape' }).waitFor({ timeout: 10000 });
+  // A drone parked on the lab threshold must keep the sinking door's collision open
+  // while the alarm closes it, rather than being trapped or squashed.
+  // Bring NEE within tether rest length (7 m) of the threshold first, so the check measures the door
+  // rather than the tether snapping PIX back toward a partner 17 m away at the pedestal.
+  await page.evaluate(() => window.__autotest.goto('nee', 0, 3.2, 8, 0.6, true));
+  await page.waitForFunction(() => window.__autotest.arrived('nee'), null, { timeout: 30_000, polling: 250 });
+  await page.evaluate(() => window.__autotest.teleport('pix', 0, 2.2, 1.2));
+  await page.waitForFunction(() => {
+    const p = window.__autotest.position('pix');
+    return p && Math.abs(p.x) < 0.2 && Math.abs(p.z - 1.2) < 0.2;
+  }, null, { timeout: 5000 });
+  const thresholdBefore = await page.evaluate(() => window.__autotest.position('pix'));
+  await page.waitForTimeout(1200);
+  const thresholdAfter = await page.evaluate(() => window.__autotest.position('pix'));
+  if (!thresholdAfter || thresholdAfter.y < 1.2 || Math.hypot(thresholdAfter.x - thresholdBefore.x, thresholdAfter.z - thresholdBefore.z) > 1.2) {
+    throw new Error(`Lab threshold door trapped/squashed drone: ${JSON.stringify({ thresholdBefore, thresholdAfter })}`);
+  }
+  await page.evaluate(() => window.__autotest.stop('nee'));
+  await assertCameraInvariants();
   await shot('p4-pickup-alarm', 400);
   const initialCrate = await cratePosition();
-  // NEE keeps the prototype back from the vent so PIX's [E] targets the crate, not the core.
-  await pilot(['nee'], { x: -5, y: 4.5, z: 13 });
-  await page.evaluate(() => window.__autotest.goto('nee', -9, 4.5, 13, 1));
-  for (const point of clearCrate.approach) await pilot(['pix'], point);
+  // Both drones advance through the dock. Holding NEE back in the lab overstretches the tether.
+  // A carried prototype is already excluded from PIX's free-object grab candidates.
+  await travel(clearCrate.approach);
+  // The free crate can drift when the drones pass through the dock. Approach
+  // its current position through flight controls rather than assuming its spawn.
+  const pickupCrate = await cratePosition();
+  await pilot(['pix'], { x: pickupCrate.x, y: 3, z: pickupCrate.z - 3.5, tolerance: 0.3 });
   await ensureActive('player-1');
   for (let attempt = 0; attempt < 4 && !(await readout()).includes('crate-blue:pix'); attempt++) {
     await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
@@ -200,14 +227,14 @@ try {
     if (process.env.TRACE) console.log('CRATE GRAB', attempt, await readout());
   }
   if (!(await readout()).includes('crate-blue:pix')) throw new Error(`PIX failed to grab crate: ${await readout()}`);
-  for (const point of clearCrate.drag) await pilot(['pix'], point);
+  await travel(clearCrate.drag);
   await ensureActive('player-1');
   await page.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
   await page.locator('#dev-readout').filter({ hasText: 'crate-blue:free' }).waitFor({ timeout: 10000 });
   const finalCrate = await cratePosition();
   const crateDist = Math.hypot(finalCrate.x - initialCrate.x, finalCrate.z - initialCrate.z);
   if (crateDist <= 3) throw new Error(`Crate only moved ${crateDist.toFixed(2)} units (expected > 3)`);
-  const remainingEscape = escape.slice(3);
+  const remainingEscape = clearCrate.exit;
   await travel(remainingEscape.slice(0, Math.ceil(remainingEscape.length / 2)));
   await shot('p4-alarm-escape');
   await travel(remainingEscape.slice(Math.ceil(remainingEscape.length / 2)));

@@ -3,12 +3,13 @@ import { generateRun, validateRunLayout, validateFloorPlan } from '../../shared/
 
 const started = Date.now();
 const result = { test: 'floorplan-sweep', pass: false, notes: {}, error: undefined };
+// Pins re-cut for seed format v2 (floor-1 loading-dock escape).
 const pinned = new Map([
-  ['1/1', 'f4af07592f9829f8d74d32762b2a504e8cfca451'],
-  ['12345/2', '488346dec06fb333de178f26707176bc83ecdd79'],
-  ['4294967295/3', 'eaef8c17bab9b144eabd37adfddeb276b84a44ed'],
-  ['2654435761/4', 'c88b6d73707c9708142068ce62ccdd5d27ef75fd'],
-  ['42/9', '67091f5b498ebc9f90f1f187e3d281930dd61425'],
+  ['1/1', '9991c737d796f0b8cca80586afebfeca5bb24bba'],
+  ['12345/2', '3bd17b8839d6e3759b21f2251ac028f70182d402'],
+  ['4294967295/3', 'f6acd0cb2817351efd92ed9ae7eb86de4f418427'],
+  ['2654435761/4', '6aaa614b452edcfe2ac3fcca2ad18118bb766c7e'],
+  ['42/9', '9cdae8c6557d294a8977a70b932f0ab275233ae1'],
 ]);
 function assert(ok, message) { if (!ok) throw new Error(message); }
 function count(into, key) { into[key] = (into[key] ?? 0) + 1; }
@@ -33,10 +34,12 @@ try {
   for (let s = 0; s < 200; s++) {
     const seed = (s * 2654435761 + 12345) >>> 0;
     let previousSignature = null;
+    const jobNames = [];
     for (let floor = 1; floor <= 9; floor++) {
       const a = generateRun(seed, floor); const b = generateRun(seed, floor);
       assert(JSON.stringify(a) === JSON.stringify(b), `nondeterministic seed=${seed} floor=${floor}`);
       assert(a.plan, `missing plan seed=${seed} floor=${floor}`);
+      if (floor >= 2) jobNames.push(a.plan.job.name.replace(/^VAULT:\s*/, ''));
       const runCheck = validateRunLayout(a); assert(runCheck.ok, `invalid run ${seed}/${floor}: ${runCheck.reason}`);
       const planCheck = validateFloorPlan(a.plan, a); assert(planCheck.ok, `invalid plan ${seed}/${floor}: ${planCheck.reason}`);
       count(objectives, a.plan.objective.kind);
@@ -66,6 +69,7 @@ try {
       if (floor === 1) assert(a.plan.objective.kind === 'grab', `floor one objective ${a.plan.objective.kind}`);
       if (floor % 3 === 0) assert(a.plan.job.boss && a.plan.job.payoutScale === 2, `boss pacing ${seed}/${floor}`);
     }
+    assert(new Set(jobNames).size === jobNames.length, `duplicate job names seed=${seed}: ${jobNames.join(' | ')}`);
   }
   for (const [key, hash] of pinned) { const [seed, floor] = key.split('/').map(Number); const { plan, ...rest } = generateRun(seed, floor); const actual = crypto.createHash('sha1').update(JSON.stringify(rest)).digest('hex'); assert(actual === hash, `legacy layout changed ${key}: ${actual}`); }
   for (const key of ['grab', 'twin-levers', 'pylon-safe', 'fragile', 'relay']) assert((objectives[key] ?? 0) >= 10, `objective underrepresented: ${key}`);

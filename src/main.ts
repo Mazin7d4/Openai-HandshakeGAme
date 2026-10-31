@@ -42,6 +42,7 @@ import {
 import './style.css';
 import { audio } from './audio/AudioManager.ts';
 import { titleMenuNav } from './ui/MenuNavigator.ts';
+import { load as loadCampaignProgress, isUnlocked as campaignIsUnlocked, unlockAll as unlockCampaign } from './run/campaignProgress.ts';
 import { createWakeOverlay } from './ui/WakeOverlay.ts';
 import { enterImmersive } from './ui/fullscreen.ts';
 import { isTouchPlayDevice } from './ui/touchDetect.ts';
@@ -107,6 +108,13 @@ let titleAttract: TitleAttract | null = null;
 let titleBestCrewDispose: (() => void) | null = null;
 let quickMatchInFlight = false;
 let soloStartInFlight = false;
+const CAMPAIGN_META = [
+  ['l1-tethered', 'Tethered', 'Cord basics + carry'],
+  ['l2-twin-levers', 'Twin Levers', 'Stretch the cord'],
+  ['l3-wrap-and-drag', 'Wrap and Drag', 'Pylon-safe pull'],
+  ['l4-fragile-relay', 'Fragile Relay', 'Relay pads + fragile loot'],
+  ['l5-big-vault', 'The Big Vault', 'The full tether test'],
+] as const;
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -212,6 +220,7 @@ function showMainMenu(): void {
   actions.append(
     play,
     daily,
+    menuButton('Campaign', 'campaign', showCampaignSelect),
     menuButton('Play with a friend', 'multiplayer', showMultiplayerMenu),
     menuButton('Leaderboards', 'leaderboards', showLeaderboards, 'btn--quiet'),
   );
@@ -237,6 +246,55 @@ function showMainMenu(): void {
   startWarmup();
 }
 
+async function showCampaignSelect(): Promise<void> {
+  await import('./ui/campaign.css');
+  const panel = menuPanel('Campaign', 'Five handmade levels. Each one adds a new tether trick.');
+  panel.classList.add('campaign-select-panel');
+  panel.dataset.testid = 'level-select';
+  const progress = loadCampaignProgress();
+  const grid = element('div', 'campaign-level-grid');
+  for (const [index, [id, name, teaches]] of CAMPAIGN_META.entries()) {
+    const card = element('article', 'campaign-level-card');
+    card.dataset.testid = `level-card-${id}`;
+    const unlocked = campaignIsUnlocked(index + 1, progress);
+    card.dataset.locked = unlocked ? '0' : '1';
+    const header = element('div', 'campaign-level-card__header');
+    const number = element('span', 'campaign-level-card__number', String(index + 1).padStart(2, '0'));
+    const title = element('h2', '', name);
+    header.append(number, title);
+    const detail = element('p', 'campaign-level-card__teaches', unlocked ? teaches : `Finish ${CAMPAIGN_META[index - 1]?.[1] ?? 'the previous level'} to unlock`);
+    const stars = element('div', 'campaign-stars');
+    const earned = progress.levels[id]?.stars ?? [false, false, false];
+    for (const [starIndex, label] of ['Time star', 'Loot star', 'No-alarm star'].entries()) {
+      const star = element('span', earned[starIndex] ? 'campaign-star campaign-star--earned' : 'campaign-star', '★');
+      star.setAttribute('aria-label', label);
+      star.title = label;
+      stars.append(star);
+    }
+    const start = menuButton(unlocked ? 'Play' : 'Locked', `campaign-play-${id}`, () => {
+      if (!unlocked) return;
+      const next = new URL(window.location.href);
+      next.searchParams.set('level', id);
+      window.history.replaceState(null, '', next);
+      void startGame('campaign');
+    });
+    if (!unlocked) start.disabled = true;
+    const actions = element('div', 'campaign-level-card__actions');
+    const friend = menuButton('Co-op', `campaign-friend-${id}`, () => { if (unlocked) void createRoom({ mode: 'campaign', levelId: id }); });
+    if (!unlocked) friend.disabled = true;
+    actions.append(start, friend);
+    card.append(header, detail, stars, actions);
+    grid.append(card);
+  }
+  const unlock = element('button', 'campaign-unlock', 'Unlock all');
+  unlock.type = 'button';
+  unlock.addEventListener('click', () => { unlockCampaign(); showCampaignSelect(); });
+  const actions = element('div', 'menu-actions');
+  actions.append(unlock, menuButton('Back', 'back', showMainMenu, 'btn--quiet'));
+  panel.append(grid, actions);
+  bindMenuNav(panel, showMainMenu, grid.querySelector('button:not([disabled])') ?? undefined);
+}
+
 function openTitleSettings(): void {
   titleMenuNav.detach();
   void import('./ui/SettingsMenu.ts').then(({ SettingsMenu }) => {
@@ -255,7 +313,7 @@ function openTitleSettings(): void {
 }
 
 function showSinglePlayer(): void {
-  const panel = menuPanel('Solo heist', 'You fly PIX. A CPU NEE rides the other end of the cord. It follows you, but it can\'t hack yet.');
+  const panel = menuPanel('Solo heist', 'You fly PIX. NEE follows, handles its consoles, and helps you escape.');
   const start = menuButton('Start', 'start-singleplayer', () => {
     void startGame('singleplayer');
   }, 'btn--primary');
@@ -510,7 +568,7 @@ async function ensureServerAwake(
   return false;
 }
 
-async function createRoom(override: { mode?: 'daily' } = {}): Promise<void> {
+async function createRoom(override: { mode?: 'daily' | 'campaign'; levelId?: string } = {}): Promise<void> {
   const panel = menuPanel('Creating room', 'Connecting to the multiplayer server…');
   const status = element('p', 'lobby-status', 'Please wait.');
   status.setAttribute('role', 'alert');
@@ -686,7 +744,7 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   titleAttract = null;
   titleBestCrewDispose?.();
   titleBestCrewDispose = null;
-  if (isTouchPlayDevice() && (mode === 'singleplayer' || mode === 'night-shift' || mode === 'multiplayer')) void enterImmersive();
+  if (isTouchPlayDevice() && (mode === 'singleplayer' || mode === 'night-shift' || mode === 'campaign' || mode === 'multiplayer')) void enterImmersive();
   titleMenuNav.detach();
   try { sessionStorage.removeItem(MODE_STASH_KEY); } catch { /* private mode */ }
   const canvas = element('canvas');
@@ -711,24 +769,25 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
 
   // Solo / offline: same shared run module, never contacts the server.
   // Consume Daily / challenge / replay intent so ClientRun (and getRunInfo) share one seed.
-  if (!session && (mode === 'singleplayer' || mode === 'dev-local' || mode === 'night-shift')) {
+  if (!session && (mode === 'singleplayer' || mode === 'dev-local' || mode === 'night-shift' || mode === 'campaign')) {
     const prepared = consumeRunIntent();
     const fromUrl = readUrlRunOptions();
     startLocalRun(
-      mode === 'night-shift'
+      mode === 'night-shift' || mode === 'campaign'
         ? {
             ...fromUrl,
             ...(prepared?.seed != null ? { seed: prepared.seed } : {}),
             ...(prepared?.floor != null ? { floor: prepared.floor } : {}),
             ...(prepared?.captures != null ? { captures: prepared.captures } : {}),
             ...(prepared?.timeToBeatMs != null ? { beat: prepared.timeToBeatMs } : {}),
-            mode: prepared?.mode ?? fromUrl.mode ?? 'nightshift',
+            mode: mode === 'campaign' ? 'campaign' : (prepared?.mode ?? fromUrl.mode ?? 'nightshift'),
+            ...(mode === 'campaign' ? { levelId: new URLSearchParams(window.location.search).get('level') ?? 'l1-tethered' } : {}),
           }
         : { ...fromUrl, ...(prepared ?? {}) },
     );
   }
 
-  const runInfo = mode === 'night-shift' ? getRunInfo() : undefined;
+  const runInfo = mode === 'night-shift' || mode === 'campaign' ? getRunInfo() : undefined;
   boot.append(
     element('p', 'boot-title', 'PIX & NEE'),
     Object.assign(element('div', 'boot-dots'), { innerHTML: '<span class="pix"></span><span class="nee"></span>' }),
@@ -748,9 +807,12 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
   }, 1400);
 
   let removeStatus: (() => void) | null = null;
-  const runHud = element('aside', 'network-hud');
-  runHud.dataset.testid = 'run-hud';
+  // MissionDirector owns the solo Night Shift/campaign HUD. Keep this small
+  // status chip only for joined rooms, where it carries the room and role.
+  const runHud = session ? element('aside', 'network-hud') : null;
+  runHud?.setAttribute('data-testid', 'run-hud');
   const paintRunHud = (base = '') => {
+    if (!runHud) return;
     const run = getRunState();
     if (!run) {
       runHud.textContent = base;
@@ -760,10 +822,10 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
     if (run.mode !== 'standard') parts.push(run.mode.toUpperCase());
     runHud.textContent = parts.join(' · ');
   };
-  root.append(runHud);
+  if (runHud) root.append(runHud);
   paintRunHud();
 
-  if (session) {
+  if (session && runHud) {
     const networkHud = runHud;
     networkHud.dataset.testid = 'network-hud';
     let currentRtt = 0;
@@ -1026,6 +1088,9 @@ if (bootParams.has('report')) {
 } else if (urlRun.seed != null) {
   prepareChallengeRun(urlRun.seed, urlRun.beat, urlRun.floor ?? 1);
   void startGame('night-shift');
+  preloadNow();
+} else if (bootParams.get('level')) {
+  void startGame('campaign');
   preloadNow();
 } else if (bootParams.get('play') === 'solo') {
   void startGame('singleplayer');

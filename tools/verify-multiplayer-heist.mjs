@@ -1,5 +1,5 @@
-import { chromium } from 'playwright';
-import { arrival, toNee, servers, vault, clearCrate, escape } from './heist-route.mjs';
+import { launch } from './qa/lib.mjs';
+import { arrival, toNee, servers, vault, clearCrate } from './heist-route.mjs';
 
 const APP_URL = process.argv[2] ?? process.env.APP_URL ?? 'http://127.0.0.1:5173/';
 const DEBUG_URL = new URL(APP_URL);
@@ -151,12 +151,9 @@ async function solveMemoryTrace(page) {
   await overlay.waitFor({ state: 'detached', timeout: 15_000 });
 }
 
-const browser = await chromium.launch({
-  headless: true,
-  args: ['--use-gl=angle', process.env.ANGLE ? `--use-angle=${process.env.ANGLE}` : '--use-angle=d3d11', '--enable-webgl', '--ignore-gpu-blocklist',
-    // Keep both peers simulating while the other tab is in front.
-    '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows'],
-});
+const browser = await launch([
+  '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows',
+]);
 const hostContext = await browser.newContext();
 const guestContext = await browser.newContext();
 const host = await hostContext.newPage();
@@ -211,7 +208,7 @@ try {
   const travel = async (points) => {
     for (let i = 0; i < points.length; i++) {
       await step(host, 'player-1', points[i], points[i - 1]);
-      await step(guest, 'player-2', points[i], points[i - 1]);
+      await step(guest, 'player-2', points[i].partner ?? points[i], points[i - 1]?.partner ?? points[i - 1]);
     }
   };
   // Traverse actual reception furniture and the high vent.
@@ -268,6 +265,8 @@ try {
 
   const initialCratePos = await cratePosition(host);
   await travel(clearCrate.approach);
+  const pickupCrate = await cratePosition(host);
+  await step(host, 'player-1', { x: pickupCrate.x, y: 3, z: pickupCrate.z - 3.5, tolerance: 0.3 });
   await host.bringToFront();
   await host.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
   await Promise.all([
@@ -285,8 +284,8 @@ try {
   const crateDist = Math.hypot(finalCratePos.x - initialCratePos.x, finalCratePos.z - initialCratePos.z);
   assert(crateDist > 3, `Crate only moved ${crateDist.toFixed(2)} units (expected > 3)`);
 
-  // The alarm opens the west relief vent; return using its own vertical route.
-  await travel(escape.slice(3));
+  // The alarm opens the dock backdrop; take the straight east-side route around the conveyor.
+  await travel(clearCrate.exit);
 
   // 9. Mission complete appears for both
   await Promise.all([

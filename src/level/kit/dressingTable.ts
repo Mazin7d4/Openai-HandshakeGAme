@@ -335,7 +335,7 @@ export const DRESSING: Record<string, DressRow[]> = {
   ],
 
   // ESCAPE VARIANTS
-  'escape.west-spine': [
+  'escape.dock-west': [
     { asset: 'VendingMachine', x: 0.1, z: 0.2, ry: 1.57, jitter: 0.4, chance: 0.85 },
     { asset: 'TrashBin', x: 0.1, z: 0.26, jitter: 0.5, chance: 0.8 },
     { asset: 'CrateStack', x: 0.9, z: 0.18, jitter: 0.8, chance: 0.85 },
@@ -357,7 +357,7 @@ export const DRESSING: Record<string, DressRow[]> = {
     { asset: 'BoxSmall', x: 0.88, z: 0.8, jitter: 0.9, chance: 0.7, twist: 'rush_hour' },
   ],
 
-  'escape.pressure-run': [
+  'escape.dock-run': [
     { asset: 'VendingMachine', x: 0.9, z: 0.8, ry: -1.57, jitter: 0.4, chance: 0.85 },
     { asset: 'TrashBin', x: 0.9, z: 0.74, jitter: 0.5, chance: 0.8 },
     { asset: 'CrateStack', x: 0.1, z: 0.15, jitter: 0.8, chance: 0.85 },

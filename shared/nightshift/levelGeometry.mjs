@@ -13,23 +13,23 @@ const box = (x, y, z, sx, sy, sz) => ({
 
 const room = (minX, maxX, minZ, maxZ) => ({
   min: { x: minX, y: 0, z: minZ },
-  max: { x: maxX, y: 14.4, z: maxZ },
+  max: { x: maxX, y: 9.2, z: maxZ },
   floorY: 0,
-  ceilingY: 14.4,
+  ceilingY: 9.2,
 });
 
 export const ROOM_BOUNDS = Object.freeze({
-  arrival: room(-18, 18, -66, -44),
-  office: room(-16, 16, -42, -26),
-  server: room(-16, 16, -25, 1),
-  vault: room(-14, 16, 2, 26),
-  escape: room(-18.5, -10, -64, 16),
+  arrival: room(-18.5, 18.5, -66, -44),
+  office: room(-18.5, 18.5, -42, -26),
+  server: room(-18.5, 18.5, -25, 1),
+  vault: room(-18.5, 18.5, 2, 26),
+  escape: room(-18.5, 18.5, 27, 47),
 });
 
 /**
  * Four or more hand-checked open low-floor points per room. The points are
  * intentionally away from the authored reception desk, rack banks, vault
- * benches/dais, and the service-spine wall. Generation adds seeded jitter and
+ * benches/dais, and the dock conveyor/cages. Generation adds seeded jitter and
  * may mirror a point when the surrounding room permits it.
  */
 export const ANCHOR_POOLS = Object.freeze({
@@ -63,11 +63,12 @@ export const ANCHOR_POOLS = Object.freeze({
     { x: 4, y: 2.1, z: 13 },
   ]),
   escape: Object.freeze([
-    { x: -16, y: 2.1, z: -56 },
-    { x: -11, y: 2.1, z: -48 },
-    { x: -16, y: 2.1, z: -27 },
-    { x: -11, y: 2.1, z: -18 },
-    { x: -16, y: 2.1, z: 6 },
+    { x: -15, y: 2.1, z: 30 },
+    { x: 8, y: 2.1, z: 30 },
+    { x: -15, y: 2.1, z: 38 },
+    { x: 14, y: 2.1, z: 38 },
+    { x: -15, y: 2.1, z: 45 },
+    { x: 4, y: 2.1, z: 46 },
   ]),
 });
 
@@ -75,33 +76,29 @@ export const ANCHOR_POOLS = Object.freeze({
 // src/level/PrototypeHeist.ts. Decorative meshes that have no physics body are
 // intentionally omitted, while desks, benches, glass, and racks are included.
 export const STATIC_BLOCKERS = Object.freeze([
-  // Building shell and the continuous service spine.
-  box(-19, 7, -18, 0.6, 14, 92),
-  box(19, 7, -18, 0.6, 14, 92),
-  box(0, 7, 27, 38, 14, 0.6),
-  box(0, 7, -67, 38, 14, 0.6),
-  box(-12, 7, -28, 0.5, 14, 58),
-  box(-12, 7, 5, 0.5, 14, 8),
-  box(-12, 7, 22, 0.5, 14, 10),
-  box(-12, 10, 13, 0.5, 8, 8),
+  // Building shell. The service spine was removed from the authored level.
+  box(-19, 4.5, -10, 0.6, 9, 114),
+  box(19, 4.5, -10, 0.6, 9, 114),
+  box(0, 4.5, 47, 38, 9, 0.6),
+  box(0, 4.5, -67, 38, 9, 0.6),
 
   // Arrival reception and the divider around the high service vent.
   box(-4.5, 1.8, -49, 11, 3.8, 4.3),
   box(3, 2.35, -43, 30, 4.7, 0.6),
   box(3, 11, -43, 30, 6, 0.6),
-  box(-9, 7, -55, 6, 14, 0.5),
-  box(11, 7, -55, 16, 14, 0.5),
-  box(-1.5, 10, -55, 9, 8, 0.5),
+  box(-9, 4.5, -55, 6, 9, 0.5),
+  box(11, 4.5, -55, 16, 9, 0.5),
+  box(-1.5, 6.7, -55, 9, 4.6, 0.5),
   box(-7.6, 6.4, -43, 0.2, 3.4, 5),
   box(-2.4, 6.4, -43, 0.2, 3.4, 5),
 
   // Office desks, glass, and the full-height shutter wall.
   box(-5, 3.75, -33, 9, 4.0, 4.3),
   box(7, 3.75, -31, 8, 4.0, 4.3),
-  box(13, 7, -35, 0.14, 14, 15),
-  box(-8, 7, -26, 8, 14, 0.6),
-  box(10.5, 7, -26, 17, 14, 0.6),
-  box(-1, 10, -26, 6, 8, 0.6),
+  box(13, 4.5, -35, 0.14, 9, 15),
+  box(-8, 4.5, -26, 8, 9, 0.6),
+  box(10.5, 4.5, -26, 17, 9, 0.6),
+  box(-1, 6.7, -26, 6, 4.6, 0.6),
 
   // The authored rack banks are about 7.8 units tall. New plan racks are
   // deliberately half-height rack carts so drones can always fly over them.
@@ -110,19 +107,20 @@ export const STATIC_BLOCKERS = Object.freeze([
   box(-5, 5.7, -5.8, 10, 0.25, 5),
 
   // Vault shutter, benches, plinth, dais, and the two solid glass cases.
-  box(-7.4, 7, 2, 9.2, 14, 0.7),
-  box(10.4, 7, 2, 15.2, 14, 0.7),
-  box(0, 9.2, 2, 5.6, 9.6, 0.7),
+  box(-7.4, 4.5, 2, 9.2, 9, 0.7),
+  box(10.4, 4.5, 2, 15.2, 9, 0.7),
+  box(0, 6.7, 2, 5.6, 4.6, 0.7),
   box(-7, 3.75, 8, 7.5, 4, 3.5),
   box(9, 3.75, 11, 7.5, 4, 3.5),
   box(0, 0.18, 18, 11.5, 0.36, 9),
   box(0, 2.3, 18, 3.4, 4.6, 3.4),
-  box(-6.2, 5.8, 20, 0.1, 11.2, 8),
-  box(6.2, 5.8, 20, 0.1, 11.2, 8),
+  box(-6.2, 4, 20, 0.1, 8, 8),
+  box(6.2, 4, 20, 0.1, 8, 8),
 
-  // Escape spine obstacles.
-  box(-15.5, 1.6, -9, 6.4, 3.2, 0.7),
-  box(-15.5, 10.6, -34, 6.4, 6.8, 0.7),
+  // Loading dock conveyor and cages.
+  box(-5, 1.2, 34, 22, 2.4, 1.6),
+  box(-10, 2.2, 41, 3, 4.4, 3),
+  box(2, 2.2, 40, 3, 4.4, 3),
 ]);
 
 // Keep-out envelopes around routes. Relay segments may cross these openings,
@@ -131,9 +129,8 @@ export const DOORWAYS = Object.freeze([
   box(-5, 6.4, -43, 4.8, 3, 1.6),
   box(-1, 3, -26, 6, 6, 1.2),
   box(0, 3, 2, 5.6, 6, 1.2),
-  box(-12, 3, 13, 1.2, 6, 8),
-  box(-15.5, 2.5, -9, 5, 4, 3),
-  box(-15.5, 7, -34, 5, 5, 3),
+  box(0, 3, 27, 11.2, 6, 1.2),
+  box(0, 2.5, 34, 5, 4, 3),
 ]);
 
 export function aabbOverlap(a, b) {

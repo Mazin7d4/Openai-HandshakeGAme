@@ -1,7 +1,8 @@
 import { getSettings, saveSettings, subscribeSettings } from '../ui/Settings.ts';
+import { RoomAmbience, ambienceRoomAt, type AmbienceRoom } from './RoomAmbience.ts';
 import { SFX_SPRITE, type SpriteKey } from './sfxSprite.ts';
 import {
-  alarmCycle, alarmKlaxon, alarmTension, chirpParams, passCue, roomTone, snap, stretchLoop, twang, whoosh, zz, ZZ,
+  alarmCycle, alarmKlaxon, alarmTension, chirpParams, passCue, snap, stretchLoop, twang, whoosh, zz, ZZ,
   type ChirpMood, type Voice,
 } from './synth.ts';
 
@@ -37,14 +38,14 @@ export type AudioEvent =
   | 'grab' | 'drop' | 'throw' | 'pass'
   | 'hackStart' | 'hackTick' | 'hackSuccess' | 'hackFail'
   | 'suspicious' | 'spotted' | 'stun' | 'cameraBlind' | 'capture' | 'rescue'
-  | 'vaultOpen' | 'theft' | 'extract' | 'celebrate'
+  | 'vaultOpen' | 'doorMotor' | 'theft' | 'extract' | 'celebrate'
   | 'chirp' | 'ping' | 'emote'
   | 'replayDrop';
 
 export const AUDIO_EVENTS: readonly AudioEvent[] = [
   'uiHover', 'uiClick', 'uiConfirm', 'uiBack', 'uiToggle', 'uiError',
   'twang', 'snap', 'yank', 'yanked', 'slingshot', 'bump', 'boost', 'impact', 'grab', 'drop', 'throw',
-  'hackStart', 'hackTick', 'hackSuccess', 'hackFail', 'pass',
+  'hackStart', 'hackTick', 'hackSuccess', 'hackFail', 'pass', 'doorMotor',
   'suspicious', 'spotted', 'stun', 'cameraBlind', 'capture', 'rescue', 'vaultOpen', 'theft', 'extract', 'celebrate', 'chirp', 'ping', 'emote', 'replayDrop',
 ];
 
@@ -102,7 +103,8 @@ export class AudioManager {
   private music: MusicState = 'off';
   private musicBuffers: Promise<Record<'calm' | 'escape', AudioBuffer> | null> | null = null;
   private musicNodes: { calm: GainNode; escape: GainNode; srcs: AudioBufferSourceNode[] } | null = null;
-  private ambience: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
+  private ambience: RoomAmbience | null = null;
+  private ambienceRoom: AmbienceRoom = 'apron';
   private lastHover = 0;
   private installed = false;
   private hiddenSuspended = false;
@@ -438,6 +440,10 @@ export class AudioManager {
       case 'cameraBlind': this.spr(event, 'glitch', { gain: 0.7 * vol, pos }); this.spr(event, 'zap', { gain: 0.25 * vol, pos, rate: 1.4 }); return;
       case 'capture': this.spr(event, 'capture', { gain: 0.8 * vol, pos }); this.duckMusic(0.9, 0.5); return;
       case 'rescue': this.start(event, this.synth('rescue', (r) => zz(r, ZZ.rescue)), { gain: 0.6 * vol, pos }); return;
+      case 'doorMotor':
+        this.start(event, this.synth('door-motor', (r) => whoosh(r, 0.8, 240, 70)), { gain: 0.28 * vol, pos });
+        this.start(event, this.synth('door-latch', (r) => zz(r, [0.3, 0, 82, 0.02, 0.14, 0.28, 1, 1, -1])), { gain: 0.3 * vol, pos, delay: 0.65 });
+        return;
       case 'vaultOpen':
         this.spr(event, 'vault_door', { gain: 0.8 * vol, pos });
         this.spr(event, 'sting_vault', { gain: 0.7 * vol, delay: 0.15 });
@@ -604,7 +610,7 @@ export class AudioManager {
   debugState(): Record<string, unknown> {
     return {
       state: this.ctx?.state ?? 'none', sprite: this.sprite !== null, music: this.music, musicPlaying: this.musicNodes !== null,
-      alarm: this.alarm.stage, hums: [...this.hums.keys()], stretch: this.stretch !== null, ambience: this.ambience !== null,
+      alarm: this.alarm.stage, hums: [...this.hums.keys()], stretch: this.stretch !== null, ambience: this.ambience !== null, ambienceRoom: this.ambienceRoom,
       muted: this.muted, voices: this.activeTotal, maxVoices: this.maxTotal, stats: { ...this.stats },
     };
   }
@@ -656,22 +662,19 @@ export class AudioManager {
     });
   }
 
-  /** Quiet office room tone under everything while a game runs. */
+  /** Listener room follows the active drone, keeping the trailing camera out of zone selection. */
+  setRoomAmbience(z: number): void {
+    this.ambienceRoom = ambienceRoomAt(z);
+    this.ambience?.setRoom(this.ambienceRoom);
+  }
+
+  /** Quiet room beds route through SFX, master, mute, pause and the existing limiter. */
   setAmbience(on: boolean): void {
-    const ctx = this.ctx; const buses = this.buses;
+    if (!on) { this.ambience?.stop(); this.ambience = null; return; }
+    const ctx = this.ctx, buses = this.buses;
     if (!ctx || !buses || ctx.state !== 'running') return;
-    if (on && !this.ambience) {
-      const src = ctx.createBufferSource(); src.buffer = this.synth('room', roomTone); src.loop = true;
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
-      const gain = ctx.createGain(); gain.gain.value = 0;
-      src.connect(lp).connect(gain).connect(buses.sfx); src.start();
-      gain.gain.setTargetAtTime(0.12, ctx.currentTime, 1);
-      this.ambience = { src, gain };
-    } else if (!on && this.ambience) {
-      const a = this.ambience; this.ambience = null;
-      a.gain.gain.setTargetAtTime(0, ctx.currentTime, 0.3);
-      try { a.src.stop(ctx.currentTime + 1.5); } catch { /* ended */ }
-    }
+    this.ambience ??= new RoomAmbience(ctx, buses.sfx);
+    this.ambience.setRoom(this.ambienceRoom);
   }
 
   /** Start-of-game: called when gameplay begins (also retries after unlock). */

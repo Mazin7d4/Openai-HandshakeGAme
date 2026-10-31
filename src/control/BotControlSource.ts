@@ -111,12 +111,13 @@ export class BotControlSource implements DroneControlSource {
       this.heldSeconds = 0;
     }
     const basis = s.basis();
+    this.recordLeaderTrail(dt, leader);
     if (s.zipping?.()) { this.state = 'zip'; return this.idle; }
     // Rescue: react after a short, human-feeling delay, then yank once (cooldown keeps it from spamming).
     const captured = s.leaderCaptured?.() ?? false;
     const avoidYank = s.avoidYank?.() ?? false;
     this.troubleTime = s.leaderInTrouble?.() || captured ? this.troubleTime + dt : 0;
-    if (captured && this.troubleTime > 0.8 && this.yankCooldown === 0) {
+    if (captured && this.troubleTime > 0.8 && !avoidYank && this.yankCooldown === 0) {
       this.state = 'rescue';
       this.yankCooldown = 1.2;
       return { actions: zeroFlightAxes(), interactions: { ...zeroInteractionActions(), yank: true } };
@@ -157,6 +158,7 @@ export class BotControlSource implements DroneControlSource {
       leader: { x: leader.x, y: leader.y, z: leader.z },
       leaderForward: s.leaderForward?.() ?? null,
       leaderHolding: s.leaderHolding?.() ?? false,
+      leaderTrail: this.trail,
       selfHoldingLoot: s.selfHoldingLoot?.() ?? heldObject === 'prototype',
       exit: (() => {
         const point = s.exit?.();
@@ -215,6 +217,17 @@ export class BotControlSource implements DroneControlSource {
     this.lastCheck = Number.POSITIVE_INFINITY;
   }
 
+  private recordLeaderTrail(dt: number, leader: Vector3): void {
+    this.trailTimer += dt;
+    if (this.trailTimer < 0.2) return;
+    this.trailTimer = 0;
+    const previous = this.trail[this.trail.length - 1];
+    if (!previous || Vector3.Distance(previous, leader) > 0.4) {
+      this.trail.push(leader.clone());
+      if (this.trail.length > 40) this.trail.shift();
+    }
+  }
+
   /**
    * Never strand the player: if we have not closed on the leader for BOT_STUCK_SECONDS
    * while far away (or the cord is over-stretched for a second), zip along the cord.
@@ -223,12 +236,6 @@ export class BotControlSource implements DroneControlSource {
     const s = this.sensors!;
     if (!s.zip || !s.cordPath) return false;
     const distance = Vector3.Distance(self, leader);
-    this.trailTimer += dt;
-    if (this.trailTimer > 0.2) {
-      this.trailTimer = 0;
-      if (!this.trail.length || Vector3.Distance(this.trail[this.trail.length - 1], leader) > 0.5) this.trail.push(leader.clone());
-      if (this.trail.length > 40) this.trail.shift();
-    }
     this.stretchTime = (s.cordStrain?.() ?? 0) > 0.95 ? this.stretchTime + dt : 0;
     this.checkTimer += dt;
     if (this.checkTimer >= 0.5) {

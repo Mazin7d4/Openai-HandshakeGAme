@@ -5,6 +5,7 @@ export interface BotGoalInput {
   leader: BotVec3;
   leaderForward: BotPlanarForward | null;
   leaderHolding: boolean;
+  leaderTrail?: readonly BotVec3[];
   selfHoldingLoot: boolean;
   exit: BotVec3 | null;
   leaderCaptured: boolean;
