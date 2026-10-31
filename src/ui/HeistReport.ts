@@ -1,4 +1,5 @@
 import type { GameAudio } from '../audio/GameAudio.ts';
+import './heist-report.css';
 import type { DroneRole } from '../network/NetworkTypes.ts';
 import type { LeaderboardNameResult, LeaderboardRecordedPayload } from '../network/LeaderboardApi.ts';
 import { challengeUrl as buildChallengeUrl } from '../../shared/run.ts';
@@ -218,7 +219,8 @@ export class HeistReport {
     this.leaderboardSection.hidden = true;
     actions.before(this.leaderboardSection);
 
-    const challenge = button('Copy challenge link', 'btn', 'challenge-friend');
+    const challenge = button('Copy challenge', 'btn', 'challenge-friend');
+    challenge.setAttribute('aria-label', 'Copy challenge link');
     challenge.addEventListener('click', () => void this.copyChallengeLink());
 
     const save = button('Save card', 'btn', 'save-card');

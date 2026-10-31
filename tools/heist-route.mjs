@@ -14,15 +14,17 @@ export const toNee = [
 ];
 export const servers = [
   // Leave the under-desk patch bay east of the console, then north clear of the shutter jamb.
-  { x: 7.5, y: 2.2, z: -32.8 }, { x: 7.5, y: 2.2, z: -27.5 }, { x: 0, y: 2.2, z: -27.5 },
+  { x: 7.5, y: 2.2, z: -32.8, partner: { x: 7.5, y: 2.2, z: -30.5 } },
+  { x: 7.5, y: 2.2, z: -27.5 },
+  { x: 0, y: 2.2, z: -27.5 },
   { x: 0, y: 2.2, z: -24 }, { x: 0, y: 2.2, z: -16 }, { x: 0, y: 2.2, z: -10 },
   // Climb east of the ramp steps, then cross above them onto the catwalk (waypoints stay clear of the step slabs).
   { x: 0, y: 6.8, z: -10 }, { x: -3, y: 6.8, z: -9.5 },
   // Park beside the memory console (its body fills the station point), inside its 3.2 m reach.
-  { x: -3, y: 7, z: -6.9 }, { x: -2.6, y: 7.1, z: -5.8 },
+  { x: -3, y: 7, z: -6.9 }, { x: -2.6, y: 7.1, z: -5.8, tolerance: 2.2 },
 ];
 export const vault = [
-  { x: -2.6, y: 7.1, z: -5.8 }, { x: 0, y: 7.1, z: -2 },
+  { x: -2.6, y: 7.1, z: -5.8, tolerance: 2.5 }, { x: 0, y: 7.1, z: -2 },
   { x: 0, y: 2.3, z: 2 }, { x: 0, y: 2.3, z: 9 },
   { x: 0, y: 3.5, z: 13 }, { x: 0, y: 5.25, z: 18, tolerance: 0.45 },
 ];

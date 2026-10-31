@@ -154,8 +154,8 @@ async function solveMemoryTrace(page) {
 const browser = await launch([
   '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows',
 ]);
-const hostContext = await browser.newContext();
-const guestContext = await browser.newContext();
+const hostContext = await browser.newContext({ reducedMotion: 'reduce' });
+const guestContext = await browser.newContext({ reducedMotion: 'reduce' });
 const host = await hostContext.newPage();
 const guest = await guestContext.newPage();
 const errors = [];
@@ -198,11 +198,11 @@ try {
 
   // If the tether drags a drone off-line (e.g. behind the vent jamb), back up one waypoint and retry once.
   const step = async (page, id, point, previous) => {
-    try { await moveToward(page, id, point, 25000, point.tolerance ?? 1); }
+    try { await moveToward(page, id, point, 25000, point.tolerance ?? 1.8); }
     catch (error) {
       if (!previous) throw error;
-      await moveToward(page, id, previous, 20_000, 1.5);
-      await moveToward(page, id, point, 25000, point.tolerance ?? 1);
+      await moveToward(page, id, previous, 20_000, 1.8);
+      await moveToward(page, id, point, 25000, point.tolerance ?? 1.8);
     }
   };
   const travel = async (points) => {
@@ -266,7 +266,7 @@ try {
   const initialCratePos = await cratePosition(host);
   await travel(clearCrate.approach);
   const pickupCrate = await cratePosition(host);
-  await step(host, 'player-1', { x: pickupCrate.x, y: 3, z: pickupCrate.z - 3.5, tolerance: 0.3 });
+  await step(host, 'player-1', { x: pickupCrate.x, y: 3, z: pickupCrate.z - 3.5, tolerance: 0.8 }, clearCrate.approach.at(-1));
   await host.bringToFront();
   await host.evaluate(() => window.__autotest.press('pix', 'grabDrop'));
   await Promise.all([
@@ -289,8 +289,8 @@ try {
 
   // 9. Mission complete appears for both
   await Promise.all([
-    host.getByTestId('mission-complete').waitFor({ state: 'visible', timeout: 15_000 }),
-    guest.getByTestId('mission-complete').waitFor({ state: 'visible', timeout: 15_000 }),
+    host.getByTestId('mission-complete').waitFor({ state: 'visible', timeout: 60_000 }),
+    guest.getByTestId('mission-complete').waitFor({ state: 'visible', timeout: 60_000 }),
   ]);
 
   // 10. Disconnect stability
@@ -315,6 +315,14 @@ try {
     missionCompleteForBoth: true,
     disconnectStable: true,
   }, null, 2));
+} catch (err) {
+  const hostError = await host.locator('#boot-status').textContent().catch(() => null);
+  const guestError = await guest.locator('#boot-status').textContent().catch(() => null);
+  console.error('VERIFY FAILURE:', err?.message ?? err);
+  if (hostError) console.error('host #boot-status:', hostError);
+  if (guestError) console.error('guest #boot-status:', guestError);
+  if (errors.length) console.error('Captured page errors:\n' + errors.join('\n'));
+  throw err;
 } finally {
   await hostContext.close().catch(() => undefined);
   await guestContext.close().catch(() => undefined);

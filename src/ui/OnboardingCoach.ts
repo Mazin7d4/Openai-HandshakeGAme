@@ -1,7 +1,7 @@
 import type { FlightAxes } from '../input/FlightAxes.ts';
 import type { InteractionActions } from '../input/InteractionActions.ts';
 import { controlIcon, keycaps } from './ControlGlyphs.ts';
-import { isTouchPlayDevice } from './touchDetect.ts';
+import { inputKind, type InputKind } from './inputHints.ts';
 
 const STORAGE_KEY = 'handshake.onboardingDone';
 /** A hint the player has not acted on moves on by itself so the coach never sticks. */
@@ -14,10 +14,11 @@ interface CoachStep {
   prompt: string;
   /** Keyboard binding shown as keycaps when not on touch. */
   keys: string;
+  gamepad: string;
   /** Stroke glyph name from ControlGlyphs. */
   glyph: string;
-  /** Solo-only steps (Tab switch) are skipped in multiplayer. */
-  soloOnly?: boolean;
+  /** Drone switching exists only in the local developer two-drone mode. */
+  devOnly?: boolean;
   done: (axes: FlightAxes, actions: InteractionActions) => boolean;
 }
 
@@ -26,28 +27,32 @@ const STEPS: CoachStep[] = [
     id: 'move',
     prompt: 'Fly around',
     keys: 'W A S D',
+    gamepad: 'LS',
     glyph: 'fly',
     done: (axes) => Math.abs(axes.thrust) > 0.25 || Math.abs(axes.strafe) > 0.25,
   },
   {
     id: 'jump',
-    prompt: 'Rise or boost',
-    keys: 'Space / Shift',
-    glyph: 'boost',
-    done: (axes) => axes.lift > 0.25 || axes.boost,
+    prompt: 'Rise or descend',
+    keys: 'Space / Ctrl',
+    gamepad: 'A / LT',
+    glyph: 'updown',
+    done: (axes) => Math.abs(axes.lift) > 0.25 || axes.boost,
   },
   {
     id: 'switch',
     prompt: 'Switch drone',
     keys: 'Tab',
+    gamepad: 'LB',
     glyph: 'switch',
-    soloOnly: true,
+    devOnly: true,
     done: (_axes, actions) => actions.switchDrone,
   },
   {
     id: 'yank',
     prompt: 'Yank the cord',
     keys: 'R',
+    gamepad: 'RB / RT',
     glyph: 'yank',
     done: (_axes, actions) => actions.yank,
   },
@@ -55,6 +60,7 @@ const STEPS: CoachStep[] = [
     id: 'grab',
     prompt: 'Grab',
     keys: 'E',
+    gamepad: 'X',
     glyph: 'grab',
     done: (_axes, actions) => actions.grabDrop,
   },
@@ -62,6 +68,7 @@ const STEPS: CoachStep[] = [
     id: 'hack',
     prompt: 'Hack a terminal',
     keys: 'F',
+    gamepad: 'B',
     glyph: 'hack',
     done: (_axes, actions) => actions.interact,
   },
@@ -104,7 +111,7 @@ export class OnboardingCoach {
   private readonly promptEl: HTMLParagraphElement;
   private readonly glyphSlot: HTMLSpanElement;
   private readonly mode: OnboardingMode;
-  private readonly touch: boolean;
+  private kind: InputKind;
   private steps: CoachStep[] = [];
   private index = 0;
   private active = false;
@@ -116,7 +123,7 @@ export class OnboardingCoach {
 
   constructor(parent: HTMLElement, mode: OnboardingMode) {
     this.mode = mode;
-    this.touch = isTouchPlayDevice();
+    this.kind = inputKind();
     this.root = document.createElement('div');
     this.root.className = 'onboarding-coach';
     this.root.dataset.testid = 'onboarding-coach';
@@ -150,7 +157,7 @@ export class OnboardingCoach {
   begin(): void {
     window.clearTimeout(this.finishTimer);
     this.finishing = false;
-    this.steps = STEPS.filter((step) => !step.soloOnly || this.mode !== 'multiplayer');
+    this.steps = STEPS.filter((step) => !step.devOnly || this.mode === 'dev-local');
     this.index = 0;
     this.active = this.steps.length > 0;
     this.root.classList.remove('onboarding-coach--done');
@@ -166,6 +173,11 @@ export class OnboardingCoach {
   /** Called each gameplay frame with the local human sample. */
   observe(axes: FlightAxes, actions: InteractionActions): void {
     if (!this.active || this.finishing) return;
+    const kind = inputKind();
+    if (kind !== this.kind) {
+      this.kind = kind;
+      this.renderStep(false);
+    }
     const step = this.steps[this.index];
     if (!step) {
       this.complete();
@@ -193,7 +205,7 @@ export class OnboardingCoach {
     this.finishing = true;
     this.active = false;
     this.glyphSlot.replaceChildren();
-    this.promptEl.textContent = "You've got it";
+    this.promptEl.textContent = 'Hack. Haul. Escape.';
     this.root.classList.add('onboarding-coach--done', 'visible');
     this.finishTimer = window.setTimeout(() => this.complete(), 1200);
   }
@@ -207,16 +219,16 @@ export class OnboardingCoach {
     this.root.classList.add('onboarding-coach--done');
   }
 
-  private renderStep(): void {
+  private renderStep(resetTimer = true): void {
     const step = this.steps[this.index];
     if (!step) return;
-    this.stepShownAt = performance.now();
+    if (resetTimer) this.stepShownAt = performance.now();
     this.promptEl.textContent = step.prompt;
     this.glyphSlot.replaceChildren();
-    if (this.touch) {
+    if (this.kind === 'touch') {
       this.glyphSlot.append(controlIcon(step.glyph, 'glyph onboarding-coach__touch-glyph'));
     } else {
-      this.glyphSlot.append(keycaps(step.keys), controlIcon(step.glyph));
+      this.glyphSlot.append(keycaps(this.kind === 'gamepad' ? step.gamepad : step.keys), controlIcon(step.glyph));
     }
   }
 }

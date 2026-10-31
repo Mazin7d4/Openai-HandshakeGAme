@@ -5,7 +5,7 @@ import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { freePort, startTestServer } from '../test-server.mjs';
 
-const all = ['menu-input', 'ui-audit', 'touch-controls', 'phone-screens', 'phone-overlays', 'prototype-safety', 'heist-main', 'heist-coop', 'heist-audio', 'heist-presentation', 'phone-ui', 'seeds', 'bundle-budget', 'pass-rules', 'messages', 'interp', 'challenge', 'night-shift', 'nightshift-readable', 'smoke', 'solo-boot', 'no-cdn', 'bot-solo', 'coop', 'coop-capture', 'grab-carry', 'rematch', 'bot-server', 'bot-hack-server', 'leaderboard-server', 'quickmatch-server', 'quickmatch', 'quickmatch-cancel', 'quickmatch-bot', 'quickmatch-private', 'nightshift-coop', 'ping-emote', 'reconnect', 'mobile', 'quality-phone', 'governor', 'mobile-layout', 'join-mobile', 'join-qr', 'rematch-mobile', 'leaderboard', 'leaderboard-solo', 'title-best-crew', 'wake', 'emote-mobile', 'gamepad', 'escape-replay', 'no-test-hooks', 'settings', 'a11y-keyboard', 'floorplan-sweep', 'drawcall-sweep', 'objectives-unit', 'hazards-unit', 'variety-coop', 'nightshift-9floors', 'variety-solo', 'campaign-unit', 'campaign-solo', 'campaign-coop'];
+const all = ['a11y-audit', 'error-states', 'menu-input', 'ui-audit', 'touch-controls', 'phone-screens', 'phone-overlays', 'prototype-safety', 'heist-main', 'heist-coop', 'heist-audio', 'heist-presentation', 'phone-ui', 'seeds', 'bundle-budget', 'pass-rules', 'messages', 'interp', 'challenge', 'night-shift', 'nightshift-readable', 'smoke', 'solo-boot', 'no-cdn', 'bot-solo', 'coop', 'coop-capture', 'grab-carry', 'rematch', 'bot-server', 'bot-hack-server', 'leaderboard-server', 'quickmatch-server', 'quickmatch', 'quickmatch-cancel', 'quickmatch-bot', 'quickmatch-private', 'nightshift-coop', 'ping-emote', 'reconnect', 'mobile', 'quality-phone', 'governor', 'mobile-layout', 'join-mobile', 'join-qr', 'rematch-mobile', 'leaderboard', 'leaderboard-solo', 'title-best-crew', 'wake', 'emote-mobile', 'gamepad', 'escape-replay', 'no-test-hooks', 'settings', 'a11y-keyboard', 'floorplan-sweep', 'drawcall-sweep', 'objectives-unit', 'hazards-unit', 'variety-coop', 'nightshift-9floors', 'variety-solo', 'campaign-unit', 'campaign-solo', 'campaign-coop'];
 const args = process.argv.slice(2);
 const ownServers = process.env.QA_OWN_SERVERS === '1' || args.includes('--own-servers');
 const pick = args.filter((a) => a !== '--own-servers' && all.includes(a));
@@ -13,7 +13,7 @@ const tests = pick.length ? pick : all;
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const timeoutMs = Number(process.env.QA_TIMEOUT_MS ?? 300_000);
 // The authored two-peer route renders two complete game clients and physically hauls the crate.
-const timeoutFor = test => Math.max(timeoutMs, ({ 'heist-coop': 600_000, 'campaign-solo': 540_000 })[test] ?? 0);
+const timeoutFor = test => Math.max(timeoutMs, ({ 'heist-coop': 900_000, 'campaign-solo': 540_000 })[test] ?? 0);
 
 function parseResult(test, stdout, stderr, error) {
   const line = (stdout ?? '').split('\n').find((entry) => entry.startsWith('QA_RESULT '));

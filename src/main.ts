@@ -1,4 +1,5 @@
 import type { GameApp } from './app/GameApp.ts';
+import { showLoadingFailure } from './ui/LoadingFailure.ts';
 import type { GameMode } from './app/GameMode.ts';
 // The engine, physics and level are split into lazy chunks so the menu appears immediately;
 // they start downloading in the background as soon as the menu is up.
@@ -197,7 +198,7 @@ function showMainMenu(): void {
   const beatMs = beatRaw != null && /^\d+$/.test(beatRaw) ? Number(beatRaw) : NaN;
   const blurb = Number.isFinite(beatMs)
     ? `A friend finished in ${formatBeatMs(beatMs)}. Can you beat it?`
-    : 'Fly a pair of tethered drones through a sleepy office and lift the core from the vault.';
+    : 'Fly together. Hack the office. Lift the core.';
   const shell = menuShell();
   shell.classList.add('menu-shell--title');
   const attractCanvas = element('canvas', 'title-attract-canvas');
@@ -219,9 +220,9 @@ function showMainMenu(): void {
   const actions = element('div', 'menu-actions');
   actions.append(
     play,
+    menuButton('Play with a friend', 'multiplayer', showMultiplayerMenu),
     daily,
     menuButton('Campaign', 'campaign', showCampaignSelect),
-    menuButton('Play with a friend', 'multiplayer', showMultiplayerMenu),
     menuButton('Leaderboards', 'leaderboards', showLeaderboards, 'btn--quiet'),
   );
   if (devMenuAllowed) {
@@ -909,11 +910,11 @@ async function startGame(mode: GameMode, session?: MultiplayerSession): Promise<
     canvas.focus();
     game.start();
   } catch (error) {
+    console.error('GameApp create/start error:', error);
     removeStatus?.();
     void session?.dispose();
     window.clearInterval(bootTimer);
-    boot.textContent = errorMessage(error);
-    boot.classList.add('error');
+    showLoadingFailure(boot, error, showMainMenu);
   }
 }
 
