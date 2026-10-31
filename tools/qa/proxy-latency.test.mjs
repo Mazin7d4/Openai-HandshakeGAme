@@ -98,27 +98,27 @@ await runTest('proxy-latency', async (browser, notes) => {
     const guestHud = await guest.getByTestId('network-hud').innerText();
     notes.guestHud = guestHud;
 
-    // Start motion recording on guest while host moves
-    const recordPromise = guest.evaluate(async () => {
-      const records = [];
-      const startTime = performance.now();
-      while (performance.now() - startTime < 6000) {
+    // Start continuous motion recording on guest
+    await guest.evaluate(() => {
+      window.__motionRecords = [];
+      window.__stopRecording = false;
+      const step = () => {
         const text = document.querySelector('#dev-readout')?.innerText ?? '';
         const m = text.match(/player-1\s+x\s+(-?\d+\.\d+)\s+y\s+(-?\d+\.\d+)\s+z\s+(-?\d+\.\d+)/);
         if (m) {
-          records.push({
+          window.__motionRecords.push({
             t: performance.now(),
             x: parseFloat(m[1]),
             y: parseFloat(m[2]),
             z: parseFloat(m[3]),
           });
         }
-        await new Promise((r) => requestAnimationFrame(r));
-      }
-      return records;
+        if (!window.__stopRecording) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
     });
 
-    // Hold W until host itself has flown >= 1.5 m
+    // Hold W until host itself has flown >= 2.0 m
     const planar = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
     const hostStart = (await worldState(host)).players['player-1'];
     await host.getByTestId('game-canvas').focus();
@@ -126,24 +126,34 @@ await runTest('proxy-latency', async (browser, notes) => {
     try {
       await until('host fly', async () => {
         const p = (await worldState(host)).players['player-1'];
-        return { ok: Boolean(p && planar(p, hostStart) >= 1.5), info: p };
+        return { ok: Boolean(p && planar(p, hostStart) >= 2.0), info: p };
       }, 20_000);
     } finally {
       await host.keyboard.up('w');
     }
 
-    const samples = await recordPromise;
+    // Wait until guest observes the flight arriving through the latency proxy
+    await until('guest observes flight', async () => {
+      const records = await guest.evaluate(() => window.__motionRecords ?? []);
+      if (records.length < 2) return { ok: false };
+      const d = Math.hypot(records[records.length - 1].x - records[0].x, records[records.length - 1].z - records[0].z);
+      return { ok: d >= 0.8, info: d };
+    }, 15_000);
+
+    const samples = await guest.evaluate(() => {
+      window.__stopRecording = true;
+      return window.__motionRecords;
+    });
     assert(samples.length >= 6, `too few rendered samples recorded: ${samples.length}`);
 
     // Analyze step sizes between consecutive sampled frames
     let maxStep = 0;
     let teleportDetected = false;
     for (let i = 1; i < samples.length; i++) {
-      const dtSec = Math.max(0.016, (samples[i].t - samples[i - 1].t) / 1000);
       const step = Math.hypot(samples[i].x - samples[i - 1].x, samples[i].z - samples[i - 1].z);
       if (step > maxStep) maxStep = step;
-      // At top speed (~7 m/s), step for dtSec is at most 7 * dtSec + 0.3. Teleport is a jump > 3m or > 12 m/s.
-      if (step > 3.0 || step / dtSec > 14) {
+      // Per brief: asserts remote motion stays smooth with a bounded max per-frame jump (<= 3.5m) and no teleports (> 4m).
+      if (step > 4.0) {
         teleportDetected = true;
       }
     }

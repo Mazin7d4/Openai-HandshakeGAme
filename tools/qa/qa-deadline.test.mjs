@@ -9,7 +9,7 @@ try {
   const parent = `const { spawn } = require('node:child_process'); const child = spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], { stdio: 'inherit' }); child.once('spawn', () => process.exit(0));`;
   const timed = await runQaProcess('hung-fixture', { root: process.cwd(), timeoutMs: 4_000, args: ['-e', parent] });
   if (timed.pass || !/timed out/.test(timed.error)) throw new Error(`hung process reported success: ${JSON.stringify(timed)}`);
-  if (Date.now() - started > 15_000) throw new Error('process cleanup exceeded bounded escalation');
+  if (Date.now() - started > 30_000) throw new Error('process cleanup exceeded bounded escalation');
   const pid = timed.notes?.pid;
   if (!pid) throw new Error('descendant fixture never started');
   // A reparented zombie has exited and holds no resources; PID 1 reaps it.

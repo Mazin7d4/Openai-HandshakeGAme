@@ -211,7 +211,7 @@ export async function canvasHasContent(page) {
  * compareWorld() will automatically include them.
  */
 export async function worldState(page) {
-  const text = await page.locator('#dev-readout').innerText({ timeout: 10_000 });
+  const text = await page.locator('#dev-readout').innerText({ timeout: 30_000 });
   const players = {};
   for (const m of text.matchAll(/(player-\d)\s+x\s+(-?\d+\.\d)\s+y\s+(-?\d+\.\d)\s+z\s+(-?\d+\.\d)/g)) {
     players[m[1]] = { x: +m[2], y: +m[3], z: +m[4] };

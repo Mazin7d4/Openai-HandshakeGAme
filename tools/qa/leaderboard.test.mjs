@@ -71,7 +71,13 @@ await runTest('leaderboard', async (browser, notes) => {
     await host.getByTestId('leaderboard-own').filter({ hasText: 'Ace' }).waitFor({ timeout: 10_000 });
     await host.getByTestId('leaderboard-name-input').fill('sh1t');
     await host.getByTestId('leaderboard-name-save').tap();
-    await host.getByTestId('leaderboard-name-status').filter({ hasText: 'Please pick another name' }).waitFor({ timeout: 10_000 });
+    try {
+      await host.getByTestId('leaderboard-name-status').filter({ hasText: 'Please pick another name' }).waitFor({ timeout: 10_000 });
+    } catch (err) {
+      const currentStatus = await host.getByTestId('leaderboard-name-status').innerText().catch(() => 'none');
+      const inputValue = await host.getByTestId('leaderboard-name-input').inputValue().catch(() => 'none');
+      throw new Error(`Expected 'Please pick another name', got status='${currentStatus}', input='${inputValue}': ${err.message}`);
+    }
 
     const layout = await host.evaluate(() => {
       const panel = document.querySelector('.heist-report');

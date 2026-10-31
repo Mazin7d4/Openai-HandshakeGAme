@@ -32,9 +32,11 @@ const sec = (page) => page
   ? page.evaluate(() => window.__autotest?.security?.() ?? null)
   : Promise.resolve(null);
 
+const { DISPLAY: _display, WAYLAND_DISPLAY: _waylandDisplay, ...headlessEnv } = process.env;
 const browser = await chromium.launch({
   headless: true,
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'],
+  env: headlessEnv,
 });
 
 const result = { test: 'coop-capture', pass: false, notes: {} };
@@ -42,6 +44,7 @@ const started = Date.now();
 let server;
 let host;
 let guest;
+const errors = [];
 
 const readoutPositions = (page) => (page ? page.evaluate(() => {
   const text = document.querySelector('#dev-readout')?.textContent ?? '';
@@ -151,7 +154,7 @@ try {
   const guestContext = await browser.newContext();
   host = await hostContext.newPage();
   guest = await guestContext.newPage();
-  const errors = [];
+  errors.length = 0;
   for (const [name, page] of [['host', host], ['guest', guest]]) {
     page.on('pageerror', (error) => errors.push(`${name} pageerror: ${error.message}`));
     page.on('console', (m) => {
@@ -170,15 +173,33 @@ try {
   await guest.getByTestId('join-room').click();
   await guest.getByTestId('room-code-input').fill(code);
   await guest.getByTestId('join-submit').click();
-  for (const page of [host, guest]) {
-    await step(`${page === host ? 'host' : 'guest'} boot`, () => page.locator('#boot-status').waitFor({ state: 'detached', timeout: 60_000 }));
-    await step(`${page === host ? 'host' : 'guest'} debug hooks`, () => page.waitForFunction(() => window.__autotest?.debugForceCapture, null, { timeout: 30_000 }));
-  }
+  await Promise.all([
+    host.getByTestId('game-canvas').waitFor({ state: 'visible', timeout: 90_000 }),
+    guest.getByTestId('game-canvas').waitFor({ state: 'visible', timeout: 90_000 }),
+  ]);
+  const waitForBoot = async (page, name) => {
+    const poll = async () => {
+      const err = await page.locator('#boot-status.error').textContent().catch(() => null);
+      if (err) throw new Error(`${name} boot failed: ${err}`);
+      const isDetached = await page.locator('#boot-status').count().then((c) => c === 0).catch(() => false);
+      return isDetached;
+    };
+    const start = Date.now();
+    while (Date.now() - start < 90_000) {
+      if (await poll()) return;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    const current = await page.locator('#boot-status').textContent().catch(() => 'unknown');
+    throw new Error(`${name} boot timed out (status: ${current})`);
+  };
+  await Promise.all([waitForBoot(host, 'host'), waitForBoot(guest, 'guest')]);
+  await step('host debug hooks', () => host.waitForFunction(() => window.__autotest?.debugForceCapture, null, { timeout: 60_000 }));
+  await step('guest debug hooks', () => guest.waitForFunction(() => window.__autotest?.debugForceCapture, null, { timeout: 60_000 }));
   result.notes.room = code;
 
   await host.evaluate(() => window.__autotest.debugStage('escape'));
   for (const page of [host, guest]) {
-    await step(`${page === host ? 'host' : 'guest'} security active`, () => page.waitForFunction(() => window.__autotest.security().securityActive, null, { timeout: 30_000 }));
+    await step(`${page === host ? 'host' : 'guest'} security active`, () => page.waitForFunction(() => window.__autotest.security().securityActive, null, { timeout: 60_000 }));
   }
   await host.evaluate(() => window.__autotest.debugPatrolFreeze?.(true));
 
@@ -420,12 +441,17 @@ try {
   await hostContext.close();
   await guestContext.close();
 } catch (e) {
-  result.error = String(e?.message ?? e).slice(0, 1500);
-  result.notes.serverLog = server?.log().slice(-1200);
   try {
-    if (host) result.notes.lastHost = await sec(host);
-    if (guest) result.notes.lastGuest = await sec(guest);
-  } catch { /* ignore */ }
+    const hostText = await host?.locator('body').innerText().catch(() => '');
+    const guestText = await guest?.locator('body').innerText().catch(() => '');
+    result.error = `${e?.message ?? e}\nHOST BODY: ${hostText}\nGUEST BODY: ${guestText}\nPAGE ERRORS:\n${errors.join('\n')}`;
+    result.notes.serverLog = typeof server?.log === 'function' ? server.log().slice(-1200) : '';
+    result.notes.errors = errors;
+    result.notes.hostUrl = host?.url();
+    result.notes.guestUrl = guest?.url();
+  } catch (err) {
+    result.error = `Catch failure: ${err?.message} while handling ${e?.message}`;
+  }
 } finally {
   result.seconds = Math.round((Date.now() - started) / 1000);
   console.log(`coop-capture ${result.pass ? 'PASS' : 'FAIL'} (${result.seconds}s)`);
