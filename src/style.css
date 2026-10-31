@@ -867,7 +867,7 @@ html[data-reduced-motion='1'] *::after {
   .heist-report__kicker, .heist-report__title, .heist-report__quip { display: none; }
   .heist-report__actions .btn--primary,
   .heist-report__actions .btn--quiet { grid-column: auto; }
-  .heist-report__actions .btn { font-size: 16px; }
+  .heist-report__actions .btn { font-size: 16px; padding: 8px; }
 }
 @media (max-width: 600px) {
   .join-panel, .lobby-panel { max-width: 100%; }
@@ -967,7 +967,7 @@ html[data-reduced-motion='1'] .wake-progress span { transition: none; }
   --touch-top: max(8px, env(safe-area-inset-top, 0px));
   --stick-w: clamp(72px, calc(25vw - 80px), 136px);
   --touch-opacity: .85; --touch-accent: var(--pix); --touch-ink: var(--pix-ink);
-  position: absolute; inset: 0; z-index: 11; pointer-events: none;
+  position: absolute; inset: 0; z-index: 1001; pointer-events: none;
   opacity: var(--touch-opacity); touch-action: none;
   user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
 }
@@ -1040,7 +1040,11 @@ html[data-reduced-motion='1'] .wake-progress span { transition: none; }
 .touch-rotate-hint {
   position: absolute; left: 50%; top: 18%; z-index: 1000; display: none; transform: translateX(-50%);
   width: min(320px, calc(100% - 32px)); padding: 14px 16px; border: var(--rim); border-radius: var(--r-panel);
-  background: var(--paper); box-shadow: var(--lip), var(--float-shadow); text-align: center; pointer-events: auto;
+  background: var(--paper); box-shadow: var(--lip), var(--float-shadow); isolation: isolate; text-align: center; pointer-events: auto;
+}
+.touch-rotate-hint::before {
+  content: ''; position: fixed; inset: 0; z-index: -1;
+  background: var(--porcelain); pointer-events: none;
 }
 .touch-rotate-hint--hidden { display: none !important; }
 .touch-rotate-hint.visible { display: grid; gap: 8px; justify-items: center; }
@@ -1065,6 +1069,23 @@ body.pause-menu-open :is(.mission-objective, .juice-toasts, .interaction-prompt,
 .touch-controls-help .glyph { width: 24px; height: 24px; flex-shrink: 0; }
 .pause-panel:has(.touch-controls-help) { padding: 12px 16px; gap: 8px; }
 .pause-panel:has(.touch-controls-help) h2 { margin: 0; }
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .pause-panel { padding: 10px 16px; gap: 6px; }
+  .pause-panel h2 { margin-bottom: 4px; font-size: 22px; }
+  .pause-panel:not(:has(.settings-menu--embedded)):not(:has(.touch-controls-help)):not(:has(.controls-list)) {
+    width: min(520px, 100%);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 12px;
+  }
+  .pause-panel:not(:has(.settings-menu--embedded)):not(:has(.touch-controls-help)):not(:has(.controls-list)) > h2,
+  .pause-panel:not(:has(.settings-menu--embedded)):not(:has(.touch-controls-help)):not(:has(.controls-list)) > .pause-seed {
+    grid-column: 1 / -1;
+  }
+  .pause-panel:not(:has(.settings-menu--embedded)):not(:has(.touch-controls-help)):not(:has(.controls-list)) > [data-testid='pause-fullscreen'] {
+    grid-column: 1 / -1;
+  }
+}
 /* The emote picker stays in its thumb rail; all four choices remain directly tappable. */
 .touch-play .emote-radial {
   left: auto; right: max(8px, env(safe-area-inset-right, 0px)); bottom: max(8px, env(safe-area-inset-bottom, 0px));
@@ -1283,11 +1304,7 @@ body.escape-replay-on :is(.mission-objective, .onboarding-coach, .interaction-pr
   .hack-panel .hack-cancel { min-height: 48px; }
 }
 
-/* Phone proximity feedback belongs on the object. The duplicate touch action
-   stays as a small glyph beside the permanent action cluster. */
+/* Phone callouts stay in the top rail, outside the flight view. */
 @media (orientation: landscape) and (max-height: 500px), (pointer: coarse) and (max-width: 900px) {
-  .touch-play .interaction-prompt { left: auto !important; right: 8px; bottom: 184px !important; width: 44px !important; max-width: 44px; padding: 0; background: transparent; border: 0; box-shadow: none; }
-  .touch-play .interaction-prompt button { width: 44px; height: 40px; min-width: 0; padding: 7px; }
-  .touch-play .interaction-prompt button > span { display: none; }
-  .juice-toasts { width: min(21vw, 220px); max-width: 21vw; top: 64px; }
+  .juice-toasts { width: min(21vw, 220px); max-width: 21vw; top: max(8px, env(safe-area-inset-top, 0px)); }
 }
