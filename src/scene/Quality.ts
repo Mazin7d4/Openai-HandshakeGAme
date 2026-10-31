@@ -8,11 +8,9 @@ import type { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGener
 import { getSettings, subscribeSettings, type GraphicsQualitySetting } from '../ui/Settings.ts';
 
 /**
- * Automatic graphics tiers. The governor settles for 1 s, probes for 5 s, then monitors once per
- * second: below 50 FPS steps down, above 58 FPS steps up after a 5 s hold (up to 40 s after
- * oscillation). URL overrides and forced scales pin the whole ladder; manual settings pin the tier
- * while allowing resolution steps. Only render cost changes: resolution, shadows, glow, accent lights.
- * Gameplay, physics, camera and mascot materials are untouched.
+ * Desktop visuals are selected once at boot: no automatic shadow, light, material or glow toggles.
+ * A sustained slow sample may reduce resolution once; desktop never automatically steps back up.
+ * Phones retain the adaptive resolution ladder. Explicit settings and URL overrides remain available.
  *
  * Overrides, strongest first: `?lowfx` (low, locked) · `?quality=low|medium|high` (locked) ·
  * Settings → GRAPHICS QUALITY (low/medium/high locks, AUTO = governor). `?scale=N` still forces
@@ -91,6 +89,7 @@ export interface QualityStatus {
   pinned: 'none' | 'tier' | 'all';
   lastAction: string | null;
   ceiling: QualityTier;
+  stability: 'desktop-fixed' | 'adaptive';
 }
 
 const SCALE_STEPS = [1, 1.15, 1.3, 1.5] as const;
@@ -172,8 +171,12 @@ export class QualityManager {
       pinned: this.pinned,
       lastAction: this.lastAction,
       ceiling: this.ceiling,
+      stability: this.guess.mobile ? 'adaptive' : 'desktop-fixed',
     };
   }
+
+  /** Start measurement after loading and shader warmup, so boot stalls never drive the governor. */
+  beginPlay(): void { this.restartProbe(performance.now()); }
 
   setSetting(setting: GraphicsQualitySetting): void {
     if (urlTier) return;
@@ -216,14 +219,18 @@ export class QualityManager {
     this.cooldownUntil = 0;
   }
 
-  private get maxStep(): number { return this.auto ? 3 : 2; }
+  private get maxStep(): number { return this.guess.mobile ? (this.auto ? 3 : 2) : 1; }
 
   private apply(): void {
     const { engine, tier } = { engine: this.scene.getEngine() as Engine, tier: this.tier };
     const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
     const base = forcedScale > 1
       ? forcedScale
-      : tier === 'high'
+      : !this.guess.mobile && tier !== 'low'
+        // CSS pixels are the desktop ceiling, including Retina laptops. Large monitors get a
+        // fixed boot cap instead of rendering a 4K/Retina framebuffer behind a 1080p game.
+        ? Math.max(1, Math.min(1.5, Math.sqrt(window.innerWidth * window.innerHeight / (1920 * 1080))))
+        : tier === 'high'
         ? 1 / Math.min(dpr, 2)
         : tier === 'medium'
           ? 1 / Math.min(dpr, 1.25)
@@ -296,7 +303,7 @@ export class QualityManager {
     if (this.pinned === 'all') return false;
     const oldStep = this.scaleStep; const oldTier = this.tier;
     if (this.scaleStep < this.maxStep) this.scaleStep++;
-    else if (this.auto && TIERS.indexOf(this.tier) > 0) {
+    else if (this.guess.mobile && this.auto && TIERS.indexOf(this.tier) > 0) {
       this.tier = TIERS[TIERS.indexOf(this.tier) - 1];
       this.scaleStep = 0;
     } else return false;
@@ -305,7 +312,7 @@ export class QualityManager {
   }
 
   private stepUp(why: 'monitor'): boolean {
-    if (this.pinned === 'all') return false;
+    if (!this.guess.mobile || this.pinned === 'all') return false;
     const oldStep = this.scaleStep; const oldTier = this.tier;
     if (this.scaleStep > 0) this.scaleStep--;
     else if (this.auto && TIERS.indexOf(this.tier) < TIERS.indexOf(this.ceiling)) {

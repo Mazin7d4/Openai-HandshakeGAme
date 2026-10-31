@@ -139,7 +139,7 @@ try {
   await page.waitForFunction(() => window.__autotest, null, { timeout: 30_000 });
   const pilot = async (roles, point, timeout = 150_000) => {
     const tol = point.tolerance ?? 1;
-    await page.evaluate(({ roles, p, tol }) => { for (const r of roles) window.__autotest.goto(r, p.x, p.y ?? 2.2, p.z, tol); }, { roles, p: point, tol });
+    await page.evaluate(({ roles, p, tol }) => { for (const r of roles) window.__autotest.goto(r, p.x, p.y ?? 2.2, p.z, tol, p.hold ?? false); }, { roles, p: point, tol });
     try {
       await page.waitForFunction((roles) => roles.every(r => window.__autotest.arrived(r)) || document.querySelector('#dev-readout')?.textContent.includes('mission:complete'), roles, { timeout, polling: 250 });
     } catch {

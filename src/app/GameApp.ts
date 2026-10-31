@@ -92,6 +92,7 @@ export class GameApp {
   private readonly aiPartnerEnabled: boolean;
   private takeoverSpawnApplied = false;
   private readonly snapshots: PlayerSnapshot[] = [];
+  private readonly droneByRole = new Map<DroneRole, Drone>();
   private readonly hud: GameHud | null;
   private readonly a11y: AccessibilityFeedback | null;
   private readonly coach: OnboardingCoach | null;
@@ -157,6 +158,7 @@ export class GameApp {
     this.assets = assets;
     this.players = players;
     this.drones = players.map((p) => p.drone);
+    for (const player of players) this.droneByRole.set(player.role, player.drone);
     this.tether = tether;
     this.cameraRig = cameraRig;
     this.devReadout = devReadout;
@@ -623,7 +625,7 @@ export class GameApp {
     const devReadout = options.devParent ? new DevReadout(options.devParent, mode) : null;
     const devOrbit = options.devParent ? new DevOrbitCamera(scene, options.canvas) : null;
 
-    return new GameApp(
+    const app = new GameApp(
       engine,
       scene,
       assets,
@@ -639,6 +641,19 @@ export class GameApp {
       options.onLeaveGame,
       runLayout,
     );
+    // Keep the loader up while first-frame observers finalize lights/materials and every room's
+    // shader variants compile. No player simulation or camera tour runs behind the loading card.
+    try {
+      scene.render();
+      await scene.whenReadyAsync(true);
+      scene.render();
+      await scene.whenReadyAsync(true);
+    } catch (error) {
+      app.dispose();
+      throw error;
+    }
+    getQuality(scene)?.beginPlay();
+    return app;
   }
 
   start(): void {
@@ -691,6 +706,14 @@ export class GameApp {
         drawCalls: (this.scene.getEngine() as unknown as { _drawCalls: { current: number } })._drawCalls.current,
         activeMeshes: this.scene.getActiveMeshes().length,
         fps: this.scene.getEngine().getFps(),
+        rendering: {
+          ready: this.scene.isReady(true),
+          totalMeshes: this.scene.meshes.length,
+          materials: this.scene.materials.length,
+          vertices: this.scene.getTotalVertices(),
+          lights: this.scene.lights.map(light => ({ name: light.name, enabled: light.isEnabled() })),
+          shadowCasters: this.scene.lights.flatMap(light => light.getShadowGenerator()?.getShadowMap()?.renderList?.map(mesh => mesh.name) ?? []),
+        },
       }),
       /** Ask the server for a test stage (needs HANDSHAKE_TEST_HOOKS=1 on the server). */
       debugStage: (stage: 'hack-security' | 'steal-prototype' | 'escape') => {
@@ -828,8 +851,7 @@ export class GameApp {
     const dt = realDt * this.timeScale;
     const basis = this.cameraRig.getPlanarBasis();
     const faceGameplayCamera = this.devOrbit?.isActive !== true;
-    const droneByRole = new Map<DroneRole, Drone>();
-    for (const player of this.players) droneByRole.set(player.role, player.drone);
+    const droneByRole = this.droneByRole;
 
     let switchDrone = false;
     let coachAxes = this.idleAxes;

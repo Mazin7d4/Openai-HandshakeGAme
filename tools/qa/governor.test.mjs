@@ -78,5 +78,41 @@ await runTest('governor', async (browser, notes) => {
   assert(pinned.testHook === undefined, 'quality test hook should be absent without govtest=1');
   assert(pinned.status?.pinned === 'all', `lowfx should fully pin quality, got ${pinned.status?.pinned}`);
   notes.pinned = pinned.status;
+  await ctx.close();
+
+  // Desktop gets one downward resolution adjustment and a stable visual tier for the whole game.
+  // A hardware Intel renderer exercises the owner's integrated-GPU boot policy, at a small canvas
+  // so this regression tests policy without benchmarking SwiftShader.
+  const desktop = await browser.newContext({ viewport: { width: 640, height: 360 }, deviceScaleFactor: 2 });
+  await desktop.addInitScript(() => {
+    for (const C of [WebGLRenderingContext, WebGL2RenderingContext]) {
+      const get = C.prototype.getParameter;
+      C.prototype.getParameter = function (p) { return p === 0x9246 || p === 0x1f01 ? 'Intel UHD Graphics' : get.call(this, p); };
+    }
+  });
+  const dp = await desktop.newPage();
+  collectErrors(dp, 'desktop-fixed', errors);
+  await dp.goto(firstUrl.toString());
+  await waitForGame(dp);
+  const desktopStart = await dp.evaluate(() => window.__pixQuality());
+  assert(desktopStart.tier === 'medium', `Intel desktop should boot medium: ${JSON.stringify(desktopStart)}`);
+  assert(desktopStart.scale >= 1, `desktop must not supersample Retina: ${desktopStart.scale}`);
+  assert(desktopStart.stability === 'desktop-fixed', 'desktop stability policy missing');
+  await dp.evaluate(() => window.__pixQualityTest.injectFrameMs(40));
+  const desktopDown = await pollStatus(dp, s => s.scaleStep === 1, 20000);
+  assert(desktopDown?.scaleStep === 1 && desktopDown.tier === 'medium', `desktop did not make its bounded downstep: ${JSON.stringify(desktopDown)}`);
+  await dp.waitForTimeout(8000);
+  const desktopSlow = await dp.evaluate(() => window.__pixQuality());
+  assert(desktopSlow.changes.length === 1 && desktopSlow.tier === 'medium', `desktop kept walking tiers/scales: ${JSON.stringify(desktopSlow)}`);
+  await dp.evaluate(() => window.__pixQualityTest.injectFrameMs(8));
+  await dp.waitForTimeout(12000);
+  const desktopFast = await dp.evaluate(() => window.__pixQuality());
+  assert(desktopFast.scaleStep === 1 && desktopFast.changes.length === 1 && desktopFast.tier === 'medium', `desktop oscillated back up: ${JSON.stringify(desktopFast)}`);
+  const rendering = await dp.evaluate(() => window.__autotest.presentationDiagnostics().rendering);
+  assert(rendering.ready, 'loading finished with unready materials');
+  assert(rendering.lights.length <= 4, `desktop scene grew beyond four lights: ${JSON.stringify(rendering.lights)}`);
+  assert(rendering.shadowCasters.length === 2, `expected one shell caster per drone: ${rendering.shadowCasters}`);
+  notes.desktop = { start: desktopStart, down: desktopDown, slow: desktopSlow, fast: desktopFast, rendering };
+  await desktop.close();
   assert(!errors.length, `errors:\n${errors.join('\n')}`);
 });

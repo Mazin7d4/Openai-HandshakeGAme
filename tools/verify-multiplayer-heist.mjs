@@ -198,11 +198,11 @@ try {
 
   // If the tether drags a drone off-line (e.g. behind the vent jamb), back up one waypoint and retry once.
   const step = async (page, id, point, previous) => {
-    try { await moveToward(page, id, point, 25000, point.tolerance ?? 1); }
+    try { await moveToward(page, id, point, 25000, point.tolerance ?? 1, point.hold ?? false); }
     catch (error) {
       if (!previous) throw error;
       await moveToward(page, id, previous, 20_000, 1.5);
-      await moveToward(page, id, point, 25000, point.tolerance ?? 1);
+      await moveToward(page, id, point, 25000, point.tolerance ?? 1, point.hold ?? false);
     }
   };
   const travel = async (points) => {

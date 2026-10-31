@@ -8,7 +8,7 @@ import { runQaProcess } from './process.mjs';
 import { freePort, startTestServer } from '../test-server.mjs';
 
 const all = [
-  'prototype-safety', 'heist-main', 'heist-coop', 'heist-audio', 'heist-presentation',
+  'bot-carry-unit', 'prototype-safety', 'heist-main', 'heist-coop', 'heist-audio', 'heist-presentation',
   'qa-deadline', 'phone-ui', 'seeds', 'bundle-budget', 'cold-load', 'pass-rules',
   'messages', 'interp', 'remote-unit', 'server-fuzz', 'proxy-latency', 'error-resilience',
   'challenge', 'night-shift', 'smoke', 'solo-boot', 'no-cdn', 'bot-solo', 'coop',

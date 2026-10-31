@@ -19,10 +19,12 @@ export const servers = [
   // Climb east of the ramp steps, then cross above them onto the catwalk (waypoints stay clear of the step slabs).
   { x: 0, y: 6.8, z: -10 }, { x: -3, y: 6.8, z: -9.5 },
   // Park beside the memory console (its body fills the station point), inside its 3.2 m reach.
-  { x: -3, y: 7, z: -6.9 }, { x: -2.6, y: 7.1, z: -5.8 },
+  { x: -3, y: 7, z: -6.9 },
+  // Separate parking spots keep PIX's body from blocking NEE at the console approach.
+  { x: -2.6, y: 7.1, z: -5.8, partner: { x: -5.4, y: 7.1, z: -7, tolerance: 0.5 } },
 ];
 export const vault = [
-  { x: -2.6, y: 7.1, z: -5.8 }, { x: 0, y: 7.1, z: -2 },
+  { x: -2.6, y: 7.1, z: -5.8, partner: { x: -5.4, y: 7.1, z: -7, tolerance: 0.5 } }, { x: 0, y: 7.1, z: -2 },
   { x: 0, y: 2.3, z: 2 }, { x: 0, y: 2.3, z: 9 },
   { x: 0, y: 3.5, z: 13 }, { x: 0, y: 5.25, z: 18, tolerance: 0.45 },
 ];
@@ -44,7 +46,9 @@ export const clearCrate = {
   ],
   exit: [
     { x: 0, y: 3, z: 40 }, { x: 7, y: 3, z: 40 },
-    { x: 10.5, y: 3, z: 38 }, { x: 11, y: 2, z: 43.5, tolerance: 0.8 },
+    { x: 10.5, y: 3, z: 38 },
+    { x: 12, y: 2, z: 43.5, tolerance: 0.5, hold: true,
+      partner: { x: 10, y: 2, z: 43.5, tolerance: 0.5, hold: true } },
   ],
 };
 

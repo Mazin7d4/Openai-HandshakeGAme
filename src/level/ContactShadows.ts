@@ -1,7 +1,9 @@
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder.js';
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
-import { Ray } from '@babylonjs/core/Culling/ray.js';
+import type { PhysicsEngine } from '@babylonjs/core/Physics/v2/physicsEngine.js';
+import { PhysicsRaycastResult } from '@babylonjs/core/Physics/physicsRaycastResult.js';
+import { COLLISION_GROUP } from '../physics/CollisionGroups.ts';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
@@ -17,10 +19,6 @@ interface ShadowTargetState {
 
 function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value;
-}
-
-function isDescendant(mesh: AbstractMesh, root: AbstractMesh): boolean {
-  return mesh.isDescendantOf(root);
 }
 
 /**
@@ -68,21 +66,13 @@ export function addContactShadows(scene: Scene, targets: { mesh: AbstractMesh; r
     });
   }
 
-  // Pre-allocated Ray and Vector3s to ensure zero per-frame allocations
+  // Query Havok's broad phase and simple collision shapes, never every decorative triangle.
+  // Excluding drone/grabbable categories prevents a moving object casting its blob onto itself.
   const rayOrigin = new Vector3();
-  const rayDirection = new Vector3(0, -1, 0);
-  // Blobs hide above 12 m, so a longer ray only adds triangle tests against far-away meshes.
-  const ray = new Ray(rayOrigin, rayDirection, 12);
-
-  let currentTarget: AbstractMesh | null = null;
-  const predicate = (m: AbstractMesh): boolean =>
-    m.isEnabled() &&
-    m.isVisible &&
-    m !== currentTarget &&
-    !isDescendant(m, currentTarget!) &&
-    !m.name.startsWith('contact-shadow') &&
-    m.getTotalVertices() > 0 &&
-    !(m.material && m.material.alpha < 1);
+  const rayEnd = new Vector3();
+  const hit = new PhysicsRaycastResult();
+  const query = { membership: COLLISION_GROUP.all, collideWith: COLLISION_GROUP.world, shouldHitTriggers: false };
+  const physics = scene.getPhysicsEngine() as PhysicsEngine | null;
 
   let frameCount = 0;
 
@@ -104,11 +94,11 @@ export function addContactShadows(scene: Scene, targets: { mesh: AbstractMesh; r
 
       // Cast downward ray every 4th frame per target
       if (i % 4 === slot || !state.hasHit) {
-        currentTarget = mesh;
         rayOrigin.copyFrom(pos);
-        const pick = scene.pickWithRay(ray, predicate);
-        if (pick && pick.hit && pick.pickedPoint) {
-          state.cachedHitY = pick.pickedPoint.y;
+        rayEnd.set(pos.x, pos.y - 12, pos.z);
+        physics?.raycastToRef(rayOrigin, rayEnd, hit, query);
+        if (hit.hasHit) {
+          state.cachedHitY = hit.hitPointWorld.y;
           state.hasHit = true;
         } else {
           state.hasHit = false;

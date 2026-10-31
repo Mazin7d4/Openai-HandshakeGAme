@@ -179,7 +179,7 @@ export class BotControlSource implements DroneControlSource {
         return this.idle;
       }
       const target = new Vector3(goal.point.x, goal.point.y, goal.point.z);
-      if (this.recover(dt, self, leader, [target.clone()])) {
+      if (Vector3.Distance(self, leader) > BOT_TUNING.followFar + 0.5 && this.recover(dt, self, leader)) {
         this.state = 'zip';
         return this.idle;
       }
