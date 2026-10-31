@@ -162,14 +162,8 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   };
   // Entire building: 8 x 18 m at the established drone scale. Roof is a collision-only cutaway.
   box('foundation', 0, -0.4, -10, 40, 0.8, 114, p.floor);
-  const serverFloor = new StandardMaterial('server-blue-black-floor', scene);
-  serverFloor.diffuseColor = Color3.FromHexString('#344654'); serverFloor.specularColor = Color3.Black();
-  const dockFloor = new StandardMaterial('dock-ochre-concrete', scene);
-  dockFloor.diffuseColor = Color3.FromHexString('#8A7958'); dockFloor.specularColor = Color3.Black();
-  box('reception-cream-floor', 0, 0.009, -49, 37.2, 0.015, 11.5, p.paint, false);
-  box('office-teal-floor', 0, 0.009, -34.5, 37.2, 0.015, 16.5, p.blue, false);
-  box('server-cold-floor', 0, 0.009, -12, 37.2, 0.015, 27.4, serverFloor, false);
-  box('dock-industrial-floor', 0, 0.009, 37, 37.2, 0.015, 19.5, dockFloor, false);
+  // RoomFinishes owns the visible floor. Duplicate skins here differed by only 0.0005 m,
+  // causing depth fighting as the camera moved over reception, office, servers and dock.
   box('east-wall', 19, 4.5, -10, 0.6, 9, 114, p.paint);
   box('west-wall', -19, 4.5, -10, 0.6, 9, 114, p.sage);
   box('north-wall', 0, 4.5, 47, 38, 9, 0.6, p.paint);
@@ -515,7 +509,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
 
     // Hero beam: museum-soft when closed, full when revealed, dimmed with the key during the alarm.
     beamMat.alpha = (0.22 + 0.16 * eased) * (1 - 0.55 * alarmBlend);
-    scene.metadata = { ...(scene.metadata ?? {}), alarmStage };
+    scene.metadata.alarmStage = alarmStage;
     // Warm gold tint on complete
     if (!state.complete) completeTintTimer = 0;
     if (state.complete && completeTintTimer < 2) {
@@ -533,7 +527,8 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     }
 
     // ── scene.metadata for PrototypeVisual p01Excited ──
-    scene.metadata = { ...(scene.metadata ?? {}), heistAlarm: state.alarm, p01Excited: state.alarm ? 1 : state.vaultOpen ? 0.4 : 0 };
+    scene.metadata.heistAlarm = state.alarm;
+    scene.metadata.p01Excited = state.alarm ? 1 : state.vaultOpen ? 0.4 : 0;
 
   } });
   scene.onDisposeObservable.addOnce(() => levels.delete(scene));
@@ -612,6 +607,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     if (key === 'escape') continue;
     try { mat.freeze(); } catch { /* ok */ }
   }
+  scene.metadata ??= {};
   addHeroLighting(scene);
   installDecorQuality(scene);
   return new Vector3(layout.spawn.x, layout.spawn.y, layout.spawn.z);

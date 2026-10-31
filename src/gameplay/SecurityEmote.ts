@@ -66,6 +66,8 @@ export class SecurityEmote {
     this.plane.setEnabled(false);
     this.tex = new DynamicTexture(name + '_emoteTex', { width: W, height: H }, scene, false);
     this.tex.hasAlpha = true;
+    // A transparent initial upload lets the loader warm this disabled material before first use.
+    this.tex.update();
     const mat = new StandardMaterial(name + '_emoteMat', scene);
     mat.disableLighting = true;
     mat.diffuseTexture = this.tex;

@@ -80,46 +80,37 @@ export function createScene(engine: Engine): Scene {
   shadows.usePercentageCloserFiltering = true;
   shadows.filteringQuality = ShadowGenerator.QUALITY_LOW;
   shadows.bias = 0.0005; shadows.normalBias = 0.035; shadows.setDarkness(0.25);
-  const staticCasters: { mesh: AbstractMesh; x: number; z: number; r: number }[] = [];
-  const dynamicCasters: AbstractMesh[] = [];
+  // A mascot needs one silhouette, not a shadow draw for every pod, antenna and trim.
+  // Decorative thin-instance sources span multiple rooms and made the old caster list expensive.
   scene.onBeforeRenderObservable.addOnce(() => {
     for (const mesh of scene.meshes) {
-      if (mesh.name.includes('player-') && mesh.isVisible) { shadows.addShadowCaster(mesh); dynamicCasters.push(mesh, ...mesh.getChildMeshes()); continue; }
-      if (!(mesh.name.startsWith('Hero_') || mesh.metadata?.castShadow)) continue;
-      // Draw-call budget: only big props cast into the shadow pass; small clutter just receives.
-      mesh.computeWorldMatrix(true);
-      const sphere = mesh.getBoundingInfo().boundingSphere;
-      if (sphere.radiusWorld >= 0.45) staticCasters.push({ mesh, x: sphere.centerWorld.x, z: sphere.centerWorld.z, r: sphere.radiusWorld });
+      if (mesh.material?.name === 'Shell' && mesh.isVisible) shadows.addShadowCaster(mesh, false);
     }
   });
-  // Shadow-pass culling: only static casters overlapping the camera-following 48 m shadow box are
-  // rendered into the shadow map (rebuilt only when the 2 m-snapped centre moves).
-  let castersKey = '';
-  const refreshCasters = (fx: number, fz: number) => {
-    const key = `${fx},${fz}`;
-    if (key === castersKey || staticCasters.length === 0) return;
-    castersKey = key;
-    const list = shadows.getShadowMap()!.renderList!;
-    list.length = 0;
-    for (const m of dynamicCasters) list.push(m);
-    for (const c of staticCasters) if (Math.abs(c.x - fx) < 27 + c.r && Math.abs(c.z - fz) < 27 + c.r) list.push(c.mesh);
-  };
-  // The shadow frustum used to be pinned over the lab; it now follows the camera (snapped to a 2 m grid
-  // to avoid shimmer), so every mission area gets contact shadows from the same 1024 map.
+  // Snap in LIGHT space at one shadow texel, rather than jumping the world-space centre 2 metres.
+  // The caster list stays constant while moving through the building.
   const sunDir = sun.direction.normalizeToNew();
+  const shadowRight = Vector3.Cross(Vector3.Up(), sunDir).normalize();
+  const shadowUp = Vector3.Cross(sunDir, shadowRight).normalize();
   sun.shadowMaxZ = 75;
   scene.onBeforeRenderObservable.add(() => {
+    if (!sun.shadowEnabled) return;
     const cam = scene.activeCamera; if (!cam) return;
-    const p = cam.globalPosition;
-    const fx = Math.round(p.x / 2) * 2, fz = Math.round(p.z / 2) * 2;
-    sun.position.set(fx - sunDir.x * 38, 4 - sunDir.y * 38, fz - sunDir.z * 38);
-    refreshCasters(fx, fz);
+    const p = 'getTarget' in cam ? (cam as typeof cam & { getTarget(): Vector3 }).getTarget() : cam.globalPosition;
+    const texel = 48 / (shadows.getShadowMap()?.getSize().width ?? 512);
+    const u = p.x * shadowRight.x + 4 * shadowRight.y + p.z * shadowRight.z;
+    const v = p.x * shadowUp.x + 4 * shadowUp.y + p.z * shadowUp.z;
+    const du = Math.round(u / texel) * texel - u;
+    const dv = Math.round(v / texel) * texel - v;
+    sun.position.set(p.x + du * shadowRight.x + dv * shadowUp.x - sunDir.x * 38,
+      4 + du * shadowRight.y + dv * shadowUp.y - sunDir.y * 38,
+      p.z + du * shadowRight.z + dv * shadowUp.z - sunDir.z * 38);
   });
 
   let glow: GlowLayer | null = null;
   if (!lowFx && initialTier() !== 'low') {
     // Interaction and mascot include-list. Decorative surfaces never bloom.
-    glow = new GlowLayer('glow', scene, { blurKernelSize: 16, mainTextureRatio: 0.5 });
+    glow = new GlowLayer('glow', scene, { blurKernelSize: 16, mainTextureFixedSize: 256 });
     glow.intensity = 0.5;
     const layer = glow;
     const pending: AbstractMesh[] = [];

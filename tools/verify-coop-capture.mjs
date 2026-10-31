@@ -201,7 +201,15 @@ try {
   // (a) with NEE parked far (>12 m) and idle, the drone stays captured for at least 1.5 s of carry
   const holdPix = (await caps(host)).pix;
   const farTarget = { x: holdPix.x, y: holdPix.y, z: holdPix.z - 12.5 };
-  await guest.evaluate((p) => window.__autotest.teleport('nee', p.x, p.y, p.z), farTarget);
+  // Maintain this negative-case precondition: a single teleport immediately
+  // springs back on the elastic cord before the next server snapshot.
+  await guest.evaluate((p) => {
+    const pin = () => {
+      window.__autotest.teleport('nee', p.x, p.y, p.z);
+      window.__coopCapturePin = requestAnimationFrame(pin);
+    };
+    pin();
+  }, farTarget);
   await waitForHostNeeDistance('idle-far NEE server position', holdPix, 'far', 11.5);
   await step('idle-far carry timer', () => host.waitForFunction(
     () => {
@@ -223,6 +231,7 @@ try {
   // the host, fed by the server, sees NEE in that band, then yank.
   await guest.getByTestId('game-canvas').focus();
   await guest.evaluate(() => {
+    cancelAnimationFrame(window.__coopCapturePin);
     const t = window.__autotest;
     const pin = () => {
       const p = t.security()?.captures?.pix;
