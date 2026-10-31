@@ -28,6 +28,7 @@ function parseResult(test, stdout, stderr, error) {
 }
 
 function report(test, res) {
+  if (process.env.QA_JSON_RESULTS === '1') console.log('QA_RESULT ' + JSON.stringify(res));
   console.log(`${res.pass ? 'PASS' : 'FAIL'} ${test} (${res.seconds ?? '?'}s)${res.error ? ' - ' + res.error.split('\n')[0] : ''}`);
   // Print the whole failure reason (multi-line asserts like "errors:\n..." used to show as an empty list).
   if (!res.pass && res.error) for (const line of res.error.split('\n').slice(1).filter(Boolean)) console.log(`    ${line}`);

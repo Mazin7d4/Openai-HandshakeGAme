@@ -7,13 +7,16 @@ import { BASE_URL, url } from './lib.mjs';
 
 const target = url({ scale: '4', lowfx: '1' });
 const started = Date.now();
+// Match lib.launch(): a stale shared Xvfb display can prevent ANGLE from
+// creating WebGL before the debug hooks are installed.
+const { DISPLAY: _display, WAYLAND_DISPLAY: _waylandDisplay, ...headlessEnv } = process.env;
 const run = spawnSync(
   process.execPath,
   ['--experimental-strip-types', 'tools/verify-coop-capture.mjs', target],
   {
     encoding: 'utf8',
     timeout: Number(process.env.QA_TIMEOUT_MS ?? 300_000),
-    env: { ...process.env, APP_URL: target, QA_BASE_URL: BASE_URL },
+    env: { ...headlessEnv, APP_URL: target, QA_BASE_URL: BASE_URL },
   },
 );
 const line = (run.stdout ?? '').split('\n').find((l) => l.startsWith('QA_RESULT '));

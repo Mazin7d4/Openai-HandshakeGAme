@@ -41,7 +41,7 @@ const run = (mode) => new Promise((resolve) => {
   const command = isDaily
     ? [process.execPath, ['tools/playtest/daily.mjs']]
     : [process.execPath, ['tools/qa/run.mjs', '--own-servers', ...mode.tests]];
-  const env = { ...process.env, PATH: `/home/box/.local/node22/bin:${process.env.PATH ?? ''}`, QA_SHOTS: modeOut, QA_TIMEOUT_MS: process.env.QA_TIMEOUT_MS ?? '120000' };
+  const env = { ...process.env, PATH: `/home/box/.local/node22/bin:${process.env.PATH ?? ''}`, QA_JSON_RESULTS: '1', QA_SHOTS: modeOut, QA_TIMEOUT_MS: process.env.QA_TIMEOUT_MS ?? '120000' };
   const child = spawn(command[0], command[1], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let stdout = ''; let stderr = '';
   child.stdout.on('data', (chunk) => { stdout += chunk; process.stdout.write(chunk); });
