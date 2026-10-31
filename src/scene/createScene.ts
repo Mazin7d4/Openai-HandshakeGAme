@@ -61,6 +61,9 @@ export function createScene(engine: Engine): Scene {
   surround.material = surroundMat;
   surround.position.y = -0.05;
   surround.isPickable = false;
+  surround.freezeWorldMatrix();
+  surround.doNotSyncBoundingInfo = true;
+  surroundMat.freeze();
 
   const fill = new HemisphericLight('fill', new Vector3(0.15, 1, 0.2), scene);
   fill.intensity = 0.48;
@@ -69,6 +72,7 @@ export function createScene(engine: Engine): Scene {
   fill.specular = new Color3(0.08, 0.08, 0.08);
 
   scene.skipPointerMovePicking = true; // gameplay never hovers; avoids a per-move ray cast
+  scene.constantlyUpdateMeshUnderPointer = false;
   const sun = new DirectionalLight('sun', new Vector3(0.38, -1, 0.48), scene);
   sun.intensity = 1.65;
   sun.diffuse = new Color3(1, 0.95, 0.88);
@@ -96,7 +100,7 @@ export function createScene(engine: Engine): Scene {
   scene.onBeforeRenderObservable.add(() => {
     if (!sun.shadowEnabled) return;
     const cam = scene.activeCamera; if (!cam) return;
-    const p = 'getTarget' in cam ? (cam as typeof cam & { getTarget(): Vector3 }).getTarget() : cam.globalPosition;
+    const p = (cam as { target?: Vector3 }).target ?? ('getTarget' in cam ? (cam as typeof cam & { getTarget(): Vector3 }).getTarget() : cam.globalPosition);
     const texel = 48 / (shadows.getShadowMap()?.getSize().width ?? 512);
     const u = p.x * shadowRight.x + 4 * shadowRight.y + p.z * shadowRight.z;
     const v = p.x * shadowUp.x + 4 * shadowUp.y + p.z * shadowUp.z;
@@ -161,15 +165,14 @@ export function createScene(engine: Engine): Scene {
   scene.onBeforeRenderObservable.add(updateProcessingTier);
 
   // glTF may choose a shader light limit from the number of scene lights, including disabled ones.
-  // Apply the four-light cap after imports finish assigning their material properties.
-  const pendingMaterials = [...scene.materials];
-  scene.onNewMaterialAddedObservable.add(material => pendingMaterials.push(material));
-  scene.onBeforeRenderObservable.add(() => {
-    if (pendingMaterials.length === 0) return;
-    for (const material of pendingMaterials.splice(0)) {
-      if ('maxSimultaneousLights' in material) (material as StandardMaterial).maxSimultaneousLights = 4;
+  // Apply the four-light cap directly as materials are registered.
+  const capMaterialLights = (material: unknown) => {
+    if (material && typeof material === 'object' && 'maxSimultaneousLights' in material) {
+      (material as StandardMaterial).maxSimultaneousLights = 4;
     }
-  });
+  };
+  for (const mat of scene.materials) capMaterialLights(mat);
+  scene.onNewMaterialAddedObservable.add(capMaterialLights);
 
   return scene;
 }

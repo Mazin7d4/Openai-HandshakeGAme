@@ -9,6 +9,7 @@ import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTextur
 import { FresnelParameters } from '@babylonjs/core/Materials/fresnelParameters.js';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader.js';
+import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
 import { Scalar } from '@babylonjs/core/Maths/math.scalar.js';
@@ -82,6 +83,7 @@ export function applyCampaignPalette(scene: Scene, index: number): void {
 
 /** Hand-authored first mission. Geometry owns no mission or network state. */
 export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
+  scene.blockMaterialDirtyMechanism = true;
   const p = createLabPalette(scene);
   const box = (name: string, x: number, y: number, z: number, w: number, h: number, d: number,
     material: Material = p.paint, solid = true, occluder = false) => {
@@ -435,6 +437,7 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
   let alarmLightTamed = false;
   let completeTintTimer = 0;
   let rollerOpen = 0;
+  const CIRCUIT_TERMINAL_IDS = ['terminal-a', 'terminal-b', 'terminal-c'] as const;
   levels.set(scene, { update(dt, state) {
     elapsed += dt;
     const lessonOpen = arrivalLesson.update(dt, state.drones ?? [], !!state.stage && state.stage !== 'infiltrate');
@@ -442,11 +445,19 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     const vaultOpen = state.alarm || state.complete;
     vaultDoorLeft.setOpen(vaultOpen); vaultDoorRight.setOpen(vaultOpen);
     vaultDoorLeft.update(dt); vaultDoorRight.update(dt);
-    const stripsLit = new Set([...(lessonOpen ? ['G0'] : []), 'G1', ...(state.officeOpen ? ['G2'] : []), ...((state.vaultOpen && !state.alarm) ? ['G3'] : []), ...(vaultOpen ? ['G4'] : []), 'G5']);
-    for (const [id, strip] of exitStrips) strip.material = stripsLit.has(id) ? lintelWarm : lintelDark;
-    const hacked = state.hacked ?? {};
-    for (const [i, id] of ['terminal-a', 'terminal-b', 'terminal-c'].entries()) {
-      circuits[i].syncSource(); circuits[i].setPowered(!!hacked[id]);
+    const isLit = (id: string) => id === 'G1' || id === 'G5'
+      || (id === 'G0' && lessonOpen)
+      || (id === 'G2' && state.officeOpen)
+      || (id === 'G3' && !!state.vaultOpen && !state.alarm)
+      || (id === 'G4' && vaultOpen);
+    for (const [id, strip] of exitStrips) {
+      const targetMat = isLit(id) ? lintelWarm : lintelDark;
+      if (strip.material !== targetMat) strip.material = targetMat;
+    }
+    const hacked = state.hacked;
+    for (let i = 0; i < 3; i++) {
+      circuits[i].syncSource();
+      circuits[i].setPowered(!!hacked?.[CIRCUIT_TERMINAL_IDS[i]]);
     }
     const padLevel = state.prototypeHeld ? 0.9 + 0.2 * Math.sin(elapsed * 3) : 0.65;
     padMat.emissiveColor.set(0.12 * padLevel, 1.8 * padLevel, 0.45 * padLevel);
@@ -601,12 +612,15 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     mesh.isPickable = false;
     mesh.computeWorldMatrix(true);
     mesh.freezeWorldMatrix();
+    mesh.doNotSyncBoundingInfo = true;
+    mesh.cullingStrategy = AbstractMesh.CULLINGSTRATEGY_BOUNDINGSPHERE_ONLY;
   }
   // Freeze static palette materials. p.escape emissive pulses on alarm — leave it live.
   for (const [key, mat] of Object.entries(p)) {
     if (key === 'escape') continue;
     try { mat.freeze(); } catch { /* ok */ }
   }
+  scene.blockMaterialDirtyMechanism = false;
   scene.metadata ??= {};
   addHeroLighting(scene);
   installDecorQuality(scene);

@@ -66,6 +66,8 @@ export function dressRoomFinishes(scene: Scene): void {
     const mesh = Mesh.MergeMeshes(parts, true, true, undefined, false, false);
     if (!mesh) continue;
     mesh.name = name; mesh.material = material; mesh.isPickable = false;
-    mesh.receiveShadows = true; mesh.freezeWorldMatrix();
+    mesh.receiveShadows = true; mesh.freezeWorldMatrix(); mesh.doNotSyncBoundingInfo = true;
   }
+  floorMat.freeze();
+  wallMat.freeze();
 }

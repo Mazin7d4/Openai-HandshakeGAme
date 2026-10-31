@@ -20,6 +20,7 @@ export function installDecorQuality(scene: Scene): void {
     const specular = 0.035 + (source.metallic ?? 0) * 0.14;
     result.specularColor = new Color3(specular, specular, specular); result.specularPower = 24;
     result.maxSimultaneousLights = 4; result.backFaceCulling = source.backFaceCulling;
+    result.freeze();
     fallbacks.set(source, result);
     return result;
   };

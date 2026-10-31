@@ -56,6 +56,7 @@ export class PowerCircuit {
 
   /** A completed console powers its own cable and fills exactly one key socket. */
   setPowered(powered: boolean): void {
+    if (this.lamp.metadata?.powered === powered) return;
     this.material.emissiveColor.copyFrom(this.tint).scaleInPlace(powered ? 1.2 : 0.18);
     this.lamp.scaling.set(powered ? 1 : 0.32, powered ? 1 : 0.32, 1);
     for (const mesh of this.meshes) mesh.metadata.powered = powered;

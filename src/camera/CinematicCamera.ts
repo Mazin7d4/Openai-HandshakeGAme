@@ -32,6 +32,15 @@ export class CinematicCamera {
   private readonly sample = new Vector3();
   private readonly forward = new Vector3(0.325, 0, 0.946).normalize();
   private readonly right = new Vector3(0.946, 0, -0.325).normalize();
+  private readonly planarBasis: { forward: Vector3; right: Vector3 };
+  private readonly tempView = new Vector3();
+  private readonly tempViewRight = new Vector3();
+  private readonly tempUp = new Vector3();
+  private readonly tempAhead = new Vector3();
+  private readonly tempTargetLook = new Vector3();
+  private readonly tempTargetPosition = new Vector3();
+  private readonly tempDelta = new Vector3();
+  private readonly focusPositions: Vector3[] = [];
   private placed = false;
   private distance = 14.5;
   private pitch = 0.9;
@@ -108,6 +117,7 @@ export class CinematicCamera {
 
   constructor(scene: Scene) {
     this.scene = scene;
+    this.planarBasis = { forward: this.forward, right: this.right };
     this.canvas = scene.getEngine().getRenderingCanvas();
     this.camera = new FreeCamera('cinematic-camera', new Vector3(0, 8, -24), scene);
     this.camera.fov = 0.86; this.camera.minZ = 0.12; this.camera.maxZ = 180;
@@ -152,7 +162,7 @@ export class CinematicCamera {
 
   get touchLookZoom(): number { return this.zoom; }
 
-  getPlanarBasis(): { forward: Vector3; right: Vector3 } { return { forward: this.forward, right: this.right }; }
+  getPlanarBasis(): { forward: Vector3; right: Vector3 } { return this.planarBasis; }
 
   /** One-finger look from the on-screen look pad (separate pointerId from the stick). */
   touchLook(dx: number, dy: number): void {
@@ -254,8 +264,14 @@ export class CinematicCamera {
     }
     if (!subjects.length) return;
     this.focus.setAll(0);
-    const positions = subjects.map(subject => { const v = new Vector3(); subject.getFocusPosition(v); this.focus.addInPlace(v); return v; });
-    this.focus.scaleInPlace(1 / subjects.length);
+    const count = subjects.length;
+    while (this.focusPositions.length < count) this.focusPositions.push(new Vector3());
+    for (let i = 0; i < count; i++) {
+      const v = this.focusPositions[i];
+      subjects[i].getFocusPosition(v);
+      this.focus.addInPlace(v);
+    }
+    this.focus.scaleInPlace(1 / count);
     const safeDt = Math.min(dt, 0.05);
     if (safeDt > 0) {
       this.lookYaw = smooth(this.lookYaw, this.touchTargetYaw, 1 / 0.06, safeDt);
@@ -289,16 +305,22 @@ export class CinematicCamera {
     this.pitch = this.placed ? smooth(this.pitch, targetPitch, 1.6, safeDt) : targetPitch;
     const angle = Math.atan2(this.forward.x, this.forward.z) + this.lookYaw;
     const pitch = this.pitch + this.lookPitch;
-    const view = new Vector3(Math.sin(angle) * Math.cos(pitch), -Math.sin(pitch), Math.cos(angle) * Math.cos(pitch));
-    const viewRight = new Vector3(view.z, 0, -view.x).normalize();
-    const up = Vector3.Cross(view, viewRight).normalize();
-    const ahead = this.motion.scale(context.alarm ? 0.20 : 0.12);
-    ahead.x = clamp(ahead.x, -1.4, 1.4); ahead.y = clamp(ahead.y, -0.65, 0.65); ahead.z = clamp(ahead.z, -1.4, 1.4);
-    const targetLook = this.focus.add(ahead);
+    const cosPitch = Math.cos(pitch);
+    this.tempView.set(Math.sin(angle) * cosPitch, -Math.sin(pitch), Math.cos(angle) * cosPitch);
+    this.tempViewRight.set(this.tempView.z, 0, -this.tempView.x).normalize();
+    Vector3.CrossToRef(this.tempView, this.tempViewRight, this.tempUp);
+    this.tempUp.normalize();
+    const aheadScale = context.alarm ? 0.20 : 0.12;
+    this.tempAhead.copyFrom(this.motion).scaleInPlace(aheadScale);
+    this.tempAhead.x = clamp(this.tempAhead.x, -1.4, 1.4);
+    this.tempAhead.y = clamp(this.tempAhead.y, -0.65, 0.65);
+    this.tempAhead.z = clamp(this.tempAhead.z, -1.4, 1.4);
+    this.tempTargetLook.copyFrom(this.focus).addInPlace(this.tempAhead);
     // Look a little above the crew so they sit in the lower-middle third (clear of the objective card).
-    targetLook.y += FRAME_LIFT + this.reveal * 0.5;
+    this.tempTargetLook.y += FRAME_LIFT + this.reveal * 0.5;
     // Keep the next partition and its landmark in view on the wide phone frame.
-    targetLook.z += 1.2 + this.reveal * 1.25;
+    this.tempTargetLook.z += 1.2 + this.reveal * 1.25;
+    const targetLook = this.tempTargetLook;
     const aspect = Math.max(0.4, this.scene.getEngine().getAspectRatio(this.camera));
     const fovTarget = (context.alarm && !context.complete ? 0.94 : 0.86) * this.fovScale;
     this.baseFov = smooth(this.baseFov ?? this.camera.fov, fovTarget, 1.6, safeDt);
@@ -306,12 +328,13 @@ export class CinematicCamera {
     const tanY = Math.tan(this.camera.fov / 2) * 0.72;
     const tanX = tanY * aspect;
     let required = extracting ? 16 : vent ? 14.5 : inLab ? 14.5 + this.reveal * 2 : 14.5;
-    for (const point of positions) {
-      const delta = point.subtract(targetLook);
-      const depth = Vector3.Dot(delta, view);
+    for (let i = 0; i < count; i++) {
+      const point = this.focusPositions[i];
+      this.tempDelta.copyFrom(point).subtractInPlace(targetLook);
+      const depth = Vector3.Dot(this.tempDelta, this.tempView);
       required = Math.max(required,
-        (Math.abs(Vector3.Dot(delta, viewRight)) + 1.6) / tanX - depth,
-        (Math.abs(Vector3.Dot(delta, up)) + 1.4) / tanY - depth);
+        (Math.abs(Vector3.Dot(this.tempDelta, this.tempViewRight)) + 1.6) / tanX - depth,
+        (Math.abs(Vector3.Dot(this.tempDelta, this.tempUp)) + 1.4) / tanY - depth);
     }
     if (this.beatTarget && this.beatRemaining > 0 && safeDt > 0) {
       this.beatRemaining = Math.max(0, this.beatRemaining - safeDt);
@@ -325,7 +348,9 @@ export class CinematicCamera {
     }
     const scaledRequired = required * this.distanceScale;
     this.distance = this.placed ? smooth(this.distance, scaledRequired, scaledRequired > this.distance ? 5 : 1.5, safeDt) : scaledRequired;
-    const targetPosition = targetLook.subtract(view.scale(this.distance * this.zoom));
+    this.tempTargetPosition.copyFrom(this.tempView).scaleInPlace(this.distance * this.zoom);
+    this.tempTargetPosition.set(targetLook.x - this.tempTargetPosition.x, targetLook.y - this.tempTargetPosition.y, targetLook.z - this.tempTargetPosition.z);
+    const targetPosition = this.tempTargetPosition;
     if (!this.placed) {
       this.look.copyFrom(targetLook); this.position.copyFrom(targetPosition); this.placed = true;
     } else {
@@ -355,7 +380,7 @@ export class CinematicCamera {
       this.fovKick = Math.max(0, this.fovKick - safeDt * 0.35);
     }
     this.camera.setTarget(this.look);
-    this.updateOcclusion(positions, safeDt);
+    this.updateOcclusion(this.focusPositions.slice(0, count), safeDt);
   }
 
   private applyLookDelta(dx: number, dy: number, sensitivity: number, invertY: boolean, touch = false): void {
@@ -403,7 +428,12 @@ export class CinematicCamera {
       }
       // Keep tall foreground props clear on the north sightline while leaving
       // the architectural shell and partitions fully opaque.
-      mesh.visibility = smooth(mesh.visibility, obscures ? 0 : 1, obscures ? 16 : 5, dt);
+      const target = obscures ? 0 : 1;
+      if (Math.abs(mesh.visibility - target) > 0.002) {
+        mesh.visibility = smooth(mesh.visibility, target, obscures ? 16 : 5, dt);
+      } else if (mesh.visibility !== target) {
+        mesh.visibility = target;
+      }
     }
   }
 

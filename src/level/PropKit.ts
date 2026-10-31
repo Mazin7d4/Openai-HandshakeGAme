@@ -76,6 +76,7 @@ export async function loadPropKit(scene: Scene) {
         mesh.thinInstanceRefreshBoundingInfo(true);
         mesh.computeWorldMatrix(true);
         mesh.freezeWorldMatrix();
+        mesh.doNotSyncBoundingInfo = true;
         if (mesh.material && 'freeze' in mesh.material) {
           try { (mesh.material as { freeze: () => void }).freeze(); } catch { /* ok */ }
         }

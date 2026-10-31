@@ -1,5 +1,5 @@
+import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
-import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import type { Material } from '@babylonjs/core/Materials/material.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 
@@ -83,6 +83,7 @@ export function mergeStaticByMaterial(scene: Scene, options: MergeStaticOptions)
     }
     merged.freezeWorldMatrix();
     merged.doNotSyncBoundingInfo = true;
+    merged.cullingStrategy = AbstractMesh.CULLINGSTRATEGY_BOUNDINGSPHERE_ONLY;
   }
   return removed;
 }

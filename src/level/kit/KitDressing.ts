@@ -520,6 +520,7 @@ export async function dressRunLayout(scene: Scene, layout: RunLayout): Promise<K
       mesh.thinInstanceSetBuffer('matrix', buffer, 16, true);
       mesh.thinInstanceRefreshBoundingInfo(true);
       mesh.freezeWorldMatrix();
+      mesh.doNotSyncBoundingInfo = true;
       mesh.alwaysSelectAsActiveMesh = false;
       mesh.isVisible = true;
       activePartMeshes.push(mesh);

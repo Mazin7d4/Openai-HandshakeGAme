@@ -50,6 +50,8 @@ import { isTouchPlayDevice } from '../ui/touchDetect.ts';
 import { byInput } from '../ui/inputHints.ts';
 import type { GameMode } from './GameMode.ts';
 
+const EMPTY_PROMPTS: readonly string[] = Object.freeze([]);
+
 export interface GameAppOptions {
   canvas: HTMLCanvasElement;
   createLevel: (scene: Scene) => Vector3 | Promise<Vector3>;
@@ -652,6 +654,18 @@ export class GameApp {
       app.dispose();
       throw error;
     }
+    for (const mat of scene.materials) {
+      if (mat.isFrozen) continue;
+      const name = mat.name;
+      if (name === 'escape' || name === 'extraction-pad-green' || name === 'Shell' || name === 'Glow'
+        || name === 'Accent' || name === 'FaceRim' || name === 'FaceScreen' || name === 'DarkMetal'
+        || name.startsWith('player-') || name.startsWith('security-') || name.startsWith('terminal-')
+        || name.startsWith('door-lock-') || name.startsWith('power-') || name.startsWith('beacon-')
+        || name.startsWith('vault-beam') || name.startsWith('tether-') || name.startsWith('bot-tag')) {
+        continue;
+      }
+      try { mat.freeze(); } catch { /* ok */ }
+    }
     getQuality(scene)?.beginPlay();
     return app;
   }
@@ -972,7 +986,11 @@ export class GameApp {
       : this.multiplayer?.currentStatus.localRole ?? 'pix';
     const hudPlayer = this.players.find((player) => player.role === hudRole);
     if (hudPlayer) {
-      const prompts = [...this.gameplay.promptsFor(hudRole, hudPlayer.drone), ...this.tetherPrompts(hudPlayer, dt)];
+      const gPrompts = this.gameplay.promptsFor(hudRole, hudPlayer.drone);
+      const tPrompts = this.tetherPrompts(hudPlayer, dt);
+      const prompts = (gPrompts.length === 0 && tPrompts.length === 0)
+        ? EMPTY_PROMPTS
+        : (gPrompts.length === 0 ? tPrompts : (tPrompts.length === 0 ? gPrompts : [...gPrompts, ...tPrompts]));
       this.hud?.update(
         prompts,
         this.mode,

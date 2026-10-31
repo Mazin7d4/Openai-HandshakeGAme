@@ -191,6 +191,8 @@ class PatrolDrone {
   private strainFor = 0;
   private captureCooldown = 0;
   private dazedFor = 0;
+  private readonly targetVec = new Vector3();
+  private readonly awayVec = new Vector3();
 
   constructor(scene: Scene, index: number) {
     this.phase = index * Math.PI;
@@ -353,34 +355,41 @@ class PatrolDrone {
       this.updateCarry(dt, tetherStrain);
       if (this.carrying) { this.setMood('carrying', dt); return; }
     }
-    const roles = [...drones.entries()];
-    const nearest = roles.sort((a, b) =>
-      Vector3.DistanceSquared(a[1].position, this.mesh.position) -
-      Vector3.DistanceSquared(b[1].position, this.mesh.position))[0];
-    let target: Vector3;
+    let nearestRole: DroneRole | null = null;
+    let nearestDrone: Drone | null = null;
+    let minDistanceSq = Infinity;
+    for (const [role, drone] of drones) {
+      const dSq = Vector3.DistanceSquared(drone.position, this.mesh.position);
+      if (dSq < minDistanceSq) {
+        minDistanceSq = dSq;
+        nearestRole = role;
+        nearestDrone = drone;
+      }
+    }
+    const nearest: [DroneRole, Drone] | null = nearestRole && nearestDrone ? [nearestRole, nearestDrone] : null;
     if (this.waypoints.length > 0) {
       const wp = this.waypoints[this.waypointIndex % this.waypoints.length]!;
       if (Vector3.Distance(this.mesh.position, wp) < 0.85) {
         this.waypointIndex = (this.waypointIndex + 1) % this.waypoints.length;
       }
-      target = this.waypoints[this.waypointIndex % this.waypoints.length]!.clone();
+      this.targetVec.copyFrom(this.waypoints[this.waypointIndex % this.waypoints.length]!);
     } else {
-      target = new Vector3(Math.sin(elapsed * 0.55 + this.phase) * 5, 2.2, 10 + Math.cos(elapsed * 0.55 + this.phase) * 4);
+      this.targetVec.set(Math.sin(elapsed * 0.55 + this.phase) * 5, 2.2, 10 + Math.cos(elapsed * 0.55 + this.phase) * 4);
     }
-    const range = nearest ? Vector3.Distance(nearest[1].position, this.mesh.position) : Infinity;
+    const range = nearestDrone ? Math.sqrt(minDistanceSq) : Infinity;
     let speed = this.patrolSpeed;
     let mood: SecurityMood = 'patrol';
     if (this.dazedFor > 0) {
       mood = 'stunned'; speed = 0.6;
-    } else if (nearest && range < CHASE_RANGE) {
+    } else if (nearestDrone && range < CHASE_RANGE) {
       // '!' beat: freeze for a moment when we first notice, then give chase.
       if (this.mood !== 'chase') this.alertBeat = ALERT_BEAT;
       mood = 'chase';
-      target = nearest[1].position;
-    } else if (nearest && range < SUSPECT_RANGE) {
+      this.targetVec.copyFrom(nearestDrone.position);
+    } else if (nearestDrone && range < SUSPECT_RANGE) {
       // '?': drift toward the noise, slowly.
       mood = 'suspicious';
-      target = Vector3.Lerp(target, nearest[1].position, 0.5);
+      Vector3.LerpToRef(this.targetVec, nearestDrone.position, 0.5, this.targetVec);
       speed = Math.min(1.6, this.patrolSpeed);
     }
     this.setMood(mood, dt);
@@ -389,9 +398,9 @@ class PatrolDrone {
       this.mesh.position.y += Math.sin(this.alertBeat * 40) * 0.02; // little startle hop
       speed = 0;
     }
-    this.velocity.copyFrom(target).subtractInPlace(this.mesh.position);
+    this.velocity.copyFrom(this.targetVec).subtractInPlace(this.mesh.position);
     if (this.velocity.lengthSquared() > 0.05) this.velocity.normalize().scaleInPlace(speed);
-    this.mesh.position.addInPlace(this.velocity.scale(dt));
+    this.mesh.position.addInPlaceFromFloats(this.velocity.x * dt, this.velocity.y * dt, this.velocity.z * dt);
     const pix = drones.get('pix');
     const nee = drones.get('nee');
     // Clothesline: a taut or fast-swept cord crossing the patrol knocks it out.
@@ -407,9 +416,13 @@ class PatrolDrone {
         hit = distanceToSegment(this.mesh.position, pix.position, nee.position) < 0.85;
       }
       if (hit) {
-        const away = this.mesh.position.subtract(pix.position.add(nee.position).scale(0.5));
-        away.y = 0;
-        if (away.lengthSquared() > 0.01) this.mesh.position.addInPlace(away.normalize().scale(1.2));
+        const midX = (pix.position.x + nee.position.x) * 0.5;
+        const midZ = (pix.position.z + nee.position.z) * 0.5;
+        this.awayVec.set(this.mesh.position.x - midX, 0, this.mesh.position.z - midZ);
+        if (this.awayVec.lengthSquared() > 0.01) {
+          this.awayVec.normalize().scaleInPlace(1.2);
+          this.mesh.position.addInPlace(this.awayVec);
+        }
         this.mesh.position.y = Math.max(0.8, this.mesh.position.y - 0.6);
         if (callbacks.requestStun) {
           // Wait for the server's verdict; avoid spamming while the cord stays across us.
@@ -618,9 +631,20 @@ export class SecuritySystem {
 }
 
 function distanceToSegment(point: Vector3, a: Vector3, b: Vector3): number {
-  const segment = b.subtract(a);
-  const lengthSquared = segment.lengthSquared();
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const abz = b.z - a.z;
+  const lengthSquared = abx * abx + aby * aby + abz * abz;
   if (lengthSquared < 0.0001) return Vector3.Distance(point, a);
-  const t = Math.max(0, Math.min(1, Vector3.Dot(point.subtract(a), segment) / lengthSquared));
-  return Vector3.Distance(point, a.add(segment.scale(t)));
+  const apx = point.x - a.x;
+  const apy = point.y - a.y;
+  const apz = point.z - a.z;
+  const t = Math.max(0, Math.min(1, (apx * abx + apy * aby + apz * abz) / lengthSquared));
+  const cx = a.x + abx * t;
+  const cy = a.y + aby * t;
+  const cz = a.z + abz * t;
+  const dx = point.x - cx;
+  const dy = point.y - cy;
+  const dz = point.z - cz;
+  return Math.hypot(dx, dy, dz);
 }

@@ -72,10 +72,12 @@ export function createWakeOverlay(
     progress.setAttribute('aria-valuenow', '100');
     progressFill.style.width = '100%';
   };
+  const actionsContainer = element('div', 'wake-actions');
   const cancel = menuButton('Cancel', 'wake-cancel', actions.cancel, 'btn--quiet');
   const playSolo = menuButton('Play solo', 'wake-play-solo', actions.playSolo, 'btn--quiet');
   const retry = menuButton('Retry', 'wake-retry', actions.retry, 'btn--quiet');
-  overlay.append(spinner, title, detail, progress, cancel, playSolo, retry);
+  actionsContainer.append(cancel, playSolo, retry);
+  overlay.append(spinner, title, detail, progress, actionsContainer);
 
   let slow = false;
   const showFailure = (): void => {
@@ -84,7 +86,7 @@ export function createWakeOverlay(
     title.textContent = 'Still waking the co-op server…';
     // Keep elapsed/progress live, and keep the same controls while automatic retries continue.
     detail.firstChild!.textContent = 'Taking longer than usual. Retrying automatically. ';
-    overlay.append(menuButton('Back', 'back', actions.back, 'btn--quiet'));
+    actionsContainer.append(menuButton('Back', 'back', actions.back, 'btn--quiet'));
   };
 
   update(0);

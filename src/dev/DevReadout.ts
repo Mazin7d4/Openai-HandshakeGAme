@@ -14,6 +14,8 @@ interface DevRuntimeStatus {
 export class DevReadout {
   private readonly readout: HTMLDivElement;
   private readonly controls: HTMLDivElement;
+  private lastUpdate = 0;
+  private lastContent = '';
 
   constructor(parent: HTMLElement, mode: GameMode = 'dev-local') {
     this.readout = document.createElement('div');
@@ -33,6 +35,9 @@ export class DevReadout {
     gameplay = '',
     runtime?: DevRuntimeStatus,
   ): void {
+    const now = performance.now();
+    if (now - this.lastUpdate < 50) return;
+    this.lastUpdate = now;
     const lines = snapshots.map((snapshot) => {
       const { position, velocity, movement, boost } = snapshot;
       const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
@@ -51,7 +56,11 @@ export class DevReadout {
     }
     lines.push(`tether strain ${(tetherStrain * 100).toFixed(0)}%`);
     if (gameplay) lines.push(gameplay);
-    this.readout.textContent = lines.join('\n');
+    const content = lines.join('\n');
+    if (content !== this.lastContent) {
+      this.lastContent = content;
+      this.readout.textContent = content;
+    }
   }
 
   dispose(): void {

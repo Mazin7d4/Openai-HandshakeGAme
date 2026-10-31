@@ -1,3 +1,4 @@
+import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import type { Material } from '@babylonjs/core/Materials/material.js';
@@ -114,7 +115,9 @@ export function dressMissionAreas(scene: Scene, p: Palette, kit: { place(p: Prop
     if (!mesh) continue;
     mesh.name = `dressing-${material.name}`; mesh.material = material;
     mesh.isPickable = false; mesh.receiveShadows = true;
-    mesh.freezeWorldMatrix(); mesh.doNotSyncBoundingInfo = true; merged.push(mesh);
+    mesh.freezeWorldMatrix(); mesh.doNotSyncBoundingInfo = true;
+    mesh.cullingStrategy = AbstractMesh.CULLINGSTRATEGY_BOUNDINGSPHERE_ONLY;
+    merged.push(mesh);
   }
   return merged;
 }
@@ -133,6 +136,8 @@ export function mergeDecorative(scene: Scene, names: readonly string[]): number 
     if (!mesh) continue;
     removed += meshes.length - 1; mesh.name = `merged-${material.name}`; mesh.material = material;
     mesh.isPickable = false; mesh.receiveShadows = true; mesh.freezeWorldMatrix();
+    mesh.doNotSyncBoundingInfo = true;
+    mesh.cullingStrategy = AbstractMesh.CULLINGSTRATEGY_BOUNDINGSPHERE_ONLY;
   }
   return removed;
 }
