@@ -25,7 +25,7 @@ export class PowerCircuit {
     this.tint = Color3.FromHexString(color);
     this.material = new StandardMaterial(`circuit-${id}-power`, scene);
     this.material.disableLighting = true;
-    const wire = CreateTube(`circuit-${id}-conduit`, { path: points, radius: 0.11, tessellation: 6, updatable: true }, scene);
+    const wire = CreateTube(`circuit-${id}-conduit`, { path: points, radius: 0.14, tessellation: 8, updatable: true }, scene);
     this.wire = wire;
     const housing = CreateBox(`circuit-${id}-socket`, { width: 1.45, height: 1.45, depth: 0.2 }, scene);
     housing.position.copyFrom(socket); housing.position.z += 0.05;
@@ -59,8 +59,8 @@ export class PowerCircuit {
   setPowered(powered: boolean): void {
     if (this.powered === powered) return;
     this.powered = powered;
-    this.material.emissiveColor.copyFrom(this.tint).scaleInPlace(powered ? 1.2 : 0.18);
-    this.lamp.scaling.set(powered ? 1 : 0.32, powered ? 1 : 0.32, 1);
+    this.material.emissiveColor.copyFrom(this.tint).scaleInPlace(powered ? 1.35 : 0.24);
+    this.lamp.scaling.set(powered ? 1 : 0.4, powered ? 1 : 0.4, 1);
     for (const mesh of this.meshes) mesh.metadata.powered = powered;
   }
 }

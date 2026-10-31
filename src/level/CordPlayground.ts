@@ -113,7 +113,8 @@ export class CordPlayground {
   update(dt: number, drones: ReadonlyMap<DroneRole, Drone>): void {
     this.hintCooldown = Math.max(0, this.hintCooldown - dt);
     this.hoopFlash = Math.max(0, this.hoopFlash - dt);
-    const glow = 0.55 + 0.45 * Math.sin(performance.now() / 260) * (this.state.hoop ? 0.2 : 1);
+    // The physical practice toy stays steadily lit. Only a successful pass produces a brief flash.
+    const glow = this.state.hoop ? 0.65 : 0.8;
     this.hoopMat.emissiveColor.set(1 * glow + this.hoopFlash, 0.69 * glow + this.hoopFlash * 0.3, 0.12 * glow + this.hoopFlash);
     this.sweepCups(dt, drones);
     for (const [role, drone] of drones) this.checkHoop(role, drone);

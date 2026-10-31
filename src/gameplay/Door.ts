@@ -48,10 +48,14 @@ export class Door {
     const parts: Mesh[] = [];
     this.lockMaterial = new StandardMaterial(`${this.mesh.name}-lock-state`, scene);
     this.lockMaterial.disableLighting = true;
-    this.lockMaterial.emissiveColor = Color3.FromHexString('#FF8F45');
-    for (const [x, y, w, h] of [[0, -0.25, 1.55, 1.05], [-0.48, 0.49, 0.26, 0.65], [0.48, 0.49, 0.26, 0.65], [0, 0.82, 1.22, 0.26]]) {
-      const part = CreateBox('lock-piece', { width: w, height: h, depth: 0.14 }, scene);
-      part.position.set(x, y, -depth / 2 - 0.12); parts.push(part);
+    this.lockMaterial.emissiveColor = Color3.FromHexString('#FF1E16');
+    for (const side of [-1, 1]) {
+      for (const [x, y, w, h] of [[0, -0.25, 1.55, 1.05], [-0.48, 0.49, 0.26, 0.65], [0.48, 0.49, 0.26, 0.65], [0, 0.82, 1.22, 0.26]]) {
+        const part = CreateBox('lock-piece', { width: w, height: h, depth: 0.14 }, scene);
+        part.position.set(x, y, side * (depth / 2 + 0.1)); parts.push(part);
+      }
+      const topStrip = CreateBox('lock-strip', { width: Math.min(width - 0.4, 4.2), height: 0.18, depth: 0.12 }, scene);
+      topStrip.position.set(0, height / 2 - 0.15, side * (depth / 2 + 0.08)); parts.push(topStrip);
     }
     this.lock = Mesh.MergeMeshes(parts, true, true)!;
     this.lock.name = `${this.mesh.name}-physical-lock`;
@@ -80,7 +84,7 @@ export class Door {
   setOpen(open: boolean): void {
     if (this.open !== open) {
       gameEvents.emit('mechanism', { kind: 'door', position: this.mesh.position.clone(), complete: open });
-      this.lockMaterial.emissiveColor.copyFromFloats(open ? 0.25 : 1, open ? 1 : 0.32, open ? 0.45 : 0.07);
+      this.lockMaterial.emissiveColor.copyFromFloats(open ? 0.12 : 1.0, open ? 1.0 : 0.12, open ? 0.38 : 0.08);
       this.mesh.metadata.open = open;
     }
     this.open = open;

@@ -93,11 +93,18 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     if (solid) addStaticBody(mesh, scene);
     // Permanent architectural section, never a visibility fade: a low solid plinth and clear
     // glass preserve the room boundary while leaving low-flying drones visible behind it.
-    if (/^(entry-wall-|office-divider-low-|office-wall-|lab-door-(left|right))/.test(name)) {
+    // Caps keep their authored height; cutting them too creates coplanar duplicate wall tops.
+    if (!name.endsWith('-cap') && /^(entry-wall-|office-divider-low-|office-wall-|lab-door-(left|right))/.test(name)) {
       mesh.isVisible = false;
       const section = CreateBox(`${name}-section`, { width: w, height: 1.2, depth: d }, scene);
       section.position.set(x, 0.6, z); section.material = material;
       section.isPickable = false; section.receiveShadows = true;
+      if (h > 1.25) {
+        const glassHeight = h - 1.2;
+        const lowerGlass = CreateBox(`${name}-lower-glass`, { width: w, height: glassHeight, depth: 0.16 }, scene);
+        lowerGlass.position.set(x, 1.2 + glassHeight / 2, z); lowerGlass.material = p.glass;
+        lowerGlass.isPickable = false;
+      }
     }
     return mesh;
   };
