@@ -48,9 +48,9 @@ export function createWakeOverlay(
   overlay.setAttribute('aria-live', 'polite');
   const spinner = element('div', 'wake-spinner');
   spinner.setAttribute('aria-hidden', 'true');
-  const title = element('p', 'wake-title', 'Waking the server…');
+  const title = element('p', 'wake-title', 'Waking the co-op server…');
   title.dataset.testid = 'wake-title';
-  const detail = element('p', 'wake-detail', 'Free servers nap when idle. Usually ~20s. ');
+  const detail = element('p', 'wake-detail', 'Usually under a minute. Solo starts instantly. ');
   const seconds = element('span', '', '0');
   seconds.dataset.testid = 'wake-elapsed';
   detail.append(seconds, ' s');
@@ -74,19 +74,17 @@ export function createWakeOverlay(
   };
   const cancel = menuButton('Cancel', 'wake-cancel', actions.cancel, 'btn--quiet');
   const playSolo = menuButton('Play solo', 'wake-play-solo', actions.playSolo, 'btn--quiet');
-  overlay.append(spinner, title, detail, progress, cancel, playSolo);
+  const retry = menuButton('Retry', 'wake-retry', actions.retry, 'btn--quiet');
+  overlay.append(spinner, title, detail, progress, cancel, playSolo, retry);
 
+  let slow = false;
   const showFailure = (): void => {
-    spinner.remove();
-    title.textContent = "The server didn't wake up";
-    detail.textContent = 'We tried for about a minute. Retry, or play solo while it wakes.';
-    progress.remove();
-    cancel.remove();
-    overlay.append(
-      menuButton('Retry', 'wake-retry', actions.retry),
-      playSolo,
-      menuButton('Back', 'back', actions.back),
-    );
+    if (slow) return;
+    slow = true;
+    title.textContent = 'Still waking the co-op server…';
+    // Keep elapsed/progress live, and keep the same controls while automatic retries continue.
+    detail.firstChild!.textContent = 'Taking longer than usual. Retrying automatically. ';
+    overlay.append(menuButton('Back', 'back', actions.back, 'btn--quiet'));
   };
 
   update(0);

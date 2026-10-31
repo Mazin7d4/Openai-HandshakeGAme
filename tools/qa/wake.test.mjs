@@ -50,7 +50,7 @@ async function body(browser, notes) {
       await host.page.getByTestId('create-room').tap();
       await host.page.getByTestId('wake-overlay').waitFor({ state: 'visible' });
       assert(await host.page.getByTestId('wake-elapsed').isVisible(), 'wake elapsed is not visible');
-      assert(await host.page.getByTestId('wake-title').innerText().then((text) => /Waking the server/.test(text)), 'waking title missing');
+      assert(await host.page.getByTestId('wake-title').innerText().then((text) => /Waking the co-op server/.test(text)), 'waking title missing');
       const progress = host.page.getByTestId('wake-progress');
       assert(await progress.isVisible(), 'wake progress is not visible');
       const progressBefore = Number(await progress.getAttribute('aria-valuenow'));
@@ -85,7 +85,7 @@ async function body(browser, notes) {
       await host.page.getByTestId('multiplayer').tap();
       await host.page.getByTestId('create-room').tap();
       const code = (await host.page.getByTestId('room-code').innerText({ timeout: 20_000 })).trim();
-      const guestSetup = await setup('hang', 5_000, directServer);
+      const guestSetup = await setup('hang', 21_000, directServer);
       const invite = await open({ server: guestSetup.proxy.url, room: code, wakeTimeout: '40000' }, 'join-guest');
       await invite.page.getByTestId('wake-overlay').waitFor({ state: 'visible' });
       const watchWake = (async () => {
@@ -97,6 +97,8 @@ async function body(browser, notes) {
       })();
       await Promise.all([waitForGame(host.page), waitForGame(invite.page), watchWake]);
       assert(!await invite.page.locator('.error').count(), 'join wake showed an error class');
+      assert(guestSetup.proxy.stats.requests === 1, `held cold-start request was aborted/retried: ${guestSetup.proxy.stats.requests}`);
+      notes.heldColdRequest = { delayMs: 21000, requests: guestSetup.proxy.stats.requests };
       notes.joinWakes = true;
       await closeContext(invite);
       await closeContext(host);
@@ -127,13 +129,18 @@ async function body(browser, notes) {
       await host.page.getByTestId('multiplayer').tap();
       await host.page.getByTestId('create-room').tap();
       await host.page.getByTestId('wake-overlay').waitFor({ state: 'visible' });
-      await host.page.getByTestId('wake-retry').waitFor({ state: 'visible', timeout: 8_000 });
+      assert(await host.page.getByTestId('wake-retry').isVisible(), 'Retry must be usable while waking');
+      await host.page.getByTestId('wake-title').filter({ hasText: 'Still waking' }).waitFor({ state: 'visible', timeout: 8_000 });
       const shownAfter = Date.now() - loadedAt;
       assert(shownAfter >= 2_900, `unreachable appeared before the 3 s budget (${shownAfter} ms after load)`);
-      assert(await host.page.getByText("The server didn't wake up").isVisible(), 'unreachable title missing');
-      assert(!await host.page.getByTestId('wake-progress').count(), 'unreachable wake progress still visible');
+      assert(await host.page.getByText('Still waking the co-op server…').isVisible(), 'slow server explanation missing');
+      assert(await host.page.getByTestId('wake-progress').isVisible(), 'slow server progress disappeared');
       assert(await host.page.getByTestId('wake-play-solo').isVisible(), 'unreachable play-solo button missing');
       assert(await host.page.getByTestId('back').isVisible(), 'unreachable back button missing');
+      const retryDeadline = Date.now() + 10000;
+      while (proxy.stats.requests < 2 && Date.now() < retryDeadline) await host.page.waitForTimeout(100);
+      assert(proxy.stats.requests >= 2, 'slow host dead-ended instead of retrying automatically');
+      notes.autoRetryRequests = proxy.stats.requests;
       await host.page.getByTestId('wake-play-solo').tap();
       await host.page.getByTestId('start-singleplayer').waitFor({ state: 'visible' });
       await host.page.getByTestId('start-singleplayer').tap();

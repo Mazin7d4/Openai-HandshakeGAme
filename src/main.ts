@@ -16,7 +16,6 @@ import { RECONNECT_GRACE_SECONDS } from './network/ReconnectionToken.ts';
 import {
   revalidateWarmup,
   retryWarmup,
-  startWarmup,
   waitForServer,
   warmupReadyWithin,
   warmupBudgetMs,
@@ -187,6 +186,10 @@ function errorMessage(error: unknown): string {
   return message;
 }
 
+window.setInterval(() => {
+  if (!document.hidden && document.querySelector('.menu-shell')) revalidateWarmup();
+}, 60_000);
+
 function showMainMenu(): void {
   titleAttract?.dispose();
   titleAttract = null;
@@ -210,7 +213,7 @@ function showMainMenu(): void {
   play.classList.add('btn--hero');
   play.dataset.titlePlay = 'true';
   play.setAttribute('aria-label', 'Play now');
-  play.append(element('span', 'btn__label', 'Play now'), element('span', 'btn__hint', 'Solo · you fly PIX'));
+  play.append(element('span', 'btn__label', 'Play now'), element('span', 'btn__hint', 'Play solo · starts instantly'));
   const daily = menuButton('Daily Heist', 'daily-heist', () => {
     prepareDailyRun(new Date());
     void startSoloNightShift();
@@ -221,7 +224,7 @@ function showMainMenu(): void {
     play,
     daily,
     menuButton('Campaign', 'campaign', showCampaignSelect),
-    menuButton('Play with a friend', 'multiplayer', showMultiplayerMenu),
+    menuButton('Co-op with a friend', 'multiplayer', showMultiplayerMenu, 'btn--quiet'),
     menuButton('Leaderboards', 'leaderboards', showLeaderboards, 'btn--quiet'),
   );
   if (devMenuAllowed) {
@@ -243,7 +246,7 @@ function showMainMenu(): void {
       shell.classList.add('title-scene-fallback');
     }
   });
-  startWarmup();
+  revalidateWarmup();
 }
 
 async function showCampaignSelect(): Promise<void> {
@@ -530,41 +533,57 @@ async function ensureServerAwake(
 
   const controller = new AbortController();
   const budgetMs = warmupBudgetMs();
-  let choseSolo = false;
+  let choseNavigation = false;
   const wake = createWakeOverlay(menuButton, budgetMs, {
     cancel: () => controller.abort(),
     playSolo: () => {
-      choseSolo = true;
+      choseNavigation = true;
       controller.abort();
       showSinglePlayer();
     },
     retry: () => {
+      choseNavigation = true;
+      controller.abort();
       retryWarmup();
       retry();
     },
-    back,
-  });
-  // Only show the overlay once the first ping actually failed ('waking'), so a fast answer never flashes it.
-  const result = await waitForServer({
-    signal: controller.signal,
-    onTick(elapsedMs, current) {
-      wake.update(elapsedMs);
-      if (current !== 'ready' && current !== 'unknown' && !wake.overlay.isConnected) panel.append(wake.overlay);
+    back: () => {
+      choseNavigation = true;
+      controller.abort();
+      back();
     },
   });
-  if (!wake.overlay.isConnected) panel.append(wake.overlay);
-  if (result === 'ready') {
-    wake.markReady();
-    wake.overlay.remove();
-    return true;
+  let waitedMs = 0;
+  while (!controller.signal.aborted && panel.isConnected) {
+    let attemptMs = 0;
+    const result = await waitForServer({
+      signal: controller.signal,
+      onTick(elapsedMs, current) {
+        attemptMs = elapsedMs;
+        wake.update(waitedMs + elapsedMs);
+        if (current !== 'ready' && !wake.overlay.isConnected && panel.isConnected) panel.append(wake.overlay);
+      },
+    });
+    if (!panel.isConnected || controller.signal.aborted) break;
+    if (result === 'ready') {
+      wake.markReady();
+      wake.overlay.remove();
+      return true;
+    }
+    if (result === 'cancelled') break;
+    wake.showFailure();
+    // A slow/free host never dead-ends. Retry in place, keeping Solo, Retry and Cancel usable.
+    await new Promise<void>(resolve => {
+      const done = () => { window.clearTimeout(timer); controller.signal.removeEventListener('abort', done); resolve(); };
+      const timer = window.setTimeout(done, 5_000);
+      controller.signal.addEventListener('abort', done, { once: true });
+    });
+    if (controller.signal.aborted || !panel.isConnected) break;
+    waitedMs += attemptMs + 5_000;
+    retryWarmup();
   }
-  if (result === 'cancelled') {
-    wake.overlay.remove();
-    if (!choseSolo) onCancel();
-    return false;
-  }
-
-  wake.showFailure();
+  wake.overlay.remove();
+  if (!choseNavigation && panel.isConnected) onCancel();
   return false;
 }
 

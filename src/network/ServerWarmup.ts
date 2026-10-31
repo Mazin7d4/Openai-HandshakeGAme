@@ -3,10 +3,11 @@ import { serverHttpUrl } from './ServerEndpoint.ts';
 export type WarmupState = 'unknown' | 'waking' | 'ready' | 'unreachable';
 export type WarmupListener = (state: WarmupState) => void;
 
-const DEFAULT_BUDGET_MS = 60_000;
+const DEFAULT_BUDGET_MS = 150_000;
 const MIN_BUDGET_MS = 1_000;
-const MAX_BUDGET_MS = 120_000;
-const PING_TIMEOUT_MS = 4_000;
+const MAX_BUDGET_MS = 300_000;
+// Render may hold the first request while the container boots. Keep that request alive.
+const PING_TIMEOUT_MS = 60_000;
 const RETRY_BACKOFFS_MS = [500, 1_000, 2_000, 3_000];
 
 let state: WarmupState = 'unknown';
@@ -98,6 +99,7 @@ export function startWarmup(): void {
   const startedAt = Date.now();
   const id = ++runId;
   warmupStartedAt = startedAt;
+  setWarmupState('waking');
   const promise = runWarmup(id, startedAt, budgetFromUrl());
   let tracked: Promise<void>;
   tracked = promise.finally(() => {
