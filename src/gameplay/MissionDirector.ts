@@ -132,6 +132,7 @@ export class MissionDirector {
   private objectiveCollapseTimer: number | null = null;
   private objectiveKicker: HTMLElement | null = null;
   private objectiveTextKey = '';
+  private objectiveBadgeKey = '';
   private rematchPartnerLeft = false;
   private objectivePlan: ObjectivePlan | null = null;
   private objectiveState: ObjectiveState | null = null;
@@ -729,7 +730,7 @@ export class MissionDirector {
                 'Alarm active. Both drones and the core must reach the extraction pad.',
               ]
             : ['Prototype secured', 'Extraction complete'];
-    this.objectiveTitle.textContent = title;
+    if (this.objectiveTitle.textContent !== title) this.objectiveTitle.textContent = title;
     if (warm) {
       const key = warm.map((step) => `${step.label}:${step.done}`).join('|');
       if (this.lastWarmupKey !== key) {
@@ -746,7 +747,7 @@ export class MissionDirector {
       }
     } else {
       this.lastWarmupKey = null;
-      this.objectiveDetail.textContent = detail;
+      if (this.objectiveDetail.textContent !== detail) this.objectiveDetail.textContent = detail;
     }
     // Re-expand only on a new objective title; per-step detail ticks would keep it open.
     const objectiveKey = title;
@@ -755,8 +756,11 @@ export class MissionDirector {
       this.expandObjective();
     }
     const detectionPct = Math.round(this.security.detection * 100);
-    this.detectionFill.style.width = `${detectionPct}%`;
-    this.detectionMeter?.setAttribute('aria-valuenow', String(detectionPct));
+    const detectionText = String(detectionPct);
+    if (this.detectionMeter?.getAttribute('aria-valuenow') !== detectionText) {
+      this.detectionFill.style.width = `${detectionPct}%`;
+      this.detectionMeter?.setAttribute('aria-valuenow', detectionText);
+    }
     this.objective?.classList.toggle('alarm', this.state.alarm);
     this.objective?.classList.toggle('security-active', this.state.securityActive && !this.state.alarm);
     this.renderObjectiveBadge();
@@ -787,6 +791,9 @@ export class MissionDirector {
   /** Colourblind-safe shape + text for alarm / security (amber = security only). */
   private renderObjectiveBadge(): void {
     if (!this.statusBadge || !this.objective) return;
+    const key = `${this.colourBlindSafe}:${this.state.alarm}:${this.state.securityActive}`;
+    if (key === this.objectiveBadgeKey) return;
+    this.objectiveBadgeKey = key;
     this.objective.classList.toggle('colourblind-cues', this.colourBlindSafe);
     if (!this.colourBlindSafe) {
       this.statusBadge.hidden = true;
