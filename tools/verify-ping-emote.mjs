@@ -1,16 +1,16 @@
-import { spawn } from 'node:child_process';
-import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { Client } from '@colyseus/sdk';
+import { freePort, startTestServer } from './test-server.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const PORT = process.env.PING_EMOTE_TEST_PORT ?? '2578';
+const PORT = process.env.PING_EMOTE_TEST_PORT
+  ? Number(process.env.PING_EMOTE_TEST_PORT)
+  : await freePort();
 const started = Date.now();
 const result = { test: 'ping-emote', pass: false, notes: {} };
 const rooms = [];
 let server;
-let log = '';
 const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 const assert = (value, message) => { if (!value) throw new Error(message); };
 async function waitFor(predicate, message, timeout = 5000) {
@@ -18,22 +18,14 @@ async function waitFor(predicate, message, timeout = 5000) {
   while (Date.now() < end) { if (predicate()) return; await sleep(25); }
   throw new Error(`timeout: ${message}`);
 }
-function waitPort(port) {
-  const start = Date.now();
-  return new Promise((resolvePort, reject) => {
-    const retry = () => {
-      const socket = createConnection({ host: '127.0.0.1', port: Number(port) }, () => { socket.end(); resolvePort(); });
-      socket.on('error', () => { socket.destroy(); if (Date.now() - start > 20000) reject(new Error('server did not listen')); else setTimeout(retry, 100); });
-    };
-    retry();
-  });
-}
 const messages = (room, type) => { const list = []; room.onMessage(type, (message) => list.push(message)); return list; };
 
 try {
-  server = spawn(process.execPath, ['--experimental-strip-types', resolve(root, 'server/index.mjs')], { cwd: root, env: { ...process.env, PORT: String(PORT), HANDSHAKE_TEST_HOOKS: '1', EMPTY_ROOM_SECONDS: '120', LONELY_ROOM_SECONDS: '120' }, stdio: ['ignore', 'pipe', 'pipe'] });
-  server.stdout.on('data', (chunk) => { log += chunk; }); server.stderr.on('data', (chunk) => { log += chunk; });
-  await waitPort(PORT);
+  server = await startTestServer({
+    port: PORT,
+    root,
+    env: { HANDSHAKE_TEST_HOOKS: '1', EMPTY_ROOM_SECONDS: '120', LONELY_ROOM_SECONDS: '120' },
+  });
   const host = await new Client(`ws://127.0.0.1:${PORT}`).create('handshake', {}); rooms.push(host);
   const guest = await new Client(`ws://127.0.0.1:${PORT}`).joinById(host.roomId); rooms.push(guest);
   const hp = messages(host, 'ping-placed'); const gp = messages(guest, 'ping-placed');
@@ -58,8 +50,8 @@ try {
   assert(Object.keys(host.state.toJSON()).sort().join(',') === before, 'ephemeral data entered state');
   result.notes.events = { pings: hp.length, emotes: he.length };
   result.pass = true;
-} catch (error) { result.error = `${error.message}${log ? ` (${log.slice(-300)})` : ''}`; }
-finally { for (const room of rooms) await room.leave(true).catch(() => {}); server?.kill('SIGTERM'); }
+} catch (error) { result.error = `${error.message}${server?.log() ? ` (${server.log().slice(-300)})` : ''}`; }
+finally { for (const room of rooms) await room.leave(true).catch(() => {}); await server?.stop(); }
 result.seconds = Math.round((Date.now() - started) / 1000);
 console.log(`QA_RESULT ${JSON.stringify(result)}`);
 process.exitCode = result.pass ? 0 : 1;

@@ -1,4 +1,4 @@
-import { Vector3 } from '@babylonjs/core';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { FlightAxes } from '../input/FlightAxes.ts';
 import { FLIGHT_TUNING } from './FlightTuning.ts';
 import type { BoostState, MovementState } from './PlayerState.ts';

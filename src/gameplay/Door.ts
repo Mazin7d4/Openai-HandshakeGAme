@@ -1,12 +1,9 @@
-import {
-  Color3,
-  CreateBox,
-  HavokPlugin,
-  PhysicsMotionType,
-  PhysicsPrestepType,
-  type Mesh,
-  type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
+import type { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin.js';
+import { PhysicsMotionType, PhysicsPrestepType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import { addStaticBody } from '../physics/staticBody.ts';
 import { applySolidColor } from '../scene/solidMaterial.ts';
 

@@ -1,4 +1,4 @@
-import type { Vector3 } from '@babylonjs/core';
+import type { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 
 /** Minimal contract shared by proximity-based gameplay objects. */
 export interface Interactable {

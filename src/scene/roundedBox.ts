@@ -1,4 +1,6 @@
-import { Mesh, VertexData, type Scene } from '@babylonjs/core';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 
 export interface RoundedBoxOptions {
   width: number;

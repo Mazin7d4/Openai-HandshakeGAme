@@ -1,4 +1,7 @@
-import { Color3, DynamicTexture, PBRMaterial, type Scene } from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 
 /** Shared materials. Five world units = one physical metre; drone width ≈ 28 cm. */
 export function createLabPalette(scene: Scene) {

@@ -1,10 +1,8 @@
-import {
-  ImportMeshAsync,
-  TransformNode,
-  type AbstractMesh,
-  type AnimationGroup,
-  type Scene,
-} from '@babylonjs/core';
+import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader.js';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import './registerGltf.ts';
 import './meshopt.ts';
 

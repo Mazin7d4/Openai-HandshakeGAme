@@ -4,20 +4,20 @@
  * drop on capture, and reconnect while carrying (item survives the hold, drops after it).
  * Spawns its own server with HANDSHAKE_TEST_HOOKS=1 and RECONNECT_SECONDS=4. No browser.
  */
-import { spawn } from 'node:child_process';
-import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { Client } from '@colyseus/sdk';
+import { freePort, startTestServer } from './test-server.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const PORT = Number(process.env.GRAB_CARRY_TEST_PORT ?? 2579);
+const PORT = process.env.GRAB_CARRY_TEST_PORT
+  ? Number(process.env.GRAB_CARRY_TEST_PORT)
+  : await freePort();
 const RECONNECT_SECONDS = 4;
 const started = Date.now();
 const result = { test: 'grab-carry', pass: false, notes: {} };
 const rooms = [];
 let server;
-let serverLog = '';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function assert(cond, msg) { if (!cond) throw new Error(msg); }
@@ -29,25 +29,11 @@ async function waitFor(pred, msg, timeout = 4000) {
   }
   throw new Error(`timeout: ${msg}`);
 }
-function waitForPort(port, timeoutMs = 20_000) {
-  const t0 = Date.now();
-  return new Promise((ok, fail) => {
-    const tryOnce = () => {
-      const s = createConnection({ port, host: '127.0.0.1' }, () => { s.end(); ok(); });
-      s.on('error', () => {
-        s.destroy();
-        if (Date.now() - t0 > timeoutMs) fail(new Error(`server did not listen on ${port}`));
-        else setTimeout(tryOnce, 100);
-      });
-    };
-    tryOnce();
-  });
-}
 const obj = (room, id) => room.state.objects.get(id);
 const playerOf = (room, role) => [...room.state.players.values()].find((p) => p.role === role);
-function fly(room, position) {
+function fly(room, position, yaw = 0) {
   room.send('snapshot', {
-    position, velocity: { x: 0, y: 0, z: 0 }, orientation: { pitch: 0, yaw: 0, roll: 0 },
+    position, velocity: { x: 0, y: 0, z: 0 }, orientation: { pitch: 0, yaw, roll: 0 },
     boost: 'off', movement: 'idle', selfPowered: false, tetherPull: 0,
   });
 }
@@ -56,17 +42,14 @@ function both(a, b, id, pred) { return pred(obj(a, id)) && pred(obj(b, id)); }
 const at = (p, dx = 0, dy = 0, dz = 0) => ({ x: p.x + dx, y: p.y + dy, z: p.z + dz });
 
 async function main() {
-  server = spawn(process.execPath, ['--experimental-strip-types', resolve(root, 'server/index.mjs')], {
-    cwd: root,
+  server = await startTestServer({
+    port: PORT,
+    root,
     env: {
-      ...process.env, PORT: String(PORT), HANDSHAKE_TEST_HOOKS: '1', RECONNECT_SECONDS: String(RECONNECT_SECONDS),
+      HANDSHAKE_TEST_HOOKS: '1', RECONNECT_SECONDS: String(RECONNECT_SECONDS),
       EMPTY_ROOM_SECONDS: '120', LONELY_ROOM_SECONDS: '120',
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  server.stdout.on('data', (c) => { serverLog += c; });
-  server.stderr.on('data', (c) => { serverLog += c; });
-  await waitForPort(PORT);
   const endpoint = `ws://127.0.0.1:${PORT}`;
   const pix = await new Client(endpoint).create('handshake', {});
   rooms.push(pix);
@@ -119,16 +102,27 @@ async function main() {
   assert(obj(pix, item).holderId === winner, 'steal inside the lock window was accepted');
   result.notes.contestedWinner = obj(pix, item).heldBy;
 
-  // c) handoff: rejected at 10 m, accepted at 2 m; then a steal after the lock
-  fly(winRoom, P); fly(loseRoom, at(P, 10));
+  // c) handoff: range + facing checks; then a steal after the lock
+  // Visual yaw PI means the holder faces +z (drone faces the camera; facing = yaw + PI).
+  fly(winRoom, P, Math.PI); fly(loseRoom, at(P, 10));
   await sleep(300);
   winRoom.send('handoff-object', { objectId: item });
   await sleep(300);
   assert(obj(pix, item).holderId === winner, 'handoff at 10 m was accepted');
-  fly(loseRoom, at(P, 2));
+  fly(loseRoom, at(P, 0, 0, 2.3));
   await sleep(300);
   winRoom.send('handoff-object', { objectId: item });
-  await waitFor(() => both(pix, nee, item, (o) => o.holderId === loseRoom.sessionId && o.lastEvent === 'handoff'), 'handoff synced');
+  await sleep(300);
+  assert(obj(pix, item).holderId === winner, 'handoff at 2.3 m was accepted');
+  fly(loseRoom, at(P, 0, 0, -1.5));
+  await sleep(300);
+  winRoom.send('handoff-object', { objectId: item });
+  await sleep(300);
+  assert(obj(pix, item).holderId === winner, 'handoff behind the holder was accepted');
+  fly(loseRoom, at(P, 0, 0, 1.5));
+  await sleep(300);
+  winRoom.send('handoff-object', { objectId: item });
+  await waitFor(() => both(pix, nee, item, (o) => o.holderId === loseRoom.sessionId && o.lastEvent === 'handoff'), 'handoff at 1.5 m synced');
   await sleep(1100);
   fly(winRoom, at(obj(pix, item).position, 1.2));
   await sleep(300);
@@ -186,7 +180,7 @@ async function main() {
 
 const hardTimeout = setTimeout(() => {
   console.log('QA_RESULT ' + JSON.stringify({ ...result, error: 'overall timeout 90s', seconds: Math.round((Date.now() - started) / 1000) }));
-  server?.kill('SIGTERM');
+  server?.child.kill('SIGTERM');
   process.exit(1);
 }, 90_000);
 
@@ -195,12 +189,12 @@ try {
   result.pass = true;
 } catch (error) {
   result.error = String(error?.message ?? error);
-  result.serverTail = serverLog.split('\n').slice(-8).join('\n');
+  result.serverTail = server.log().split('\n').slice(-8).join('\n');
 } finally {
   for (const room of rooms) {
     try { room.reconnection.maxRetries = 0; await Promise.race([room.leave(true), sleep(500)]); } catch { /* already gone */ }
   }
-  server?.kill('SIGTERM');
+  await server?.stop();
   clearTimeout(hardTimeout);
 }
 result.seconds = Math.round((Date.now() - started) / 1000);

@@ -1,6 +1,11 @@
-import {
-  Color3, CreateBox, CreateCylinder, CreateTorus, Mesh, PBRMaterial, type Material, type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
+import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.js';
+import { CreateTorus } from '@babylonjs/core/Meshes/Builders/torusBuilder.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import type { Material } from '@babylonjs/core/Materials/material.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { createLabPalette } from './LabPalette.ts';
 import type { PropPlacement } from './PropKit.ts';
 

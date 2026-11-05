@@ -1,8 +1,16 @@
 import { mergeRigidChildren } from '../scene/mergeChildren.ts';
-import {
-  Color3, Constants, CreateCylinder, CreatePlane, CreateSphere, CreateTorus, DynamicTexture, Mesh,
-  PBRMaterial, StandardMaterial, TransformNode, type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { Constants } from '@babylonjs/core/Engines/constants.js';
+import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.js';
+import { CreatePlane } from '@babylonjs/core/Meshes/Builders/planeBuilder.js';
+import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
+import { CreateTorus } from '@babylonjs/core/Meshes/Builders/torusBuilder.js';
+import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 
 /**
  * P01 Adaptive Companion Core: a hand-sized glass capsule in brushed aluminium caps with a

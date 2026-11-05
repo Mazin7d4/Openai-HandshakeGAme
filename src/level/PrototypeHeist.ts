@@ -1,9 +1,25 @@
-import {
-  Color3, Color4, Constants, CreateBox, CreateCylinder, CreatePlane, CreatePolyhedron, CreateTorus,
-  DirectionalLight, DynamicTexture, FresnelParameters, HemisphericLight, ImportMeshAsync, Mesh, PBRMaterial, Scalar,
-  SpotLight, StandardMaterial, TransformNode, Vector3,
-  type HavokPlugin, type Material, type Scene,
-} from '@babylonjs/core';
+import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
+import { Constants } from '@babylonjs/core/Engines/constants.js';
+import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
+import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.js';
+import { CreatePlane } from '@babylonjs/core/Meshes/Builders/planeBuilder.js';
+import { CreatePolyhedron } from '@babylonjs/core/Meshes/Builders/polyhedronBuilder.js';
+import { CreateTorus } from '@babylonjs/core/Meshes/Builders/torusBuilder.js';
+import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
+import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
+import { FresnelParameters } from '@babylonjs/core/Materials/fresnelParameters.js';
+import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
+import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import { Scalar } from '@babylonjs/core/Maths/math.scalar.js';
+import { SpotLight } from '@babylonjs/core/Lights/spotLight.js';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin.js';
+import type { Material } from '@babylonjs/core/Materials/material.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import '../assets/registerGltf.ts';
 import '../assets/meshopt.ts';
 import { addStaticBody } from '../physics/staticBody.ts';
@@ -15,6 +31,7 @@ import { loadPropKit } from './PropKit.ts';
 import layout from './heist-layout.json';
 import { mergeRigidChildren } from '../scene/mergeChildren.ts';
 import { createRoundedBox } from '../scene/roundedBox.ts';
+import { addHeroLighting } from './HeroLighting.ts';
 
 const SECURITY_AMBER = Color3.FromHexString('#FFB84D');
 const SCREEN_IDLE = new Color3(0.35, 0.35, 0.35);
@@ -513,5 +530,6 @@ export async function createPrototypeHeist(scene: Scene): Promise<Vector3> {
     if (key === 'escape') continue;
     try { mat.freeze(); } catch { /* ok */ }
   }
+  addHeroLighting(scene);
   return new Vector3(layout.spawn.x, layout.spawn.y, layout.spawn.z);
 }

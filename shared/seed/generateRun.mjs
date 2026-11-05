@@ -116,6 +116,16 @@ function pickCameras(rand, count, sweepScale) {
   return chosen;
 }
 
+/** Twists that are too harsh for a first floor (dark start); saved for floor 2+. */
+const HARD_TWISTS = new Set(['lights_out']);
+/**
+ * Floor 1 never rolls a hard twist.
+ * @param {number} floor
+ */
+function twistPoolForFloor(floor) {
+  return (floor | 0) <= 1 ? TWISTS.filter((t) => !HARD_TWISTS.has(t.id)) : TWISTS;
+}
+
 /**
  * Attempt one full layout draw. Caller validates and may retry with a new stream.
  * @param {() => number} rand
@@ -131,7 +141,7 @@ function drawLayout(rand, seed, floor) {
     variants[slot] = pick(rand, pool);
   }
 
-  const twist = pick(rand, TWISTS);
+  const twist = pick(rand, twistPoolForFloor(floor));
   const escalation = escalateFloor(floor, twist);
   const cord = cordForTwist(twist);
 

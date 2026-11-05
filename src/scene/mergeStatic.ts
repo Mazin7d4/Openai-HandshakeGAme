@@ -1,4 +1,7 @@
-import { Mesh, type AbstractMesh, type Material, type Scene } from '@babylonjs/core';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import type { Material } from '@babylonjs/core/Materials/material.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 
 export interface MergeStaticOptions {
   /** Return true for meshes that may be baked into a per-material static batch. */

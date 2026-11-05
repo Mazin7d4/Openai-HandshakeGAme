@@ -172,7 +172,6 @@ export function loadSettings(): GameSettings {
   const a11yReduced = readA11yBool(A11Y_KEYS.reducedMotion);
   const a11yColour = readA11yBool(A11Y_KEYS.colourBlindSafe);
   const a11yScale = readA11yUiScale();
-
   return {
     ...DEFAULT_SETTINGS,
     ...fromBlob,

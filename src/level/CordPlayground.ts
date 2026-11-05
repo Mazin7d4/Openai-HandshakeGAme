@@ -1,18 +1,16 @@
-import {
-  Color3,
-  CreateBox,
-  CreateCylinder,
-  CreatePlane,
-  CreateTorus,
-  DynamicTexture,
-  Mesh,
-  PBRMaterial,
-  PhysicsAggregate,
-  PhysicsShapeType,
-  StandardMaterial,
-  Vector3,
-  type Scene,
-} from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
+import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.js';
+import { CreatePlane } from '@babylonjs/core/Meshes/Builders/planeBuilder.js';
+import { CreateTorus } from '@babylonjs/core/Meshes/Builders/torusBuilder.js';
+import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import { PhysicsAggregate } from '@babylonjs/core/Physics/v2/physicsAggregate.js';
+import { PhysicsShapeType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { DroneRole } from '../network/NetworkTypes.ts';
 import type { Drone } from '../player/Drone.ts';
 import { COLLISION_GROUP } from '../physics/CollisionGroups.ts';

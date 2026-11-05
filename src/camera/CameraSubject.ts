@@ -1,4 +1,4 @@
-import type { Vector3 } from '@babylonjs/core';
+import type { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 
 /** Anything the cinematic camera is allowed to frame. */
 export interface CameraSubject {

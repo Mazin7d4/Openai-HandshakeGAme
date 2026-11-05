@@ -1,4 +1,4 @@
-import type { Vector3 } from '@babylonjs/core';
+import type { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { FlightAxes } from '../input/FlightAxes.ts';
 import type { InteractionActions } from '../input/InteractionActions.ts';
 

@@ -1,20 +1,20 @@
-import { spawn } from 'node:child_process';
-import { createConnection } from 'node:net';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { Client } from '@colyseus/sdk';
+import { freePort, startTestServer } from './test-server.mjs';
 import { generateRun } from '../shared/seed/index.mjs';
 import { scoreFloorPure } from '../shared/nightShiftScore.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const PORT = Number(process.env.NIGHTSHIFT_COOP_TEST_PORT ?? 2577);
+const PORT = process.env.NIGHTSHIFT_COOP_TEST_PORT
+  ? Number(process.env.NIGHTSHIFT_COOP_TEST_PORT)
+  : await freePort();
 const RECONNECT_SECONDS = 6;
 const started = Date.now();
 const result = { test: 'nightshift-coop', pass: false, notes: {} };
 const rooms = [];
 let server;
-let serverLog = '';
 
 const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 function assert(condition, message) { if (!condition) throw new Error(message); }
@@ -25,20 +25,6 @@ async function waitFor(predicate, message, timeout = 8000) {
     await sleep(25);
   }
   throw new Error(`timeout: ${message}`);
-}
-function waitForPort(port, timeoutMs = 20_000) {
-  const began = Date.now();
-  return new Promise((resolvePort, reject) => {
-    const tryOnce = () => {
-      const socket = createConnection({ port, host: '127.0.0.1' }, () => { socket.end(); resolvePort(); });
-      socket.on('error', () => {
-        socket.destroy();
-        if (Date.now() - began > timeoutMs) reject(new Error(`server did not listen on ${port}`));
-        else setTimeout(tryOnce, 100);
-      });
-    };
-    tryOnce();
-  });
 }
 function layoutHash(seed, floor) {
   return createHash('sha1').update(JSON.stringify(generateRun(seed, floor))).digest('hex');
@@ -52,21 +38,16 @@ function attachMessages(room) {
 }
 
 async function main() {
-  server = spawn(process.execPath, ['--experimental-strip-types', resolve(root, 'server/index.mjs')], {
-    cwd: root,
+  server = await startTestServer({
+    port: PORT,
+    root,
     env: {
-      ...process.env,
-      PORT: String(PORT),
       HANDSHAKE_TEST_HOOKS: '1',
       RECONNECT_SECONDS: String(RECONNECT_SECONDS),
       EMPTY_ROOM_SECONDS: '120',
       LONELY_ROOM_SECONDS: '120',
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  server.stdout.on('data', (chunk) => { serverLog += chunk; });
-  server.stderr.on('data', (chunk) => { serverLog += chunk; });
-  await waitForPort(PORT);
 
   const endpoint = `ws://127.0.0.1:${PORT}`;
   const host = await new Client(endpoint).create('handshake', { mode: 'nightshift', seed: 123456 });
@@ -161,7 +142,7 @@ async function main() {
 
 const hardTimeout = setTimeout(() => {
   console.log(`QA_RESULT ${JSON.stringify({ ...result, error: 'overall timeout 60s' })}`);
-  server?.kill('SIGTERM');
+  server?.child.kill('SIGTERM');
   process.exit(1);
 }, 60_000);
 
@@ -170,12 +151,12 @@ try {
   result.pass = true;
 } catch (error) {
   result.error = String(error?.message ?? error);
-  result.serverTail = serverLog.split("\n").slice(-30).join('\n');
+  result.serverTail = server.log().split("\n").slice(-30).join('\n');
 } finally {
   for (const room of rooms) {
     try { room.reconnection.maxRetries = 0; await Promise.race([room.leave(true), sleep(500)]); } catch { /* already gone */ }
   }
-  server?.kill('SIGTERM');
+  await server?.stop();
   clearTimeout(hardTimeout);
 }
 result.seconds = Math.round((Date.now() - started) / 1000);

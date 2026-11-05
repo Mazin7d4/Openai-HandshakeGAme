@@ -1,4 +1,4 @@
-import { Vector3 } from '@babylonjs/core';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { GameAudio } from '../audio/GameAudio.ts';
 import type { CinematicCamera } from '../camera/CinematicCamera.ts';
 import type { MultiplayerSession, TetherYankMessage } from '../network/MultiplayerSession.ts';

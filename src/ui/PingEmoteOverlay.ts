@@ -1,4 +1,5 @@
-import { Matrix, Vector3, type Camera } from '@babylonjs/core';
+import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Camera } from '@babylonjs/core/Cameras/camera.js';
 import type { DroneRole, EmoteId } from '../network/NetworkTypes.ts';
 
 export interface OverlayPing { role: DroneRole; x: number; y: number; z: number; id: number; at: number; receivedAt: number }

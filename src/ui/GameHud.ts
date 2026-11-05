@@ -7,6 +7,7 @@ import type { GraphicsQualitySetting } from './Settings.ts';
 import { SettingsMenu } from './SettingsMenu.ts';
 import { isTouchPlayDevice } from './touchDetect.ts';
 import { inputKind } from './inputHints.ts';
+import { isFullscreen, toggleFullscreen } from './fullscreen.ts';
 
 export interface GameHudOptions {
   onResume: () => void;
@@ -113,6 +114,8 @@ export class GameHud {
       try { localStorage.setItem('handshake.controlsSeen', '1'); } catch { /* private mode */ }
     }
     this.showPauseHome();
+    document.addEventListener('fullscreenchange', this.updateFullscreenLabel);
+    document.addEventListener('webkitfullscreenchange', this.updateFullscreenLabel as EventListener);
     window.addEventListener('keydown', this.onKeyDown, true);
   }
 
@@ -202,6 +205,8 @@ export class GameHud {
     window.clearTimeout(this.controlsTimer);
     this.controlsCard.remove();
     this.toastLayer.remove();
+    document.removeEventListener('fullscreenchange', this.updateFullscreenLabel);
+    document.removeEventListener('webkitfullscreenchange', this.updateFullscreenLabel as EventListener);
   }
 
   private bindNav(onBack: () => void, initialFocus?: string): void {
@@ -225,6 +230,9 @@ export class GameHud {
       this.button('Controls', () => this.showControls(), '', 'pause-controls'),
       this.button('Leave game', this.options.onLeave, 'btn--danger danger', 'pause-leave'),
     );
+    const fullscreen = this.button(isFullscreen() ? 'Exit fullscreen' : 'Fullscreen', () => { void toggleFullscreen(); }, 'btn--quiet', 'pause-fullscreen');
+    fullscreen.hidden = !(document.documentElement.requestFullscreen || (document.documentElement as HTMLElement & { webkitRequestFullscreen?: unknown }).webkitRequestFullscreen);
+    this.panel.append(fullscreen);
     if (this.paused) this.bindNav(() => this.options.onResume(), '[data-testid="pause-resume"]');
   }
 
@@ -289,4 +297,9 @@ export class GameHud {
     button.addEventListener('click', action);
     return button;
   }
+
+  private readonly updateFullscreenLabel = () => {
+    const button = this.panel.querySelector<HTMLButtonElement>('[data-testid="pause-fullscreen"]');
+    if (button) button.textContent = isFullscreen() ? 'Exit fullscreen' : 'Fullscreen';
+  };
 }

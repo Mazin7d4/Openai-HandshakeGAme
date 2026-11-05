@@ -1,4 +1,6 @@
-import { Vector3, type Camera, type Scene } from '@babylonjs/core';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Camera } from '@babylonjs/core/Cameras/camera.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import { audio } from '../audio/AudioManager.ts';
 import type { Drone } from '../player/Drone.ts';
 import type { DroneRole, EmoteId, EmotePlayedMessage, PingPlacedMessage } from '../network/NetworkTypes.ts';

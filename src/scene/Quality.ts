@@ -1,10 +1,17 @@
-import type { DirectionalLight, Engine, GlowLayer, Light, Observer, Scene, ShadowGenerator } from '@babylonjs/core';
+import type { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
+import type { Engine } from '@babylonjs/core/Engines/engine.js';
+import type { GlowLayer } from '@babylonjs/core/Layers/glowLayer.js';
+import type { Light } from '@babylonjs/core/Lights/light.js';
+import type { Observer } from '@babylonjs/core/Misc/observable.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+import type { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
 import { getSettings, subscribeSettings, type GraphicsQualitySetting } from '../ui/Settings.ts';
 
 /**
- * Automatic graphics tiers. Judges play on unknown laptops and phones, often without a GPU, so we
- * (1) guess a starting tier from the device at boot and (2) run a slow FPS governor that steps down
- * fast and up cautiously. Only render cost changes: resolution, shadows, glow, accent lights.
+ * Automatic graphics tiers. The governor settles for 1 s, probes for 5 s, then monitors once per
+ * second: below 50 FPS steps down, above 58 FPS steps up after a 5 s hold (up to 40 s after
+ * oscillation). URL overrides and forced scales pin the whole ladder; manual settings pin the tier
+ * while allowing resolution steps. Only render cost changes: resolution, shadows, glow, accent lights.
  * Gameplay, physics, camera and mascot materials are untouched.
  *
  * Overrides, strongest first: `?lowfx` (low, locked) · `?quality=low|medium|high` (locked) ·
@@ -69,22 +76,50 @@ export interface QualityHooks { sun: DirectionalLight; shadows: ShadowGenerator;
 /** Accent lights a level may add; disabled on low (emissive cues carry the look instead). */
 const ACCENT_LIGHTS = new Set(['vault-spot', 'alarm-light']);
 
-export interface QualityStatus { tier: QualityTier; auto: boolean; reason: string; renderer: string; avgFps: number; changes: string[] }
+export interface QualityStatus {
+  tier: QualityTier;
+  auto: boolean;
+  reason: string;
+  renderer: string;
+  avgFps: number;
+  changes: string[];
+  dynScale: number;
+  frameMs: number;
+  scale: number;
+  scaleStep: number;
+  phase: 'settle' | 'probe' | 'monitor';
+  pinned: 'none' | 'tier' | 'all';
+  lastAction: string | null;
+  ceiling: QualityTier;
+}
+
+const SCALE_STEPS = [1, 1.15, 1.3, 1.5] as const;
+type QualityTestHook = { injectFrameMs: (ms: number | null) => void };
 
 export class QualityManager {
   private tier: QualityTier;
   private auto: boolean;
-  private ceiling: QualityTier = 'high';
+  private ceiling: QualityTier;
   private reason: string;
   private readonly guess: DeviceGuess;
   private readonly changes: string[] = [];
-  private frames = 0;
-  private windowStart = 0;
-  private warmupUntil = 0;
-  private lowWindows = 0;
-  private highWindows = 0;
+  private scaleStep = 0;
+  private emaMs = 0;
+  private lastFrame = 0;
+  private startedAt = 0;
+  private probeHandled = false;
+  private lastMonitorAt = 0;
+  private lowCount = 0;
+  private highCount = 0;
   private lastStepUp = -1e9;
+  private upHoldSec = 5;
   private avgFps = 0;
+  private appliedScale = 1;
+  private lastAction: string | null = null;
+  private cooldownUntil = 0;
+  private injectedFrameMs: number | null = null;
+  private pinned: 'none' | 'tier' | 'all';
+  private readonly testHook: QualityTestHook | null;
   private readonly frameObserver: Observer<Scene>;
   private readonly lightObserver: Observer<Light>;
   private readonly unsubscribe: () => void;
@@ -99,11 +134,19 @@ export class QualityManager {
     this.auto = !urlTier && setting === 'auto';
     this.tier = initialTier();
     this.reason = urlTier ? 'url override' : this.auto ? `auto: ${this.guess.reason}` : 'settings';
-    // Never auto-climb above the guess by more than one step.
-    if (this.auto) this.ceiling = TIERS[Math.min(2, TIERS.indexOf(this.tier) + 1)];
+    this.ceiling = this.tier;
+    this.pinned = urlTier || forcedScale > 1 ? 'all' : this.auto ? 'none' : 'tier';
     this.apply();
     const now = performance.now();
-    this.windowStart = now; this.warmupUntil = now + 6000;
+    this.restartProbe(now);
+    if (params.get('govtest') === '1') {
+      this.testHook = { injectFrameMs: (ms) => {
+        this.injectedFrameMs = typeof ms === 'number' && Number.isFinite(ms) ? ms : null;
+      } };
+      (window as unknown as { __pixQualityTest?: QualityTestHook }).__pixQualityTest = this.testHook;
+    } else {
+      this.testHook = null;
+    }
     this.frameObserver = scene.onAfterRenderObservable.add(() => this.sample());
     this.lightObserver = scene.onNewLightAddedObservable.add((light) => this.applyLight(light));
     this.unsubscribe = subscribeSettings((s) => this.setSetting(s.graphicsQuality));
@@ -111,39 +154,82 @@ export class QualityManager {
   }
 
   get status(): QualityStatus {
-    return { tier: this.tier, auto: this.auto, reason: this.reason, renderer: this.guess.renderer, avgFps: Math.round(this.avgFps * 10) / 10, changes: [...this.changes] };
+    const now = performance.now();
+    const elapsed = now - this.startedAt;
+    const phase = elapsed < 1000 ? 'settle' : elapsed < 6000 ? 'probe' : 'monitor';
+    return {
+      tier: this.tier,
+      auto: this.auto,
+      reason: this.reason,
+      renderer: this.guess.renderer,
+      avgFps: Math.round(this.avgFps * 10) / 10,
+      changes: [...this.changes],
+      dynScale: SCALE_STEPS[this.scaleStep],
+      frameMs: Math.round(this.emaMs * 10) / 10,
+      scale: Math.round(this.appliedScale * 100) / 100,
+      scaleStep: this.scaleStep,
+      phase,
+      pinned: this.pinned,
+      lastAction: this.lastAction,
+      ceiling: this.ceiling,
+    };
   }
 
   setSetting(setting: GraphicsQualitySetting): void {
     if (urlTier) return;
+    const scalePinned = forcedScale > 1;
     if (setting === 'auto') {
       if (this.auto) return;
-      this.auto = true; this.ceiling = 'high'; this.reason = 'auto: settings';
-      this.setTier(this.guess.tier, 'auto selected');
+      this.auto = true;
+      this.pinned = scalePinned ? 'all' : 'none';
+      this.ceiling = this.guess.tier;
+      this.reason = `auto: ${this.guess.reason}`;
+      this.setTier(this.guess.tier);
+      this.restartProbe(performance.now());
     } else {
-      this.auto = false; this.reason = 'settings';
-      this.setTier(setting, 'manual');
+      this.auto = false; this.pinned = scalePinned ? 'all' : 'tier'; this.reason = 'settings';
+      this.ceiling = setting;
+      this.setTier(setting);
+      this.resetMeasurement(performance.now());
     }
   }
 
-  private setTier(tier: QualityTier, why: string): void {
-    if (tier === this.tier) return;
-    this.changes.push(`${Math.round(performance.now() / 1000)}s ${this.tier}->${tier} (${why}, ${this.avgFps.toFixed(1)} fps)`);
-    if (this.changes.length > 12) this.changes.shift();
+  private setTier(tier: QualityTier): void {
     this.tier = tier;
+    this.scaleStep = 0;
     this.apply();
-    // Shader recompiles after a tier change make the next frames slow; don't judge them.
-    this.warmupUntil = performance.now() + 4000; this.lowWindows = 0; this.highWindows = 0;
   }
+
+  private restartProbe(now: number): void {
+    this.startedAt = now;
+    this.probeHandled = false;
+    this.resetMeasurement(now);
+  }
+
+  private resetMeasurement(now: number): void {
+    this.emaMs = 0;
+    this.avgFps = 0;
+    this.lastFrame = now;
+    this.lastMonitorAt = now;
+    this.lowCount = 0;
+    this.highCount = 0;
+    this.cooldownUntil = 0;
+  }
+
+  private get maxStep(): number { return this.auto ? 3 : 2; }
 
   private apply(): void {
     const { engine, tier } = { engine: this.scene.getEngine() as Engine, tier: this.tier };
     const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
-    let scaling: number;
-    if (forcedScale > 1) scaling = forcedScale;
-    else if (tier === 'high') scaling = 1 / Math.min(dpr, 2);
-    else if (tier === 'medium') scaling = 1 / Math.min(dpr, 1.25);
-    else scaling = this.guess.software ? 2 : Math.max(1.25, 1.75 / Math.max(1, dpr / 1.5));
+    const base = forcedScale > 1
+      ? forcedScale
+      : tier === 'high'
+        ? 1 / Math.min(dpr, 2)
+        : tier === 'medium'
+          ? 1 / Math.min(dpr, 1.25)
+          : this.guess.software ? 2 : Math.max(1.25, 1.75 / Math.max(1, dpr / 1.5));
+    const scaling = base * SCALE_STEPS[this.scaleStep];
+    this.appliedScale = scaling;
     engine.setHardwareScalingLevel(scaling);
     const { sun, shadows, glow } = this.hooks;
     sun.shadowEnabled = tier !== 'low';
@@ -157,35 +243,97 @@ export class QualityManager {
   }
 
   private applyLight(light: Light): void {
-    if (ACCENT_LIGHTS.has(light.name)) light.setEnabled(this.tier !== 'low');
+    if (ACCENT_LIGHTS.has(light.name)) {
+      light.setEnabled(this.tier !== 'low');
+    }
   }
 
   private sample(): void {
     const now = performance.now();
-    this.frames++;
-    const span = now - this.windowStart;
-    if (span < 2000) return;
-    const fps = (this.frames * 1000) / span;
-    this.frames = 0; this.windowStart = now;
-    // A hidden tab, a breakpoint or an asset stall is not a performance verdict.
-    if (document.hidden || fps < 0.5) { this.lowWindows = 0; this.highWindows = 0; return; }
-    this.avgFps = this.avgFps ? this.avgFps * 0.5 + fps * 0.5 : fps;
-    if (!this.auto || now < this.warmupUntil) return;
-    const i = TIERS.indexOf(this.tier);
-    if (fps < 26) { this.lowWindows++; this.highWindows = 0; } else if (fps > 52) { this.highWindows++; this.lowWindows = 0; } else { this.lowWindows = 0; this.highWindows = 0; }
-    if (this.lowWindows >= 2 && i > 0) {
-      // Dropping straight after a climb means the climb was wrong: stop climbing for this session.
-      if (now - this.lastStepUp < 30000) this.ceiling = this.tier === 'high' ? 'medium' : 'low';
-      this.setTier(TIERS[i - 1], 'fps low');
-    } else if (this.highWindows >= 6 && i < TIERS.indexOf(this.ceiling)) {
-      this.lastStepUp = now;
-      this.setTier(TIERS[i + 1], 'fps headroom');
+    const realDt = now - this.lastFrame;
+    this.lastFrame = now;
+    if (document.hidden || !Number.isFinite(realDt) || realDt > 250) return;
+    const dt = this.injectedFrameMs ?? realDt;
+    if (!Number.isFinite(dt) || dt <= 0 || dt > 250) return;
+    const elapsed = now - this.startedAt;
+    if (elapsed < 1000) return;
+    if (this.cooldownUntil !== 0) {
+      if (now < this.cooldownUntil) return;
+      this.cooldownUntil = 0;
+      this.emaMs = 0;
+      this.avgFps = 0;
+      this.lowCount = 0;
+      this.highCount = 0;
+      this.lastMonitorAt = now;
+      return;
     }
+
+    this.emaMs = this.emaMs ? this.emaMs + (dt - this.emaMs) * 0.1 : dt;
+    this.avgFps = 1000 / this.emaMs;
+    if (elapsed < 6000) return;
+
+    if (!this.probeHandled) {
+      this.probeHandled = true;
+      this.lastMonitorAt = now;
+      if (this.avgFps < 50) this.stepDown('probe');
+      return;
+    }
+    if (now - this.lastMonitorAt < 1000) return;
+    this.lastMonitorAt = now;
+    if (this.avgFps < 50) { this.lowCount++; this.highCount = 0; }
+    else if (this.avgFps > 58) { this.highCount++; this.lowCount = 0; }
+    else { this.lowCount = 0; this.highCount = 0; }
+    if (this.lowCount >= 2) {
+      this.stepDown('monitor');
+    } else if (this.highCount >= this.upHoldSec) {
+      this.stepUp('monitor');
+    }
+  }
+
+  private stepDown(why: 'probe' | 'monitor'): boolean {
+    if (this.pinned === 'all') return false;
+    const oldStep = this.scaleStep; const oldTier = this.tier;
+    if (this.scaleStep < this.maxStep) this.scaleStep++;
+    else if (this.auto && TIERS.indexOf(this.tier) > 0) {
+      this.tier = TIERS[TIERS.indexOf(this.tier) - 1];
+      this.scaleStep = 0;
+    } else return false;
+    this.recordStep('down', oldTier, oldStep, why);
+    return true;
+  }
+
+  private stepUp(why: 'monitor'): boolean {
+    if (this.pinned === 'all') return false;
+    const oldStep = this.scaleStep; const oldTier = this.tier;
+    if (this.scaleStep > 0) this.scaleStep--;
+    else if (this.auto && TIERS.indexOf(this.tier) < TIERS.indexOf(this.ceiling)) {
+      this.tier = TIERS[TIERS.indexOf(this.tier) + 1];
+      this.scaleStep = this.maxStep;
+    } else return false;
+    this.lastStepUp = performance.now();
+    this.recordStep('up', oldTier, oldStep, why);
+    return true;
+  }
+
+  private recordStep(direction: 'down' | 'up', oldTier: QualityTier, oldStep: number, why: 'probe' | 'monitor'): void {
+    const now = performance.now();
+    if (direction === 'down' && now - this.lastStepUp < 20_000) this.upHoldSec = Math.min(40, this.upHoldSec * 2);
+    const action = `${Math.round(now / 1000)}s ${direction} ${oldTier === this.tier ? this.tier : `${oldTier}->${this.tier}`} x${SCALE_STEPS[oldStep].toFixed(2)}->x${SCALE_STEPS[this.scaleStep].toFixed(2)} (${this.avgFps.toFixed(1)} fps, ${why})`;
+    this.changes.push(action);
+    if (this.changes.length > 12) this.changes.shift();
+    this.lastAction = action;
+    this.apply();
+    this.cooldownUntil = now + 3000;
+    this.lowCount = 0;
+    this.highCount = 0;
   }
 
   dispose(): void {
     this.scene.onAfterRenderObservable.remove(this.frameObserver);
     this.scene.onNewLightAddedObservable.remove(this.lightObserver);
     this.unsubscribe();
+    if (this.testHook && (window as unknown as { __pixQualityTest?: QualityTestHook }).__pixQualityTest === this.testHook) {
+      delete (window as unknown as { __pixQualityTest?: QualityTestHook }).__pixQualityTest;
+    }
   }
 }

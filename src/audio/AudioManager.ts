@@ -1,7 +1,7 @@
 import { getSettings, saveSettings, subscribeSettings } from '../ui/Settings.ts';
 import { SFX_SPRITE, type SpriteKey } from './sfxSprite.ts';
 import {
-  alarmCycle, chirpParams, roomTone, snap, stretchLoop, twang, whoosh, zz, ZZ,
+  alarmCycle, alarmKlaxon, alarmTension, chirpParams, passCue, roomTone, snap, stretchLoop, twang, whoosh, zz, ZZ,
   type ChirpMood, type Voice,
 } from './synth.ts';
 
@@ -22,7 +22,7 @@ import {
  *   positions are world {x,y,z}; anything with a position is panned/attenuated from the camera.
  *
  * Continuous state (idempotent, safe to call every frame or from replicated room state):
- *   setAlarmStage(0..3)        0 = off; 1..3 = amber pulse escalation; >= 1 also brings in the escape music layer
+ *   setAlarmStage(0..3)        0 = off; 1..3 = amber pulse escalation; stages 2..3 also bring in the escape music layer
  *   setMusic('off'|'calm'|'escape')
  *   setTension(strain 0..1)    cord stretch creak + auto twang on release / snap on hitting full length
  *   setDroneMotion(role, speed, position, isLocal)  thruster hum per drone (PIX lower, NEE higher)
@@ -34,17 +34,18 @@ export type AudioEvent =
   | 'uiHover' | 'uiClick' | 'uiConfirm' | 'uiBack' | 'uiToggle' | 'uiError'
   | 'twang' | 'snap' | 'yank' | 'yanked' | 'slingshot' | 'bump'
   | 'boost' | 'impact'
-  | 'grab' | 'drop' | 'throw'
+  | 'grab' | 'drop' | 'throw' | 'pass'
   | 'hackStart' | 'hackTick' | 'hackSuccess' | 'hackFail'
   | 'suspicious' | 'spotted' | 'stun' | 'cameraBlind' | 'capture' | 'rescue'
-  | 'vaultOpen' | 'theft' | 'extract'
-  | 'chirp' | 'ping' | 'emote';
+  | 'vaultOpen' | 'theft' | 'extract' | 'celebrate'
+  | 'chirp' | 'ping' | 'emote'
+  | 'replayDrop';
 
 export const AUDIO_EVENTS: readonly AudioEvent[] = [
   'uiHover', 'uiClick', 'uiConfirm', 'uiBack', 'uiToggle', 'uiError',
   'twang', 'snap', 'yank', 'yanked', 'slingshot', 'bump', 'boost', 'impact', 'grab', 'drop', 'throw',
-  'hackStart', 'hackTick', 'hackSuccess', 'hackFail',
-  'suspicious', 'spotted', 'stun', 'cameraBlind', 'capture', 'rescue', 'vaultOpen', 'theft', 'extract', 'chirp', 'ping', 'emote',
+  'hackStart', 'hackTick', 'hackSuccess', 'hackFail', 'pass',
+  'suspicious', 'spotted', 'stun', 'cameraBlind', 'capture', 'rescue', 'vaultOpen', 'theft', 'extract', 'celebrate', 'chirp', 'ping', 'emote', 'replayDrop',
 ];
 
 export type DroneVoice = Voice;
@@ -89,7 +90,15 @@ export class AudioManager {
   private strainPeak = 0;
   private lastSnap = 0;
   private lastTwang = 0;
-  private alarm: { stage: number; src: AudioBufferSourceNode | null; gain: GainNode | null } = { stage: 0, src: null, gain: null };
+  private alarm: {
+    stage: number;
+    src: AudioBufferSourceNode | null;
+    gain: GainNode | null;
+    tensionSrc: AudioBufferSourceNode | null;
+    tensionGain: GainNode | null;
+    klaxonSrc: AudioBufferSourceNode | null;
+    klaxonGain: GainNode | null;
+  } = { stage: 0, src: null, gain: null, tensionSrc: null, tensionGain: null, klaxonSrc: null, klaxonGain: null };
   private music: MusicState = 'off';
   private musicBuffers: Promise<Record<'calm' | 'escape', AudioBuffer> | null> | null = null;
   private musicNodes: { calm: GainNode; escape: GainNode; srcs: AudioBufferSourceNode[] } | null = null;
@@ -409,6 +418,7 @@ export class AudioManager {
         return;
       case 'drop': this.spr(event, 'drop', { gain: 0.7 * vol, pos }); return;
       case 'throw': this.start(event, this.synth('whoosh-throw', (r) => whoosh(r, 0.3, 900, 2400, 1.4)), { gain: 0.55 * vol, pos }); return;
+      case 'pass': this.start(event, this.synth('pass', passCue), { gain: 0.65 * vol, pos }); return;
       case 'hackStart': this.start(event, this.synth('hackStart', (r) => zz(r, ZZ.hackStart)), { bus: 'ui', gain: 0.5 * vol }); return;
       case 'hackTick': this.spr(event, 'hack_tick', { bus: 'ui', gain: 0.6 * vol, rate: 0.85 + clamp(o.progress ?? 0) * 0.6 }); return;
       case 'hackSuccess': this.spr(event, 'hack_ok', { bus: 'ui', gain: 0.75 * vol }); return;
@@ -438,6 +448,27 @@ export class AudioManager {
         this.setAlarmStage(0); this.setMusic('off');
         this.spr(event, 'sting_win', { gain: 1 * vol });
         return;
+      case 'replayDrop':
+        // Slow-mo replay: falling whoosh into a sub-bass drop; music ducks under it.
+        this.start(event, this.synth('whoosh-replay', (r) => whoosh(r, 0.9, 3400, 180, 1.4)), { gain: 0.55 * vol });
+        this.start(event, this.synth('bass-drop', bassDrop), { gain: 0.9 * vol, delay: 0.08 });
+        this.duckMusic(2.5, 0.35);
+        return;
+      case 'celebrate': {
+        const buffer = this.synth('celebrate-stinger', (sr) => {
+          const data = new Float32Array(Math.floor(sr * 1.25));
+          const notes = [523.25, 659.25, 783.99, 1046.5];
+          for (let i = 0; i < data.length; i++) {
+            const t = i / sr;
+            const note = notes[Math.min(notes.length - 1, Math.floor(t / 0.25))]!;
+            const env = Math.min(1, t * 18) * Math.max(0, 1 - t / 1.25);
+            data[i] = Math.sin(t * note * Math.PI * 2) * env * 0.18 + Math.sin(t * note * Math.PI * 4) * env * 0.04;
+          }
+          return data;
+        });
+        this.start(event, buffer, { gain: 0.85 * vol, bus: 'sfx' });
+        return;
+      }
       case 'chirp': {
         const role: DroneVoice = o.role ?? 'pix'; const mood: ChirpMood = o.mood ?? 'neutral';
         this.start(event, this.synth(`chirp-${role}-${mood}`, (r) => zz(r, chirpParams(role, mood))), {
@@ -531,20 +562,38 @@ export class AudioManager {
     for (const listener of this.alarmListeners) {
       try { listener(next); } catch { /* a11y must never break audio */ }
     }
-    if (next >= 1 && this.music !== 'off') this.setMusic('escape');
+    if (next >= 2 && this.music !== 'off') this.setMusic('escape');
     if (next === 0 && this.music === 'escape') this.setMusic('calm');
     if (!ctx || !buses || ctx.state !== 'running') { if (next === 0) this.alarm.src = null; return; }
     const t = ctx.currentTime;
     const old = this.alarm;
-    if (old.gain && old.src) { old.gain.gain.setTargetAtTime(0, t, 0.08); try { old.src.stop(t + 0.5); } catch { /* ended */ } }
-    this.alarm = { stage: next, src: null, gain: null };
+    for (const layer of [
+      [old.src, old.gain], [old.tensionSrc, old.tensionGain], [old.klaxonSrc, old.klaxonGain],
+    ] as const) {
+      const [src, gain] = layer;
+      if (gain && src) { gain.gain.setTargetAtTime(0, t, 0.14); try { src.stop(t + 0.7); } catch { /* ended */ } }
+    }
+    this.alarm = { stage: next, src: null, gain: null, tensionSrc: null, tensionGain: null, klaxonSrc: null, klaxonGain: null };
     if (next === 0) return;
-    const src = ctx.createBufferSource(); src.buffer = this.synth(`alarm${next}`, (r) => alarmCycle(r, next as 1 | 2 | 3)); src.loop = true;
-    const gain = ctx.createGain(); gain.gain.value = 0;
-    src.connect(gain).connect(buses.sfx); src.start();
-    gain.gain.setTargetAtTime(0.16 + next * 0.05, t, 0.05);
-    this.alarm = { stage: next, src, gain };
+    const pulse = ctx.createBufferSource(); pulse.buffer = this.synth(`alarm${next}`, (r) => alarmCycle(r, next as 1 | 2 | 3)); pulse.loop = true;
+    const pulseGain = ctx.createGain(); pulseGain.gain.value = 0; pulse.connect(pulseGain).connect(buses.sfx); pulse.start();
+    pulseGain.gain.setTargetAtTime(next === 1 ? 0.045 : next === 2 ? 0.13 : 0.2, t, 0.16);
+    this.alarm.src = pulse; this.alarm.gain = pulseGain;
     this.stats.alarm = (this.stats.alarm ?? 0) + 1;
+    if (next >= 1) {
+      const tension = ctx.createBufferSource(); tension.buffer = this.synth('alarm-tension', alarmTension); tension.loop = true;
+      const tensionGain = ctx.createGain(); tensionGain.gain.value = 0; tension.connect(tensionGain).connect(buses.sfx); tension.start();
+      tensionGain.gain.setTargetAtTime(next === 1 ? 0.22 : next === 2 ? 0.16 : 0.08, t, 0.2);
+      this.alarm.tensionSrc = tension; this.alarm.tensionGain = tensionGain;
+      this.stats.alarmTension = (this.stats.alarmTension ?? 0) + 1;
+    }
+    if (next === 3) {
+      const klaxon = ctx.createBufferSource(); klaxon.buffer = this.synth('alarm-klaxon', alarmKlaxon); klaxon.loop = true;
+      const klaxonGain = ctx.createGain(); klaxonGain.gain.value = 0; klaxon.connect(klaxonGain).connect(buses.sfx); klaxon.start();
+      klaxonGain.gain.setTargetAtTime(0.42, t, 0.2);
+      this.alarm.klaxonSrc = klaxon; this.alarm.klaxonGain = klaxonGain;
+      this.stats.alarmKlaxon = (this.stats.alarmKlaxon ?? 0) + 1;
+    }
   }
 
   get alarmStage(): number { return this.alarm.stage; }
@@ -656,3 +705,19 @@ export class AudioManager {
 }
 
 export const audio = new AudioManager();
+
+/** Sub-bass drop for the escape replay: 95 Hz falling to 32 Hz with a soft click and long decay. */
+function bassDrop(sr: number): Float32Array {
+  const dur = 1.4;
+  const out = new Float32Array(Math.floor(sr * dur));
+  let phase = 0;
+  for (let i = 0; i < out.length; i++) {
+    const t = i / sr;
+    const f = 32 + 63 * Math.exp(-t * 3.2);
+    phase += (2 * Math.PI * f) / sr;
+    const env = Math.min(1, t / 0.012) * Math.exp(-t * 2.1);
+    const body = Math.sin(phase) + 0.25 * Math.sin(phase * 2);
+    out[i] = Math.tanh(body * 1.6) * env * 0.85;
+  }
+  return out;
+}

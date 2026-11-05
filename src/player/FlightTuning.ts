@@ -16,4 +16,11 @@ export const FLIGHT_TUNING = {
   /** Share of the velocity lost to a wall that comes back as a springy bounce. */
   bounce: 0.42,
   maxBounce: 7.5,
+  /**
+   * Soft ceiling about 1.5 m under the heist cutaway roof collider (underside at 14.15; drone half-height 0.36).
+   * Climb fades out from softCeilingY to hardCeilingY, so the drone glides just below the roof
+   * instead of grinding against it and pinning in top corners.
+   */
+  softCeilingY: 11.6,
+  hardCeilingY: 12.6,
 };

@@ -1,5 +1,12 @@
 import { mergeRigidChildren } from '../scene/mergeChildren.ts';
-import { Color3, CreateBox, CreateCylinder, Mesh, PBRMaterial, Scene, StandardMaterial, TransformNode } from '@babylonjs/core';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
+import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 
 /** Heavy Lab Crate: a rugged aluminium/plastic flight case with handles, latches and a hazard label. */
 export function dressLabCrate(body: Mesh, size: number, scene: Scene): void {

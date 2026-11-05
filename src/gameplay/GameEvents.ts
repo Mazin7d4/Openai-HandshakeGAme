@@ -1,4 +1,4 @@
-import type { Vector3 } from '@babylonjs/core';
+import type { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { DroneRole } from '../network/NetworkTypes.ts';
 
 /** Presentation-level gameplay events (juice, audio, hints). Never authoritative state. */

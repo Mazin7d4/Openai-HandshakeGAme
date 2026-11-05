@@ -1,40 +1,20 @@
 // Two-client reconnect check: seat held during grace, restored after socket drop / reload,
 // and partner-left after the grace window. Spawns its own server with a short RECONNECT_SECONDS
 // so the expiry path stays fast without changing the default 30s production grace.
-import { spawn } from 'node:child_process';
-import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { chromium } from 'playwright';
+import { freePort, startTestServer } from './test-server.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const rawUrl = process.argv[2] ?? process.env.APP_URL ?? 'http://127.0.0.1:5173/?scale=4&lowfx';
 const GRACE_SECONDS = Number(process.env.RECONNECT_SECONDS ?? 5);
-const SERVER_PORT = Number(process.env.RECONNECT_TEST_PORT ?? 2577);
+const SERVER_PORT = process.env.RECONNECT_TEST_PORT
+  ? Number(process.env.RECONNECT_TEST_PORT)
+  : await freePort();
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
-}
-
-function waitForPort(port, timeoutMs = 20_000) {
-  const started = Date.now();
-  return new Promise((resolveWait, reject) => {
-    const tryConnect = () => {
-      const socket = createConnection({ port, host: '127.0.0.1' }, () => {
-        socket.end();
-        resolveWait();
-      });
-      socket.on('error', () => {
-        socket.destroy();
-        if (Date.now() - started > timeoutMs) {
-          reject(new Error(`Server did not listen on ${port} within ${timeoutMs}ms`));
-          return;
-        }
-        setTimeout(tryConnect, 150);
-      });
-    };
-    tryConnect();
-  });
 }
 
 function appUrlWithServer(serverHttp) {
@@ -66,23 +46,6 @@ async function joinMatch(host, guest, appUrl) {
   return code;
 }
 
-const server = spawn(process.execPath, ['--experimental-strip-types', resolve(root, 'server/index.mjs')], {
-  cwd: root,
-  env: {
-    ...process.env,
-    PORT: String(SERVER_PORT),
-    RECONNECT_SECONDS: String(GRACE_SECONDS),
-    HANDSHAKE_TEST_HOOKS: '1',
-    EMPTY_ROOM_SECONDS: '120',
-    LONELY_ROOM_SECONDS: '120',
-  },
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
-
-let serverLog = '';
-server.stdout.on('data', (chunk) => { serverLog += chunk; });
-server.stderr.on('data', (chunk) => { serverLog += chunk; });
-
 const browser = await chromium.launch({
   args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
@@ -92,9 +55,19 @@ const result = {
   reloadReconnect: false,
   partnerLeftAfterGrace: false,
 };
+let server;
 
 try {
-  await waitForPort(SERVER_PORT);
+  server = await startTestServer({
+    port: SERVER_PORT,
+    root,
+    env: {
+      RECONNECT_SECONDS: String(GRACE_SECONDS),
+      HANDSHAKE_TEST_HOOKS: '1',
+      EMPTY_ROOM_SECONDS: '120',
+      LONELY_ROOM_SECONDS: '120',
+    },
+  });
   const serverHttp = `http://127.0.0.1:${SERVER_PORT}`;
   const APP_URL = appUrlWithServer(serverHttp);
 
@@ -199,20 +172,10 @@ try {
 } catch (error) {
   result.pass = false;
   result.error = error instanceof Error ? error.message : String(error);
-  result.serverLog = serverLog.slice(-2_000);
+  result.serverLog = server?.log().slice(-2_000);
   console.log(JSON.stringify(result, null, 2));
   process.exitCode = 1;
 } finally {
   await browser.close().catch(() => undefined);
-  server.kill('SIGTERM');
-  await new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      server.kill('SIGKILL');
-      resolve();
-    }, 3_000);
-    server.on('exit', () => {
-      clearTimeout(timer);
-      resolve();
-    });
-  });
+  await server?.stop();
 }

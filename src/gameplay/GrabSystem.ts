@@ -1,22 +1,27 @@
-import { Vector3 } from '@babylonjs/core';
+import { PhysicsMotionType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import { Ray } from '@babylonjs/core/Culling/ray.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { Drone } from '../player/Drone.ts';
-import type { DroneRole, RoomStatus } from '../network/NetworkTypes.ts';
+import type { DroneRole, ObjectEventMessage, RoomStatus } from '../network/NetworkTypes.ts';
 import type { MultiplayerSession } from '../network/MultiplayerSession.ts';
+import { effectiveReducedMotion, getSettings } from '../ui/Settings.ts';
 import { Grabbable } from './Grabbable.ts';
 import { cordState } from './Tether.ts';
 import { gameEvents } from './GameEvents.ts';
+import { canPass, facingYaw } from './passRules.ts';
 
 const HOLD_OFFSET = new Vector3(0, -1.15, 0.35);
 const THROW_SPEED = 10;
 const THROW_LIFT = 1.8;
 const DRONE_CLEARANCE = 0.82;
-const HANDOFF_PROMPT_RANGE = 2.4;
 const STEAL_RANGE = 2.0;
 
 /** Owns proximity selection, carry springs, stealing, release and throw semantics. */
 export class GrabSystem {
   private readonly objects: readonly Grabbable[];
   private readonly session: MultiplayerSession | null;
+  private readonly scene: Scene | null;
   private readonly holdTarget = new Vector3();
   private readonly throwVelocity = new Vector3();
   private readonly aimDirection = new Vector3();
@@ -30,11 +35,13 @@ export class GrabSystem {
   private readonly closest = new Vector3();
   private drones: ReadonlyMap<DroneRole, Drone> = new Map();
   private readonly pendingRequests = new Map<string, { revision: number; sentAt: number }>();
+  private readonly pendingHandoffs: ObjectEventMessage[] = [];
 
   constructor(
     objects: readonly Grabbable[],
     session: MultiplayerSession | null,
     localRole: DroneRole | null,
+    scene: Scene | null = null,
     callbacks?: {
       onGrab?: (objectId: string, role: DroneRole) => void;
       onThrow?: (objectId: string, role: DroneRole) => void;
@@ -43,6 +50,7 @@ export class GrabSystem {
   ) {
     this.objects = objects;
     this.session = session;
+    this.scene = scene;
     this.localRole = localRole;
     this.onGrab = callbacks?.onGrab;
     this.onThrow = callbacks?.onThrow;
@@ -83,7 +91,7 @@ export class GrabSystem {
       const partnerRole = role === 'pix' ? 'nee' : 'pix';
       const partner = this.drones.get(partnerRole);
       const partnerEmpty = partner && !this.objects.some((object) => object.heldBy === partnerRole);
-      if (this.session && partner && partnerEmpty && Vector3.Distance(partner.position, drone.position) <= HANDOFF_PROMPT_RANGE) {
+      if (this.session && partner && partnerEmpty && this.canHandoff(drone, partner)) {
         if (this.canRequest(held.id)) {
           this.session.requestHandoff(held.id);
           this.pendingRequests.set(held.id, { revision: this.revisionOf(held.id), sentAt: performance.now() });
@@ -178,6 +186,7 @@ export class GrabSystem {
 
   update(dt: number, drones: ReadonlyMap<DroneRole, Drone>): void {
     this.drones = drones;
+    this.applyPendingHandoffs();
     this.cordSweep(dt, drones);
     for (const object of this.objects) {
       const holder = object.heldBy ? drones.get(object.heldBy) : undefined;
@@ -280,6 +289,10 @@ export class GrabSystem {
     return this.objects.find((object) => object.heldBy === role)?.id ?? null;
   }
 
+  releaseHeld(role: DroneRole): void {
+    this.drop(role, this.drones.get(role) ?? null);
+  }
+
   objectPosition(id: string): Vector3 | null {
     return this.objects.find((object) => object.id === id)?.position ?? null;
   }
@@ -297,19 +310,24 @@ export class GrabSystem {
     return this.objects.some((object) => object.heldBy === role && object.heavy);
   }
 
+  /** Queue the direct server event; the next gameplay update has the live drone poses. */
+  handleObjectEvent(message: ObjectEventMessage): void {
+    if (message.event === 'handoff') this.pendingHandoffs.push(message);
+  }
+
   promptsFor(role: DroneRole, drone: Drone): string[] {
     const held = this.objects.find((object) => object.heldBy === role);
     const partnerRole = role === 'pix' ? 'nee' : 'pix';
     const partner = this.drones.get(partnerRole);
     const partnerEmpty = partner && !this.objects.some((object) => object.heldBy === partnerRole);
-    if (held && this.session && partner && partnerEmpty && Vector3.Distance(partner.position, drone.position) <= HANDOFF_PROMPT_RANGE) {
+    if (held && this.session && partner && partnerEmpty && this.canHandoff(drone, partner)) {
       return [`[E] Pass ${held.label}`, `[Q] Throw ${held.label}`];
     }
     if (held?.heavy && !held.helped) {
       return [`Too heavy. Fly it with ${role === 'pix' ? 'NEE' : 'PIX'}`, `[E] Drop ${held.label}`];
     }
     if (held) {
-      const action = this.session && partner && partnerEmpty && Vector3.Distance(partner.position, drone.position) <= HANDOFF_PROMPT_RANGE
+      const action = this.session && partner && partnerEmpty && this.canHandoff(drone, partner)
         ? `[E] Pass ${held.label}` : `[E] Drop ${held.label}`;
       return [action, `[Q] Throw ${held.label}`];
     }
@@ -331,6 +349,49 @@ export class GrabSystem {
     return [];
   }
 
+  private canHandoff(holder: Drone, partner: Drone): boolean {
+    const result = canPass({
+      holder: holder.position,
+      holderYaw: facingYaw(holder.yaw),
+      partner: partner.position,
+    });
+    return result.ok && this.hasLineOfSight(holder.position, partner.position);
+  }
+
+  /** Static physics meshes are the only blockers; drones and grabbables are deliberately ignored. */
+  private hasLineOfSight(from: Vector3, to: Vector3): boolean {
+    if (!this.scene?.pickWithRay) {
+      // No cheap raycast is available in this scene, so passRules remains the gate.
+      return true;
+    }
+    const direction = to.subtract(from);
+    const length = direction.length();
+    if (length <= Number.EPSILON) return true;
+    direction.scaleInPlace(1 / length);
+    const ray = new Ray(from, direction, length);
+    const picked = this.scene.pickWithRay(ray, (mesh) => {
+      if (!mesh.isEnabled() || !mesh.physicsBody || mesh.physicsBody.motionType !== PhysicsMotionType.STATIC) return false;
+      if (this.objects.some((object) => mesh === object.mesh || mesh.isDescendantOf(object.mesh))) return false;
+      return !/player-|drone|HoverPod_|Antenna|Face|TetherSocket|node9|DarkMetal|Glow|Accent|Shell|FaceRim|tether|ping/i.test(mesh.name);
+    });
+    return !picked?.hit;
+  }
+
+  private applyPendingHandoffs(): void {
+    while (this.pendingHandoffs.length > 0) {
+      const event = this.pendingHandoffs.shift()!;
+      const object = this.objects.find((candidate) => candidate.id === event.objectId);
+      const from = this.drones.get(event.from as DroneRole);
+      const to = this.drones.get(event.to as DroneRole);
+      if (!object || !from || !to) continue;
+      object.startHandoffArc(
+        from.position.add(HOLD_OFFSET),
+        to.position.add(HOLD_OFFSET),
+        effectiveReducedMotion(getSettings()),
+      );
+    }
+  }
+
   private revisionOf(id: string): number {
     return this.objects.find((object) => object.id === id)?.networkRevision ?? -1;
   }
@@ -344,10 +405,14 @@ export class GrabSystem {
     for (const object of this.objects) object.dispose();
   }
 
-  private drop(role: DroneRole, drone: Drone): void {
-    this.throwVelocity.copyFrom(drone.velocity);
+  private drop(role: DroneRole, drone: Drone | null): void {
     const held = this.objects.find((object) => object.heldBy === role);
     if (!held) return;
+    if (!drone) {
+      this.release(role, held, held.position.clone(), Vector3.Zero(), false);
+      return;
+    }
+    this.throwVelocity.copyFrom(drone.velocity);
     drone.getThrowDirection(this.aimDirection);
     this.placeForRelease(held, drone, this.aimDirection, false);
     this.release(role, held, this.releasePosition, this.throwVelocity, false);

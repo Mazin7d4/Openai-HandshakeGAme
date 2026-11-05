@@ -1,4 +1,4 @@
-// (d) Mobile smoke: iPhone 13 emulation (touch), portrait 390x844 and landscape 844x390.
+// (d) Mobile smoke: phone touch layouts in portrait and landscape.
 // Checks menu tap flow, in-game HUD overlap/off-screen clipping, tap-target size and whether touch controls exist.
 import { runTest, url, assert, collectErrors, shot, waitForGame, layoutAudit, devices, createAndJoin, worldState } from './lib.mjs';
 
@@ -6,7 +6,7 @@ await runTest('mobile', async (browser, notes) => {
   const errors = [];
   for (const [label, viewport] of [
     ['portrait-small', { width: 360, height: 640 }], ['portrait', { width: 390, height: 844 }],
-    ['landscape-small', { width: 640, height: 360 }], ['landscape', { width: 844, height: 390 }],
+    ['landscape-small', { width: 640, height: 360 }], ['landscape', { width: 844, height: 390 }], ['landscape-wide', { width: 915, height: 412 }],
   ]) {
     const ctx = await browser.newContext({ ...devices['iPhone 13'], viewport, screen: viewport, hasTouch: true, isMobile: true });
     const page = await ctx.newPage();
@@ -27,7 +27,7 @@ await runTest('mobile', async (browser, notes) => {
         touchUiElements: hits.length,
         maxTouchPoints: navigator.maxTouchPoints,
         joystick: !!document.querySelector('[data-testid="touch-joystick"]'),
-        actions: ['touch-jump', 'touch-grab', 'touch-yank', 'touch-hack', 'touch-pause']
+        actions: ['touch-jump', 'touch-up', 'touch-down', 'touch-grab', 'touch-yank', 'touch-hack', 'touch-pause']
           .map((id) => !!document.querySelector(`[data-testid="${id}"]`)),
       };
     });
@@ -37,10 +37,13 @@ await runTest('mobile', async (browser, notes) => {
         ...document.querySelectorAll('.touch-btn'),
         document.querySelector('[data-testid="touch-pause"]'),
         document.querySelector('[data-testid="interaction-prompt"]'),
+        document.querySelector('[data-testid="mission-objective"]'),
+        document.querySelector('[data-testid="floor-counter"]'),
+        document.querySelector('.active-drone-hud'),
       ].filter((node) => node && (node.dataset?.testid !== 'interaction-prompt' || node.textContent.trim()));
       const rects = nodes.map((node) => {
         const r = node.getBoundingClientRect();
-        return { tap: node.dataset?.testid !== 'interaction-prompt', name: node.dataset?.testid || node.className, left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+        return { tap: /^touch-/.test(node.dataset?.testid ?? ''), name: node.dataset?.testid || node.className, left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
       });
       const failures = [];
       for (const r of rects) {
@@ -57,11 +60,24 @@ await runTest('mobile', async (browser, notes) => {
     assert(boxes.failures.length === 0, `${label}: touch layout ${boxes.failures.join(', ')}`);
     assert(touch.joystick, `${label}: touch joystick missing`);
     assert(touch.actions.every(Boolean), `${label}: touch action buttons missing ${JSON.stringify(touch.actions)}`);
+    assert(boxes.rects.filter((r) => /touch-(up|down)/.test(r.name)).every((r) => r.width >= 44 && r.height >= 44), `${label}: lift buttons too small`);
+    // Pause mirrors Esc: the first tap may only skip the onboarding coach.
+    await page.getByTestId('touch-pause').tap();
+    await page.waitForTimeout(250);
+    if (!(await page.getByTestId('pause-menu').isVisible())) await page.getByTestId('touch-pause').tap();
+    await page.getByTestId('pause-menu').waitFor({ state: 'visible', timeout: 5000 });
+    assert(await page.getByTestId('pause-fullscreen').isVisible().catch(() => false) || await page.evaluate(() => !document.documentElement.requestFullscreen && !document.documentElement.webkitRequestFullscreen), `${label}: fullscreen pause control missing`);
+    await page.getByTestId('pause-resume').tap();
+    await page.getByTestId('pause-menu').waitFor({ state: 'hidden', timeout: 5000 });
     if (label === 'portrait') {
       notes.rotateHint = await page.getByTestId('touch-rotate-hint').isVisible().catch(() => false);
     }
     // Landscape: drag the virtual joystick and confirm the local drone moves.
     if (label.startsWith('landscape')) {
+      // Playwright's tap may scroll the debug readout's overflow; measure from the origin.
+      await page.evaluate(() => { window.scrollTo(0, 0); if (document.scrollingElement) document.scrollingElement.scrollLeft = 0; });
+      const centers = await page.evaluate(() => [...document.querySelectorAll('.touch-actions .touch-btn')].map((node) => { const r = node.getBoundingClientRect(); return Math.round(r.left + r.width / 2); }));
+      assert(centers.every((x) => x < viewport.width / 3 || x > 2 * viewport.width / 3), `${label}: action in central third ${centers} (innerWidth ${await page.evaluate(() => innerWidth)})`);
       const before = (await worldState(page)).players['player-1'];
       const joy = await page.getByTestId('touch-joystick').boundingBox();
       assert(joy, 'joystick box missing');
@@ -120,7 +136,29 @@ await runTest('mobile', async (browser, notes) => {
       const zoomAfter = await page.evaluate(() => window.__pixneeCamera?.getZoom?.() ?? 0);
       notes.cameraZoomDelta = +(Math.abs(zoomAfter - zoomBefore)).toFixed(4);
       assert(Math.abs(zoomAfter - zoomBefore) > 0.005, `camera zoom unchanged (${zoomBefore} -> ${zoomAfter})`);
+      const up = await page.getByTestId('touch-up').boundingBox();
+      const down = await page.getByTestId('touch-down').boundingBox();
+      const hold = async (box, id = 5) => {
+        const x = box.x + box.width / 2, y = box.y + box.height / 2;
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id }] });
+        await page.waitForTimeout(700);
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      };
+      const yBefore = (await worldState(page)).players['player-1'].y;
+      await hold(up);
+      const yUp = (await worldState(page)).players['player-1'].y;
+      await hold(down, 6);
+      const yDown = (await worldState(page)).players['player-1'].y;
+      assert(yUp > yBefore + 0.08 && yDown < yUp - 0.08, `${label}: vertical touch flight failed (${yBefore}, ${yUp}, ${yDown})`);
       await shot(page, 'mobile-landscape-look');
+    }
+    if (label === 'landscape') {
+      await page.waitForTimeout(2600);
+      const objective = page.getByTestId('mission-objective');
+      const collapsed = await objective.evaluate((node) => ({ state: node.dataset.collapsed, height: node.getBoundingClientRect().height, width: node.getBoundingClientRect().width }));
+      assert(collapsed.state === '1' && collapsed.height <= 48 && collapsed.width <= viewport.width * 0.4, `objective not compact: ${JSON.stringify(collapsed)}`);
+      await objective.tap();
+      assert(await objective.getAttribute('data-collapsed') !== '1', 'objective pill did not expand');
     }
     notes[label] = { menu, game, touch };
     await ctx.close();

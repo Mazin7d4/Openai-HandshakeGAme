@@ -1,11 +1,9 @@
-import {
-  type Scene,
-  DynamicTexture,
-  Mesh,
-  MeshBuilder,
-  StandardMaterial,
-  TransformNode,
-} from '@babylonjs/core';
+import type { Scene } from '@babylonjs/core/scene.js';
+import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 
 export type SecurityMood = 'off' | 'patrol' | 'suspicious' | 'chase' | 'stunned' | 'carrying';
 

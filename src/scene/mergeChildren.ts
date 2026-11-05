@@ -1,4 +1,6 @@
-import { Mesh, type Material, type TransformNode } from '@babylonjs/core';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { Material } from '@babylonjs/core/Materials/material.js';
+import type { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 
 /**
  * Collapse a rigid visual rig (many small child meshes) into one mesh per material, still parented
